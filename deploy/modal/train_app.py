@@ -2,16 +2,16 @@
 
 Every function here is a priced worker and starts only on the human's explicit
 word, per action, with the price stated first (AGENTS.md, Human gates). The
-Modal account is the project's second one (profile `grigoriy98smile`).
+Modal account is the project's second one (profile `grigoriy98smile`). The GPU
+is a T4, L4 as the alternative, nothing above (the human, 2026-09-18).
 
-    modal volume create flydream-data                                            # once
-    modal volume create flydream-runs                                            # once
-    modal volume put flydream-data data/ol/filters_R_w5wk50.json /ol/filters_R_w5wk50.json
+    modal volume put flydream-data data/ol/filters_R_w5wk50m500oc.json /ol/filters_R_w5wk50m500oc.json
     modal volume put flydream-data data/flyvis/SintelDataSet /flyvis/SintelDataSet     # 5.8 GB, once
-    modal volume put flydream-data data/runs/init_R_w5wk50_m000.pt /init/init_R_w5wk50_m000.pt
-    modal run deploy/modal/train_app.py::smoke --connectome filters_R_w5wk50.json       # 50 iterations, the timing
-    modal run --detach deploy/modal/train_app.py::train --connectome filters_R_w5wk50.json --run 0100/000 --init init_R_w5wk50_m000.pt
-    modal run --detach deploy/modal/train_app.py::train_ensemble --connectome ... --ensemble 0100 --members 8
+    modal volume put flydream-data data/runs/init_w5wk50m500oc_m000.pt /init/init_w5wk50m500oc_m000.pt
+    modal run deploy/modal/train_app.py::smoke --n-iters 50                    # one member, the timing
+    modal run deploy/modal/train_app.py::smoke_packed --members 4 --n-iters 50 # four members on one card
+    modal run --detach deploy/modal/train_app.py::train_packed --ensemble 0100 --members 4 --init init_w5wk50m500oc_m000.pt
+    modal run --detach deploy/modal/train_app.py::train --run 0100/000 --init init_w5wk50m500oc_m000.pt
 
 State on the Volumes:
 
@@ -21,27 +21,29 @@ State on the Volumes:
     flydream-runs   /results/flow/<ensemble>/<member>/   flyvis's own NetworkDir: chkpts, loss, config
                     /results/ConnectomeFromAvgFilters_*  datamate's cache of the built connectome
                     /results/renderings/                 the rendered Sintel, built once per dt
+                    /results/packed/<ensemble>/<member>.json   the timing record of each packed member
 
-The solver is flyvis's `MultiTaskSolver` composed from its own Hydra config with
-three overrides (the connectome file, `n_syn_fill=0`, the iteration count), the
-same path `flyvis train-single` takes, so the loss, schedule, augmentation and
-checkpointing are Lappalainen et al.'s and not this project's. What this project
-adds is the connectome and, optionally, the starting point: `--init` loads a
-network state made by `flydream.model.init_state` (FlyVis member parameters
-transplanted with the gain rescaled and capped, DECISIONS 2026-09-18) before
-training starts; without it the solver uses flyvis's own initialisation
-(`syn_strength = 0.01 / n_syn`), which is the "trained from scratch on MaleCNS
-wiring" control.
+Packing. The model is small (31,526 nodes, 1.4M edges, about a gigabyte of
+graph per iteration) and its computation is sequential over 40 time steps, so
+one member leaves a T4 mostly idle. `smoke_packed` and `train_packed` run N
+members as N processes in one container sharing the card; the per-member
+cost is what `smoke_packed` measures at N = 1, 2, 4, 8, and the report picks
+N by dollars per 250,000 iterations per member, not by assumption. The first
+member runs a warm-up alone so the connectome cache and the Sintel rendering
+are built once, then the rest start.
 
-Price. The reference trains 250,000 iterations at batch 4 x 19 frames; the
-MaleCNS export is 0.55x FlyVis's edge count. The local CPU timing is in
-`reports/` (step 3); the GPU number comes from `smoke`, which is the first
-priced call and is small. Nothing here is estimated in this docstring: the
-report states the price before `train` is asked for.
+The solver is flyvis's `MultiTaskSolver` composed from its own Hydra config
+(`flydream.train.member`), the same path `flyvis train-single` takes; the
+loss, schedule, augmentation and checkpointing are Lappalainen et al.'s.
+`--init` starts from a transplanted state; without it the solver starts from
+flyvis's own initialisation, the "from scratch on MaleCNS wiring" control.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 import time
 
 import modal
@@ -49,16 +51,15 @@ import modal
 APP_NAME = "flydream-train"
 DATA_VOL, RUNS_VOL = "flydream-data", "flydream-runs"
 DATA, RUNS = "/data", "/runs"
+RESULTS = f"{RUNS}/results"
 MINUTES = 60
-GPU = os.environ.get("FLYDREAM_GPU", "A100-40GB")
+GPU = os.environ.get("FLYDREAM_GPU", "T4")
+CONNECTOME = "filters_R_w5wk50m500oc.json"
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOL, create_if_missing=True)
 runs_volume = modal.Volume.from_name(RUNS_VOL, create_if_missing=True)
 
-# flyvis 1.2.0 with its pinned torch on Linux (CUDA wheels from PyPI); the
-# flydream package rides along so the transplant and the settings are the
-# repository's, not a copy.
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install("flyvis==1.2.0", "hydra-core>=1.3", "h5py", "pyarrow", "pandas", "scipy")
@@ -67,92 +68,106 @@ image = (
 )
 
 
-def _compose(connectome_path: str, run: str, n_iters: int, batch_size: int, dt: float):
-    """flyvis's solver config with this project's overrides, as train_single composes it."""
-    from hydra import compose, initialize_config_dir
-    from flyvis_cli.training.train_single import CONFIG_PATH, prepare_config
-
-    with initialize_config_dir(config_dir=CONFIG_PATH, version_base="1.1"):
-        args = compose(config_name="solver.yaml", overrides=[
-            f"ensemble_and_network_id={run}", "task_name=flow", "train=true", "resume=false",
-            "delete_if_exists=false", "description=flydream_malecns",
-            f"task.n_iters={n_iters}", f"task.batch_size={batch_size}", f"task.dataset.dt={dt}",
-            f"network.connectome.file={connectome_path}", "network.connectome.n_syn_fill=0",
-        ])
-    return prepare_config(args)
-
-
-def _train(connectome: str, run: str, n_iters: int, batch_size: int, dt: float,
-           init: str | None, resume: bool) -> dict:
-    """Build the solver under the runs Volume, optionally load a transplanted
-    state, train, and return what happened. Shared by smoke, train and the
-    ensemble members."""
-    import torch
-    from datamate import set_root_context
-    from flyvis.solver import MultiTaskSolver
-
-    root = f"{RUNS}/results"
-    os.makedirs(root, exist_ok=True)
-    connectome_path = f"{DATA}/ol/{connectome}"
-    t0 = time.time()
-    config = _compose(connectome_path, run, n_iters, batch_size, dt)
-    with set_root_context(root):
-        solver = MultiTaskSolver(config=config, delete_if_exists=False)
-    built = time.time() - t0
-    loaded = None
+def _member_cmd(connectome: str, run: str, n_iters: int, batch_size: int, dt: float,
+                init: str | None, resume: bool, out: str | None) -> list[str]:
+    cmd = [sys.executable, "-m", "flydream.train.member", "--connectome", f"{DATA}/ol/{connectome}",
+           "--run", run, "--n-iters", str(n_iters), "--results-root", RESULTS,
+           "--batch-size", str(batch_size), "--dt", str(dt)]
+    if init:
+        cmd += ["--init", f"{DATA}/init/{init}"]
     if resume:
-        solver.recover(network=True, decoder=True, optimizer=True, penalty=True,
-                       checkpoint=-1, strict=True, force=False)
-        loaded = "resumed from the last checkpoint"
-    elif init:
-        state = torch.load(f"{DATA}/init/{init}", map_location=solver.network.device if hasattr(solver.network, "device") else "cpu")
-        missing, unexpected = solver.network.load_state_dict(state, strict=False)
-        loaded = {"init": init, "missing": list(missing), "unexpected": list(unexpected)}
-    t1 = time.time()
-    solver.train(False)
-    trained = time.time() - t1
+        cmd += ["--resume"]
+    if out:
+        cmd += ["--out", out]
+    return cmd
+
+
+def _run_one(connectome: str, run: str, n_iters: int, batch_size: int, dt: float,
+             init: str | None, resume: bool) -> dict:
+    from flydream.train.member import train_member
+
+    out = train_member(f"{DATA}/ol/{connectome}", run, n_iters, RESULTS, batch_size=batch_size, dt=dt,
+                       init_path=f"{DATA}/init/{init}" if init else None, resume=resume)
+    out["gpu_spec"] = GPU
     runs_volume.commit()
-    out = {
-        "run": run, "connectome": connectome, "n_iters": n_iters, "batch_size": batch_size, "dt": dt,
-        "gpu": GPU, "n_nodes": int(solver.network.n_nodes), "n_edges": int(solver.network.n_edges),
-        "build_s": round(built, 1), "train_s": round(trained, 1),
-        "s_per_iter": round(trained / max(1, n_iters), 4), "init": loaded,
-        "dir": str(solver.dir.path),
-    }
-    print(out, flush=True)
+    print(json.dumps(out), flush=True)
     return out
+
+
+def _run_packed(connectome: str, runs: list[str], n_iters: int, batch_size: int, dt: float,
+                init: str | None, warmup_iters: int = 2) -> list[dict]:
+    """N members as N processes on one card. A warm-up builds the shared caches first."""
+    rec_dir = f"{RESULTS}/packed/{runs[0].split('/')[0]}"
+    os.makedirs(rec_dir, exist_ok=True)
+    t0 = time.time()
+    warm = subprocess.run(_member_cmd(connectome, "9998/000", warmup_iters, batch_size, dt, None, False, None),
+                          capture_output=True, text=True)
+    if warm.returncode != 0:
+        raise RuntimeError(f"warm-up failed:\n{warm.stdout[-3000:]}\n{warm.stderr[-3000:]}")
+    warm_s = time.time() - t0
+    procs, outs = [], []
+    t1 = time.time()
+    for r in runs:
+        out = f"{rec_dir}/{r.split('/')[-1]}.json"
+        outs.append(out)
+        procs.append(subprocess.Popen(_member_cmd(connectome, r, n_iters, batch_size, dt, init, False, out),
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True))
+    logs = [p.communicate()[0] for p in procs]
+    wall = time.time() - t1
+    results = []
+    for r, out, p, log in zip(runs, outs, procs, logs):
+        if p.returncode == 0 and os.path.exists(out):
+            rec = json.load(open(out))
+        else:
+            rec = {"run": r, "error": f"exit {p.returncode}", "log_tail": log[-2000:]}
+        rec.update({"packed": len(runs), "wall_s_all": round(wall, 1), "warmup_s": round(warm_s, 1), "gpu_spec": GPU})
+        results.append(rec)
+    runs_volume.commit()
+    ok = [x for x in results if "s_per_iter" in x]
+    if ok:
+        per = sum(x["s_per_iter"] for x in ok) / len(ok)
+        print(f"packed {len(runs)} on {GPU}: mean {per:.3f} s/iter per member, wall {wall:.0f}s for {n_iters} iters each "
+              f"-> effective {wall / max(1, n_iters) / len(runs):.4f} card-seconds per member-iteration", flush=True)
+    for x in results:
+        print(json.dumps(x)[:600], flush=True)
+    return results
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
               cpu=4, memory=16384, timeout=30 * MINUTES)
-def smoke(connectome: str = "filters_R_w5wk50.json", n_iters: int = 50, batch_size: int = 4,
-          dt: float = 0.02, init: str | None = None) -> dict:
-    """The timing run: a few iterations on the GPU so the price of `train` is a
-    measurement, not an extrapolation. Also builds the connectome cache and the
-    Sintel rendering on the Volume, which `train` then reuses."""
-    return _train(connectome, "9999/000", n_iters, batch_size, dt, init, resume=False)
+def smoke(connectome: str = CONNECTOME, n_iters: int = 50, batch_size: int = 4, dt: float = 0.02,
+          init: str | None = None) -> dict:
+    """One member for a few iterations: builds the caches, measures s/iter on the card."""
+    return _run_one(connectome, "9999/000", n_iters, batch_size, dt, init, resume=False)
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=8, memory=32768, timeout=60 * MINUTES)
+def smoke_packed(connectome: str = CONNECTOME, members: int = 4, n_iters: int = 50, batch_size: int = 4,
+                 dt: float = 0.02, init: str | None = None) -> list:
+    """N members at once on one card, a few iterations each: the packing measurement."""
+    runs = [f"9997/{m:03d}" for m in range(members)]
+    return _run_packed(connectome, runs, n_iters, batch_size, dt, init)
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
               cpu=4, memory=16384, timeout=24 * 60 * MINUTES)
-def train(connectome: str, run: str, n_iters: int = 250_000, batch_size: int = 4,
+def train(connectome: str = CONNECTOME, run: str = "0100/000", n_iters: int = 250_000, batch_size: int = 4,
           dt: float = 0.02, init: str | None = None, resume: bool = False) -> dict:
-    """One member, the reference's full schedule by default. `run` is
-    `<ensemble>/<member>`, e.g. `0100/000`; the ensemble id is this project's
-    (the reference's are 0000-0099 in the pretrained release)."""
-    return _train(connectome, run, n_iters, batch_size, dt, init, resume)
+    """One member, the reference's full schedule by default, alone on its card."""
+    return _run_one(connectome, run, n_iters, batch_size, dt, init, resume)
 
 
-@app.function(image=image, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, timeout=24 * 60 * MINUTES)
-def train_ensemble(connectome: str, ensemble: str = "0100", members: int = 8, n_iters: int = 250_000,
-                   batch_size: int = 4, dt: float = 0.02, init: str | None = None) -> list:
-    """N members in parallel, one GPU each, from different random seeds (the
-    solver seeds from the member id). The count is the human's word."""
-    runs = [f"{ensemble}/{m:03d}" for m in range(members)]
-    return list(train.starmap([(connectome, r, n_iters, batch_size, dt, init, False) for r in runs]))
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=8, memory=32768, timeout=24 * 60 * MINUTES)
+def train_packed(connectome: str = CONNECTOME, ensemble: str = "0100", members: int = 4, first: int = 0,
+                 n_iters: int = 250_000, batch_size: int = 4, dt: float = 0.02, init: str | None = None) -> list:
+    """`members` members `first..first+members-1` of `ensemble`, packed on one card."""
+    runs = [f"{ensemble}/{m:03d}" for m in range(first, first + members)]
+    return _run_packed(connectome, runs, n_iters, batch_size, dt, init)
 
 
 @app.local_entrypoint()
-def main(connectome: str = "filters_R_w5wk50.json", n_iters: int = 50):
-    """`modal run deploy/modal/train_app.py` is the smoke by default."""
+def main(connectome: str = CONNECTOME, n_iters: int = 50):
+    """`modal run deploy/modal/train_app.py` is the single-member smoke."""
     print(smoke.remote(connectome=connectome, n_iters=n_iters))
