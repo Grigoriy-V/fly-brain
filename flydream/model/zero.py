@@ -317,7 +317,10 @@ def main(argv=None) -> int:
     run = a.run or f"{time.strftime('%Y-%m-%d')}_step2_zero_{side}"
     out_dir = DATA / "runs" / run
     out_dir.mkdir(parents=True, exist_ok=True)
-    connectome_file = DATA / f"ol/filters_{side}.json"
+    from flydream.data.export import filters_path
+
+    connectome_file = filters_path(s)          # filters_<side>_<tag>.json from config.toml [data]
+    print(f"connectome export: {connectome_file.name}")
     torch.set_num_threads(max(1, torch.get_num_threads()))
     summary = []
     for m in a.models:

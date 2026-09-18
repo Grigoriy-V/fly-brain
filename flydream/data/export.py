@@ -182,14 +182,81 @@ def type_signs(neurons: pd.DataFrame, node_of: dict) -> dict:
     return {k: (v, SIGN.get(v)) for k, v in cons.items()}
 
 
+def filters_tag(s: dict) -> str:
+    """The export's identity from its settings: `w5` for the plain row cut,
+    `w5wk50` when pairs losing more than 50% to it keep their weak rows."""
+    d = s.get("data", {})
+    mw = int(d.get("min_weight", 5))
+    loss = float(d.get("weak_pair_loss", 1.0))
+    return f"w{mw}" + (f"wk{int(round(loss * 100))}" if loss < 1.0 else "")
+
+
+def filters_path(s: dict | None = None) -> pathlib.Path:
+    """Where the export the settings describe lives. Consumers (model zero, the
+    decoder map) call this rather than naming the file, so a changed setting
+    reads a different file and never a silently re-exported one."""
+    s = s if s is not None else settings()
+    side = s.get("data", {}).get("side", "R")
+    return DATA / f"ol/filters_{side}_{filters_tag(s)}.json"
+
+
+def keep_weak_pairs(edges_cut: pd.DataFrame, edges_all: pd.DataFrame, neurons: pd.DataFrame,
+                    node_of: dict, loss: float) -> tuple[pd.DataFrame, list]:
+    """Give back every row of weight >= 1 to the type pairs that the row cut guts.
+
+    The cut exists for scattered single contacts at 42% postsynaptic completion.
+    A pair such as Tm2 -> L2 (1,421 synapses over 670 rows, 234 left at
+    weight >= 5) is not that: it is a consistent weak pathway, and cutting it
+    leaves the export 24x below FlyVis on a pair FlyVis carries at 7 synapses
+    per cell (ISSUES ISS-0005). Pairs whose kept fraction falls below
+    `1 - loss` take their rows from the uncut table instead. Returns the merged
+    edge table and the list of pairs given the exception, with the numbers."""
+    typ = neurons.set_index("bodyId")["type"].map(node_of)
+
+    def pair_mass(e):
+        t = pd.DataFrame({"src": e["body_pre"].map(typ), "tar": e["body_post"].map(typ), "w": e["weight"]})
+        t = t.dropna(subset=["src", "tar"])
+        return t.groupby(["src", "tar"])["w"].sum()
+
+    cut, full = pair_mass(edges_cut), pair_mass(edges_all)
+    frac = (cut.reindex(full.index).fillna(0.0) / full).astype(float)
+    weak = frac[frac < 1.0 - loss].index
+    weak_set = set(weak.tolist())
+    src_t, tar_t = edges_all["body_pre"].map(typ), edges_all["body_post"].map(typ)
+    in_weak = pd.Series(list(zip(src_t, tar_t)), index=edges_all.index).isin(weak_set)
+    src_c, tar_c = edges_cut["body_pre"].map(typ), edges_cut["body_post"].map(typ)
+    cut_not_weak = ~pd.Series(list(zip(src_c, tar_c)), index=edges_cut.index).isin(weak_set)
+    merged = pd.concat([edges_cut[cut_not_weak], edges_all[in_weak]], ignore_index=True)
+    listing = [{"src": a, "tar": b, "kept_fraction_at_cut": round(float(frac[(a, b)]), 3),
+                "synapses_cut": float(cut.get((a, b), 0.0)), "synapses_all": float(full[(a, b)])}
+               for (a, b) in sorted(weak_set)]
+    return merged, listing
+
+
 def main() -> int:
     s = settings()
     side = s.get("data", {}).get("side", "R")
     mw = int(s.get("data", {}).get("min_weight", 5))
+    loss = float(s.get("data", {}).get("weak_pair_loss", 1.0))
     neurons = pd.read_parquet(DATA / f"ol/neurons_{side}.parquet")
     edges = pd.read_parquet(DATA / f"ol/edges_{side}_w{mw}.parquet")
     bridge = pd.read_csv(BRIDGE)
     node_of = malecns_to_node(bridge)
+    weak_listing = []
+    if loss < 1.0:
+        all_path = DATA / f"ol/edges_{side}_w1.parquet"
+        if not all_path.exists():
+            print(f"weak_pair_loss={loss} needs {all_path.name}: run flydream.data.optic_lobe --min-weight 1 --edges-only")
+            return 1
+        edges_all = pd.read_parquet(all_path)
+        n_before = len(edges)
+        edges, weak_listing = keep_weak_pairs(edges, edges_all, neurons, node_of, loss)
+        print(f"weak-pair exception (loss > {loss}): {len(weak_listing)} type pairs keep rows >= 1; "
+              f"edges {n_before:,} -> {len(edges):,}")
+        for w in weak_listing[:15]:
+            print(f"  {w['src']:>8} -> {w['tar']:<8} kept {w['kept_fraction_at_cut']:.2f} of {w['synapses_all']:.0f} synapses")
+        if len(weak_listing) > 15:
+            print(f"  ... {len(weak_listing) - 15} more")
     fv_json, fv, fv_sign = flyvis_filters()
     mc, n_src = malecns_filters(neurons, edges, node_of)
     print(f"MaleCNS filters: {len(mc):,} (src,tar,offset) entries over {len(n_src)} nodes; FlyVis: {len(fv):,}")
@@ -290,12 +357,16 @@ def main() -> int:
     edges_out = [e for e in edges_out if e["alpha"] is not None]
     print(f"signs: {n_sign_flyvis} pairs from FlyVis, {n_sign_nt} from MaleCNS NT")
     node_names = {nd["name"] for nd in nodes}
-    out = {"source": f"MaleCNS v1.0 side {side}, weight>={mw}, columns roi/tagged/inferred, orientation M={list(best)}",
+    out = {"source": f"MaleCNS v1.0 side {side}, weight>={mw}"
+                     + (f", weak pairs (loss>{loss}) at weight>=1" if loss < 1.0 else "")
+                     + f", columns roi/tagged/inferred, orientation M={list(best)}",
            "nodes": nodes, "edges": edges_out, "receptors": [],
+           "weak_pairs": weak_listing,
            "input_units": [r for r in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] if r in node_names],
            "output_units": [n for n in fv_json["output_units"] if n in node_names]}
-    json.dump(out, open(DATA / f"ol/filters_{side}.json", "w"))
-    print(f"written filters_{side}.json: {len(nodes)} nodes, {len(edges_out)} type-pair edges")
+    target = filters_path(s)
+    json.dump(out, open(target, "w"))
+    print(f"written {target.name}: {len(nodes)} nodes, {len(edges_out)} type-pair edges")
     return 0
 
 

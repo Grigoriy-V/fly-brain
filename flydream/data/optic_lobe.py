@@ -99,9 +99,17 @@ def infer_columns(neurons: pd.DataFrame, edges: pd.DataFrame, tagged_mask: pd.Se
     return res.reset_index()
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    import argparse
+
+    p = argparse.ArgumentParser()
+    p.add_argument("--min-weight", type=int, default=None,
+                   help="override config.toml [data] min_weight for this export of the edge table")
+    p.add_argument("--edges-only", action="store_true",
+                   help="write only edges_<side>_w<min_weight>.parquet; leave neurons_<side>.parquet as measured")
+    a = p.parse_args(argv)
     s = settings()
-    min_weight = int(s.get("min_weight", 5))
+    min_weight = int(a.min_weight if a.min_weight is not None else s.get("min_weight", 5))
     side = s.get("side", "R")
     ol = load_ol_neurons()
     print(f"OL neurons with a type: {len(ol):,}; types: {ol['type'].nunique()}")

@@ -205,9 +205,10 @@ def main(argv=None) -> int:
     if a.model == "malecns":
         from flydream.model.zero import build_network, content_addressed
 
+        from flydream.data.export import filters_path
+
         cfg = tomllib.loads((ROOT / "config.toml").read_text())
-        net = build_network(content_addressed(ROOT / "data" / "ol" / "filters_R.json"),
-                            extent=cfg["data"]["extent"])
+        net = build_network(content_addressed(filters_path(cfg)), extent=cfg["data"]["extent"])
     else:
         net = flyvis.NetworkView(a.model).init_network(checkpoint="best")
     net.eval()

@@ -17,6 +17,13 @@ min_filter_syn = 0.25
 # How a (source, target, offset) synapse total becomes a per-cell filter value:
 # "src" per source cell, "tar" per target cell, "pair" per existing cell pair (see export.py).
 normalisation = "src"
+# A type pair that loses more than this fraction of its synapse mass to the
+# min_weight row cut keeps every row of weight >= 1 instead. The cut exists for
+# scattered single contacts at 42% postsynaptic completion; a pair of 670 rows
+# that loses 84% to it (Tm2 -> L2, ISSUES ISS-0005) is a weak but consistent
+# pathway, not noise. Pairs given the exception are listed by export.py and in
+# the filters file's "weak_pairs" field. Set to 1.0 to disable.
+weak_pair_loss = 0.5
 
 [flyvis]
 version = "1.2.0"
