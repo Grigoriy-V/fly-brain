@@ -273,8 +273,10 @@ lines say what of each still applies.
    Fix on the way: fit with a few frames of margin past the window so the
    end of the clip is constrained (item 8's blur).
 
-10. **A dense MaleCNS export: every type on all 721 columns** (the human,
-    2026-09-19: "разметить все колонки чтобы покрывала все 721"). Every
+10. **A dense MaleCNS export: every type on all 721 columns** — recorded,
+    **not a priority** (the human, 2026-09-19: "вернёмся к ней позже"; it
+    replaces a fact of the data with FlyVis's one-cell-per-column
+    assumption, so it is a cosmetic choice for the pictures). Every
     type with fewer than 721 cells in the right lobe (15 of the 33 output
     types, e.g. Tm5a 251 cells at [3,1], TmY15 [3,3], Tm30 [4,4]) is
     tiled onto the empty columns with the type's shared filters, the way
