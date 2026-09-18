@@ -183,13 +183,16 @@ def task_weights(cells: list[np.ndarray], n_nodes: int, device) -> torch.Tensor:
 
 
 def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: float, state, steps: int, lr: float,
-                 tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, log_every: int = 10
-                 ) -> tuple[torch.Tensor, np.ndarray, int]:
+                 tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3,
+                 log_every: int = 10) -> tuple[torch.Tensor, np.ndarray, int]:
     """B independent inversions in one pass: `targets` (B, T, n_nodes), task b
     read on `cells[b]`. Returns the videos (B, T, H), the fit trace (steps, B)
     and the number of steps run. Stops early when every task's fit changed by
-    less than `plateau_tol` (relative) over the last `plateau_steps` steps
-    (ROADMAP item 10'; R1 was flat from step 50 of 150 on 2026-09-19)."""
+    less than `plateau_tol` (relative, or relative to `plateau_floor` times
+    its first fit once the fit is that small: Mi4 at 3e-5 of its start still
+    moved 10 % per 20 steps) over the last `plateau_steps` steps (ROADMAP
+    item 10'; on the 2026-09-19 ladder this rule stops at step 127 of 150
+    with every fit within 2.4 % of its step-150 value)."""
     B, T = targets.shape[:2]
     dev = device_of(net)
     H = net.stimulus.n_input_elements if hasattr(net.stimulus, "n_input_elements") else 721
@@ -220,8 +223,8 @@ def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: flo
         if step % log_every == 0 or step == steps - 1:
             print(f"  step {step:4d}  fit mean {f.mean():.5f} max {f.max():.5f}  {time.time() - t0:.0f}s", flush=True)
         if plateau_steps and step >= plateau_steps:
-            prev = trace[-1 - plateau_steps]
-            if np.all(np.abs(prev - f) <= plateau_tol * np.maximum(prev, 1e-12)):
+            prev, d = trace[-1 - plateau_steps], np.abs(trace[-1 - plateau_steps] - f)
+            if np.all((d <= plateau_tol * prev) | (d <= plateau_tol * plateau_floor * trace[0])):
                 print(f"  plateau at step {step}: every task within {plateau_tol:.0%} of {plateau_steps} steps ago", flush=True)
                 break
     return video.detach().cpu(), np.stack(trace), steps_run
@@ -269,7 +272,7 @@ class GpuSampler:
 def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int, steps: int, lr: float, tv: float,
                dt: float, t_pre: float, margin: int = 0, control_sample: int | None = None,
                out_root: Path | None = None, tag_prefix: str = "", batch: int = 0, plateau_steps: int = 0,
-               plateau_tol: float = 0.0) -> list[dict]:
+               plateau_tol: float = 0.0, plateau_floor: float = 1e-3) -> list[dict]:
     """The inversion of one clip from each stage in turn, one network load.
     The optimiser fits `frames + margin` frames; the saved and scored videos
     are the first `frames` (config [generate], ROADMAP item 9). Every stage's
@@ -303,7 +306,8 @@ def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int,
             tg = torch.cat([(target if w == "inversion" else target_other) for _, w in chunk])
             state = net.steady_state(t_pre, dt, batch_size=len(chunk), value=0.5)
             vid, tr, n = invert_batch(net, tg, [cells_of[tuple(st)] for st, _ in chunk], dt=dt, state=state, steps=steps,
-                                      lr=lr, tv=tv, plateau_steps=plateau_steps, plateau_tol=plateau_tol, log_every=25)
+                                      lr=lr, tv=tv, plateau_steps=plateau_steps, plateau_tol=plateau_tol,
+                                      plateau_floor=plateau_floor, log_every=25)
             per_task = (time.time() - t0) / len(chunk)
             for b, (st, w) in enumerate(chunk):
                 videos[(tuple(st), w)], traces[(tuple(st), w)] = vid[b].numpy()[:frames], tr[:, b]

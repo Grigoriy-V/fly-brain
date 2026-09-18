@@ -120,6 +120,11 @@ batch = 0
 # (2026-09-19), deeper stages later; the trace in recovered.npz shows where.
 plateau_steps = 20
 plateau_tol = 0.01
+# ...or by less than plateau_tol * plateau_floor * its first fit: a task whose
+# error is already 1e-3 of where it started counts as flat even if that tiny
+# number still wobbles (Mi4 at 3e-5 of its start moved 10 % per 20 steps).
+# On the 2026-09-19 ladder this stops at step 127 of 150, fits within 2.4 %.
+plateau_floor = 0.001
 
 [benchmark]
 # Engineering experiment only; does not change the reference training recipe.

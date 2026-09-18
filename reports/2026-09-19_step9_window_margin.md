@@ -76,3 +76,33 @@ encoder, not what the fly sees. One clip, one control clip, one model.
 
 Modal T4: ≈ $0.17 (one failed import before the GPU started: ≈ $0). Local: CPU
 drawing only.
+
+## Item 10': the ladder batched (same day)
+
+All 20 tasks (10 stages × inversion and wrong-target control) optimised in one
+pass through one simulation, the loss masked per task to its cells
+(`invert_batch`, `task_weights`; Adam is elementwise, so the tasks stay
+independent — `tests/test_generate.py` checks two tasks in one pass equal two
+passes on the miniature network). Same command, `config.toml [generate]
+batch = 0` (all at once).
+
+| | batch 1 | batch 20 |
+|---|---|---|
+| optimisation, 150 steps × 20 tasks | 948 s | 127 s (0.85 s per step) |
+| ladder wall time on the worker | 948 s | 176 s |
+| GPU utilisation (nvidia-smi, 2 s samples) | not sampled | 66 % |
+| price (T4) | ≈ $0.17 | ≈ $0.05 |
+| max |video difference| vs batch 1 | — | 0.0007 (of 1.0) |
+| r per stage | | equal to three decimals |
+
+7.5× on the optimisation, 5.4× on the ladder (model load and target
+simulation are the rest). Memory was not the limit at batch 20 on a T4; the
+card sits at 66 %, so an L4 was not needed. A ladder of one clip now costs
+about five cents.
+
+The plateau stop (1 % over 20 steps) did not fire: Mi4's fit at 3·10⁻⁵ of
+its start still moved 10 % per 20 steps. The rule now also counts a task as
+flat when its change is under 1 % of 10⁻³ of its first fit
+(`plateau_floor`); on this run's traces that stops at step 127 of 150 with
+every fit within 2.4 % of its final value. Not re-run: the saving is 15 %, and
+it applies from the next ladder.
