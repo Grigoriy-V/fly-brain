@@ -38,13 +38,18 @@ def pairs_run(member: int, date: str) -> str:
     return f"{date}_decode_sintel_pairs_m{member:03d}"
 
 
-def _run(cmd: list[str], run: str) -> tuple[str, int, float]:
+def _run(cmd: list[str], run: str, threads: int = 4) -> tuple[str, int, float]:
+    """One job in its own process with a fixed share of the cores. Without the
+    thread cap every numpy/BLAS process grabs all 32 threads and N jobs run
+    slower than one (measured the hard way on 2026-09-18 night: five jobs at
+    once made each two to three times slower)."""
     out = ROOT / "data" / "decode" / run
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
+           "OMP_NUM_THREADS": str(threads), "MKL_NUM_THREADS": str(threads), "OPENBLAS_NUM_THREADS": str(threads)}
     with open(out / "log.txt", "w", encoding="utf-8") as log:
-        p = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT,
-                           env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
+        p = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=ROOT, env=env)
     return run, p.returncode, time.time() - t0
 
 
@@ -74,10 +79,12 @@ def main(argv=None) -> int:
     if a.dry:
         return 0
     t0 = time.time()
+    threads = max(1, (os.cpu_count() or 8) // a.jobs)
+    print(f"{threads} BLAS threads per job", flush=True)
     with ThreadPoolExecutor(max_workers=a.jobs) as ex:
         sims = [ex.submit(_run, [PY, "-u", "-m", "flydream.decode.map", "--stimuli", "sintel",
                                  "--model", f"flow/0000/{m:03d}", "--run", pairs_run(m, a.date),
-                                 "--cache", "--simulate-only"], pairs_run(m, a.date)) for m in todo_sim]
+                                 "--cache", "--simulate-only"], pairs_run(m, a.date), threads) for m in todo_sim]
         for f in sims:
             run, rc, dt = f.result()
             print(f"{time.strftime('%H:%M')} {run}: {'ok' if rc == 0 else f'exit {rc}'} in {dt / 60:.1f} min", flush=True)
@@ -87,7 +94,7 @@ def main(argv=None) -> int:
                                  "--model", f"flow/0000/{m:03d}", "--run", run_name(m, sd, w, a.date),
                                  "--pairs-from", pairs_run(m, a.date), "--lags", *map(str, w), "--seed", str(sd)]
                           + ([] if a.subsets else ["--no-subsets"]),
-                          run_name(m, sd, w, a.date)) for m, sd, w in todo_map]
+                          run_name(m, sd, w, a.date), threads) for m, sd, w in todo_map]
         for f in maps:
             run, rc, dt = f.result()
             print(f"{time.strftime('%H:%M')} {run}: {'ok' if rc == 0 else f'exit {rc}'} in {dt / 60:.1f} min", flush=True)
