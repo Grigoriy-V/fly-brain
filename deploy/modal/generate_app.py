@@ -241,13 +241,15 @@ def pairs13(videos_file: str = "pairs13/videos.npz", model: str = "malecns", fra
 def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: int = 12, batch: int = 16,
             lr: float = 2e-3, width: int = 32, depth: int = 3, rings: int = 1, taps: int = 5, frames: int = 40,
             margin: int = 5, n_roundtrip: int = 8, inv_steps: int = 150, model: str = "malecns", seed: int = 0,
-            out: str = "train13") -> dict:
+            out: str = "train13", epochs_cnn: int = -1, resume: str = "") -> dict:
     """ROADMAP 13A: per condition, the linear hex-temporal decoder and the
     hex+temporal CNN trained on the pairs13 shards; r on val and test (by
     source and class); the round trip through the frozen brain on
     `n_roundtrip` test clips for both models and for the Adam inversion of the
     same clips (per-type normalised loss, as item 12). Predictions of those
-    clips are saved for the figures."""
+    clips are saved for the figures. `epochs_cnn` (default = epochs) lets the
+    CNN, 40× slower per epoch, train for fewer; `resume` names an earlier
+    `out` directory whose checkpoints initialise the models (fine-tuning)."""
     import numpy as np
     import torch
 
@@ -303,9 +305,14 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
             k = len(types)
             mdl = L.LinearHexTemporal(k, rings, taps) if kind == "linear" else L.HexTemporalCNN(k, width, depth, rings, taps)
             n_par = sum(q.numel() for q in mdl.parameters())
-            print(f"  {kind}: {n_par} parameters", flush=True)
-            fit = L.train_model(mdl, train, val, t_out=frames, epochs=epochs, batch=batch, lr=lr, device=dev,
-                                log=lambda s_: print(s_, flush=True))
+            ck = Path(RUNS) / resume / f"{cond}_{kind}.pt" if resume else None
+            if ck is not None and ck.exists():
+                mdl.load_state_dict(torch.load(ck, map_location="cpu", weights_only=False)["state_dict"])
+                print(f"  {kind}: {n_par} parameters, resumed from {ck}", flush=True)
+            else:
+                print(f"  {kind}: {n_par} parameters", flush=True)
+            fit = L.train_model(mdl, train, val, t_out=frames, epochs=(epochs if kind == "linear" or epochs_cnn < 0 else epochs_cnn),
+                                batch=batch, lr=lr, device=dev, log=lambda s_: print(s_, flush=True))
             ev_val = L.evaluate(mdl, val, fit["mean"], fit["std"], frames, dev)
             ev_test = L.evaluate(mdl, test, fit["mean"], fit["std"], frames, dev)
             pred_rt = ev_test["pred"][rt_pos]
@@ -356,7 +363,8 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
          stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = "", pairs13_run: bool = False,
-         train13_run: bool = False, epochs: int = 12, pairs13_videos_run: bool = False):
+         train13_run: bool = False, epochs: int = 12, pairs13_videos_run: bool = False, epochs_cnn: int = -1,
+         resume: str = ""):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -370,8 +378,8 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
     t0 = time.time()
     if train13_run:
         import numpy as np
-        print(f"train13 on {GPU}: {model}, {epochs} epochs")
-        r = train13.remote(model=model, epochs=epochs, frames=frames, margin=margin, seed=seed)
+        print(f"train13 on {GPU}: {model}, {epochs} epochs (cnn {epochs_cnn if epochs_cnn >= 0 else epochs}){', resume ' + resume if resume else ''}")
+        r = train13.remote(model=model, epochs=epochs, frames=frames, margin=margin, seed=seed, epochs_cnn=epochs_cnn, resume=resume)
         d = root / "data" / "train13"
         d.mkdir(parents=True, exist_ok=True)
         (d / "summary.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
