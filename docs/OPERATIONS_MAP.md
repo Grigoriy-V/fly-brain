@@ -92,18 +92,39 @@ gate (`AGENTS.md`).
 
 ## Modal
 
-To be filled at roadmap item 3, following
-`D:/ML/local-multimodal-agent/deploy/modal/` (Apps with an image, a secret
-published from `.env`, Volumes by name, scale-to-zero):
+Account: the owner's second Modal account, profile `grigoriy98smile` (the
+human, 2026-09-18); `modal profile current` must print it before any
+command below. The `modal` client is in the project `.venv`
+(`.venv\Scripts\python.exe -m modal ...`). Patterns follow
+`D:/ML/pinocchio-finetune/modal_apps/` and
+`D:/ML/local-multimodal-agent/deploy/modal/`.
 
-- Apps: `flydream-train` (training, ensemble), `flydream-batch` (ensemble
-  simulation, inversion batches); names to be confirmed.
-- Volumes: `flydream-data` (connectome exports, stimuli, rendered inputs),
-  `flydream-runs` (checkpoints, activity tensors, run configs).
-- Secret: one, published by a `tools/sync_modal_secret.py` (to come).
-- Every run is started by a named command that prints its run id, its
-  config hash and its estimated price before it starts; the human's yes is
-  per run.
+- **App `flydream-train`** (`deploy/modal/train_app.py`): `smoke` (a few
+  iterations on the GPU, the price measurement), `train` (one member,
+  `<ensemble>/<member>`), `train_ensemble` (N members on N GPUs). The solver
+  is flyvis's own `MultiTaskSolver` composed from its Hydra config with the
+  connectome file, `n_syn_fill=0` and the iteration count overridden;
+  `--init <state>` starts from a transplanted state
+  (`flydream.model.init_state`), without it from flyvis's initialisation.
+  GPU by `FLYDREAM_GPU` (default `A100-40GB`).
+- **Volumes:** `flydream-data` (`/ol/<export>.json`, `/flyvis/SintelDataSet`,
+  `/init/<state>.pt`), `flydream-runs` (`/results/flow/<ensemble>/<member>/`
+  as flyvis's NetworkDir, plus datamate's connectome cache and the Sintel
+  rendering). Uploads with `modal volume put`; Sintel is 5.8 GB, once.
+- **Secret:** none needed for training (no gated downloads). neuPrint is
+  never used on Modal.
+- **Ensemble ids:** this project's start at `0100`; the reference's
+  pretrained release occupies `0000`.
+- Every priced call is a gate: the report names the command, the expected
+  duration and the price before it is asked for; `smoke` is the first and
+  measures the per-iteration cost the others are priced from.
+
+Requirements the export must meet for the flow task, both now settings of
+`config.toml [data]` and part of the export's tag: every input type tiles
+every column (the stimulus stacks the eight photoreceptor types), and every
+output type has one cell per column (`output_units_columnar_only`; the flow
+decoder stacks the output types into one map). A density-strided type stays
+in the network and is dropped from the outputs.
 
 ## Runs and evidence
 
