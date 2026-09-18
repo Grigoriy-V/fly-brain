@@ -55,15 +55,28 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 - **Reproduce:** `zero.total_n_syn` on both networks; the comparison is
   printed by the diagnostic in `reports/2026-09-18_step4_decoder_stack.md`
   §9 (correction).
-- **Cause:** unknown. Candidates, in order of suspicion: MaleCNS has no
-  lamina column ROIs and R1–R6 have no column tags (step 1), so lamina
-  offsets come from the partner-median fallback and the wide-field Am is
-  the type that fallback fits worst; `min_weight` 5 removes the many weak
-  R→Am contacts that FlyVis's averaged filters keep as fractional values;
-  or MaleCNS's lamina reconstruction is genuinely sparser (postsynaptic
-  completion 42%). To be separated by re-exporting at `min_weight` 1 for
-  these pairs and by a cartridge-based column assignment (roadmap, Not
-  started).
+- **Cause:** two causes, separated 2026-09-18 evening against the raw
+  tables (`data/malecns/*weights*.feather`, `data/ol/neurons_R.parquet`).
+  (a) **Am is a third-party reconstruction gap, like CT1.** FlyVis's Am is
+  one cell per column (721). MaleCNS names it `Lai` (the bridge renames it
+  by `olmatching.tsv`), and the right lobe holds **49** Lai bodies, with
+  the source table's own note "many OL Lai are fragmented". The 49
+  fragments carry every R→Am, Am→T1 and Am→L3 synapse the export sees, so
+  those pairs are about fifteenfold short by cell count alone; the
+  photoreceptor side adds the rest, because MaleCNS pools R1–R6 as one
+  class (`R1-R6`, 887 cells) that the export expands into six types. No
+  threshold or column choice recovers cells that are not in the
+  reconstruction. (b) **The feedback pairs are a threshold artefact.**
+  Tm2→L2 has 1,421 synapses over 670 rows at weight ≥1 and 234 over 42 rows
+  at ≥5: `min_weight` 5 removes 84% of the pair; per target cell that is
+  2.2 at ≥1 against the export's 0.3 and FlyVis's 7.3. Mi4→Tm2 likewise
+  (1,887 → 338). Columnar motion pairs lose about 20% to the same cut
+  (Tm9→T5a 41.2 → 32.2 per cell, Mi1→T4a 72.2 → 65.1) and are not the
+  problem. Fix for (b): a per-pair floor, keeping every row of a pair
+  whose FlyVis total is small; for (a): record as third-party input, and
+  decide with the human whether the Am pathways borrow FlyVis's own
+  filters (as a named exception, like a CT1 restoration would be) or stay
+  absent and are named in every report that reads through the lamina.
 - **Evidence:** `data/runs/2026-09-18_step2_zero_R_v6_rescaled/*.json`
   (the `capped_pairs` list once v7 lands), `reports/runs.jsonl`
   (`step2.transplant`).
