@@ -273,6 +273,19 @@ lines say what of each still applies.
    Fix on the way: fit with a few frames of margin past the window so the
    end of the clip is constrained (item 8's blur).
 
+10. **A dense MaleCNS export: every type on all 721 columns** (the human,
+    2026-09-19: "разметить все колонки чтобы покрывала все 721"). Every
+    type with fewer than 721 cells in the right lobe (15 of the 33 output
+    types, e.g. Tm5a 251 cells at [3,1], TmY15 [3,3], Tm30 [4,4]) is
+    tiled onto the empty columns with the type's shared filters, the way
+    FlyVis assumes one cell per column; the transplant renormalises total
+    input per target cell; model zero is rebuilt and checked stable
+    (flash, DSI); the decoder and generator ladders on MaleCNS are redrawn
+    and the Tm5a/T5a lattice should be gone. Local CPU, about a day; the
+    generator on a T4 for cents. Every artefact from the dense export says
+    which cells were tiled in; the sparse export stays as the alternative
+    (`config.toml [data]` setting, new export tag).
+
 ## Parked
 
 Kept, not cancelled: work the 2026-09-18 change of course moved off the path,
