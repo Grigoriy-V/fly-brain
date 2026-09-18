@@ -120,6 +120,16 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
   a mean of 0.605) and T5a (0.188 against 0.492).
 - **Evidence:** `data/decode/2026-09-18_decode_sintel_flyvis/map.csv`,
   `by_stage.csv`; the audit's own refits in `research_notes/audit_2026-09-18/`.
+- **Sweep (2026-09-18, four windows on the same pairs, all 65 types,
+  `flydream.decode.sweep`, `data/decode/2026-09-18_sintel_lag_sweep/`):**
+  median frame component per stage at 0 / 20 / 80 / 160 ms: photoreceptors
+  0.579 / 0.404 / 0.358 / 0.349, lamina 0.435 / 0.366 / 0.300 / 0.255,
+  medulla Mi 0.498 / 0.509 / 0.392 / 0.249, Tm/TmY 0.438 / 0.314 / 0.326 /
+  0.256, T4/T5 0.221 / 0.384 / 0.511 / 0.427. Spearman(score at 0 ms, gain
+  to 160 ms) = −0.827 over 65 types: whatever reads best at one window reads
+  worst at another. Median raw PixCorr peaks at 80 ms for every stage but
+  the lamina, so 80 ms is the window the map is redone at, reported with
+  the 0 ms column beside it. Figure `reports/figures/2026-09-18_sintel_lag_sweep.png`.
 - **Related:** roadmap 4; `reports/2026-09-18_step4_decoder_stack.md` §9.
 
 ### ISS-0003 — the transplant copied a connectome-relative gain across connectomes
