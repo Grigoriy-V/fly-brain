@@ -48,6 +48,38 @@ modulation, central-brain drive) and what the control showed.
 extent, time step, clip length) are settings named in `config.toml` with the
 reference's default and the reason, never constants buried in code.
 
+## Artefacts for the human
+
+The human reads pictures, not logs (the human, 2026-09-19: "дай мне
+нормальные артефакты, не надо кормить меня мусором вперемешку"). Rules:
+
+- **One artefact per message, with its text before it**, in this order: what
+  it is, why it exists, what it checks, what it ran on (model, clip, machine,
+  price), what it shows. Never a batch of files with one caption, never a
+  log line beside a picture.
+- **Input beside output, on the same row.** A generator or decoder artefact
+  shows "what the eye saw" as the first column and the outputs to its right,
+  one column per stage, the score under each. A control is a second input
+  row with its own input shown ("вход B: клип 10, лес"), never a footer
+  labelled "control".
+- **Clips (gif) by default;** a still frame only when the clip cannot show
+  the point. A comparison of two brains or two methods is one stacked clip
+  with a label per row and the stage names in the header, not two files.
+- **Look at every clip before sending it:** view its first, middle and last
+  frames and one column end to end; check that the clip ends where the clip
+  ends (no jump into the next clip), that brightness does not breathe from
+  frame to frame, that labels match the columns. A subagent (Sonnet) may
+  do the viewing when frames are many; the finding is recorded in the
+  message. The human found the "boomerang" ending, the L3 flicker and the
+  missing control input before the agent did; that is the failure this rule
+  exists for.
+- **One substrate at a time.** MaleCNS is the target; FlyVis is run only to
+  validate a method that has not run anywhere yet, and then once. Doing both
+  on every step doubled the work of 2026-09-18 (the human, 2026-09-19).
+- **A change of course or a finished artefact is stated in three lines**,
+  not narrated; work is not started on the human's question, only on the
+  human's instruction ("я тебя ни о чём не просил, я тебя спросил").
+
 ## How to work
 
 Whichever application runs the agent, it is the project agent: it owns

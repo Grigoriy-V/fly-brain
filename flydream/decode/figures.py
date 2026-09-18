@@ -61,7 +61,8 @@ def fit_ladder(pairs: P.Pairs, types, train_i, test_i, s: dict, lags=(0,)):
         pred = model.predict(xte)
         out[t] = {"pred": pred, "targ": yte,
                   "pixcorr": M.pixel_correlation(pred, yte),
-                  "alpha": model.alpha, "edge": model.at_grid_edge}
+                  "alpha": model.alpha, "edge": model.at_grid_edge,
+                  "frames_per_clip": pairs.n_frames - max(lags) + min(lags)}
         print(f"  {t:<6} PixCorr {out[t]['pixcorr']:+.3f}"
               f"{'  (penalty at grid edge: ' + model.at_grid_edge + ')' if model.at_grid_edge else ''}",
               flush=True)
@@ -130,18 +131,30 @@ def ladder_animation(fits: dict, path: pathlib.Path, n_frames: int = 40,
     _, mask, _ = raster_map(721, pix_per_hex)
     types = list(fits)
     targ = fits[types[0]]["targ"]
-    n = min(n_frames, len(targ))
+    # the predictions are a flat stack over the test clips, each clip
+    # contributing n_frames - max(lag) rows: the clip ends there, or the
+    # animation runs into the next clip (the "jump" the human saw 2026-09-19
+    # in the 80 ms ladder, where 40 frames were 36 of one clip + 4 of another)
+    per_clip = int(fits[types[0]].get("frames_per_clip", n_frames))
+    n = min(n_frames, per_clip, len(targ))
 
-    def panel(vec):
+    # one brightness scale per column over the whole clip, not per frame:
+    # per-frame min-max made every column breathe (the L3 "flicker")
+    scales = {"targ": (float(np.nanmin(targ[:n])), float(np.nanmax(targ[:n])))}
+    for t in types:
+        p = fits[t]["pred"][:n]
+        scales[t] = (float(np.nanpercentile(p, 1)), float(np.nanpercentile(p, 99)))
+
+    def panel(vec, key):
         img = to_raster(vec, 721, pix_per_hex, fill=np.nan)
-        lo, hi = float(np.nanmin(vec)), float(np.nanmax(vec))
+        lo, hi = scales[key]
         img = (img - lo) / max(hi - lo, 1e-9)
         img = np.where(mask, img, 0.55)
         return (np.clip(img, 0, 1) * 255).astype(np.uint8)
 
     out = []
     for f in range(n):
-        strip = [panel(targ[f])] + [panel(fits[t]["pred"][f]) for t in types]
+        strip = [panel(targ[f], "targ")] + [panel(fits[t]["pred"][f], t) for t in types]
         sep = np.full((strip[0].shape[0], 3), 255, np.uint8)
         row = strip[0]
         for s in strip[1:]:
