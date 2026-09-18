@@ -194,6 +194,8 @@ def main(argv=None) -> int:
                    help="run id whose pairs.npz to reuse (the simulation is identical across lag windows)")
     p.add_argument("--seed", type=int, default=None,
                    help="scene-split seed; default config.toml [decode] seed. A reported map sweeps [decode] splits")
+    p.add_argument("--simulate-only", action="store_true",
+                   help="build and cache the pairs of every type, fit nothing (the Modal simulate worker)")
     a = p.parse_args(argv)
     if a.lags is not None:
         s["lags"] = list(a.lags)
@@ -245,6 +247,9 @@ def main(argv=None) -> int:
             pairs.save(cache)
     print(f"pairs: stimulus {pairs.stimulus.shape}, activity {pairs.activity.shape}, "
           f"{len(np.unique(pairs.groups))} groups")
+    if a.simulate_only:
+        print(f"simulate-only: pairs saved to {cache}, nothing fitted ({time.time() - t0:.0f} s)")
+        return 0
 
     train_i, test_i = P.split_by_group(pairs.groups, s["test_fraction"], s["seed"])
     print(f"split: {len(train_i)} train / {len(test_i)} test samples")

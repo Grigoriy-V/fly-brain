@@ -82,15 +82,17 @@ def _map_cmd(model: str, run: str, lags: list[int], seed: int, pairs_from: str |
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
               cpu=4, memory=24576, timeout=120 * MINUTES)
-def simulate(member: int, date: str, types: str = "R1") -> dict:
-    """One member over the Sintel clips: cache pairs.npz on the Volume. Fits only
-    one cheap type so the worker ends as soon as the pairs are saved."""
+def simulate(member: int, date: str) -> dict:
+    """One member over the Sintel clips: cache pairs.npz (every cell type) on the
+    Volume and stop; the fits are the CPU workers' job. (The first pilot passed
+    `--types R1` to keep the worker short and got a pairs file holding R1 only:
+    `--types` also restricts what is cached. `--simulate-only` is the right knob.)"""
     _prepare_root()
     run = pairs_run(member, date)
     t0 = time.time()
     if os.path.exists(f"{DECODE_ROOT}/data/decode/{run}/pairs.npz"):
         return {"member": member, "run": run, "cached": True, "s": 0.0}
-    cmd = _map_cmd(f"flow/0000/{member:03d}", run, [0], 0, None, cache=True) + ["--types", *types.split(",")]
+    cmd = _map_cmd(f"flow/0000/{member:03d}", run, [0], 0, None, cache=True) + ["--simulate-only"]
     p = subprocess.run(cmd, capture_output=True, text=True)
     runs_volume.commit()
     data_volume.commit()   # flyvis's Sintel rendering cache lives under FLYVIS_ROOT_DIR, built once
