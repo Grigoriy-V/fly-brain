@@ -142,6 +142,19 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    against the 26-study targets. Deliverable: the trained ensemble on a
    Volume, the validation table, the cost.
 
+   State 2026-09-18 (evening): the options report is written
+   (`reports/2026-09-18_step3_training_options.md`), the Modal app exists
+   (`deploy/modal/train_app.py`, never run), the transplanted init state is
+   saved, and the export was changed so the reference task can run on it
+   (inputs tile every column; outputs restricted to the 18 columnar types,
+   `output_units_columnar_only`; weak-pair exception with a 500-synapse
+   floor). Not yet started: the Modal account is chosen (the second one,
+   profile `grigoriy98smile`, the human 2026-09-18). Gates in order: `smoke`
+   (minutes, the per-iteration price), two members (one from the
+   transplant, one from scratch), then an ensemble sized by the human.
+   Before the first gate: v9 (model zero on the refined export) must be
+   stable, and the local CPU timing is recorded.
+
 5. **Both eyes, every column, the missing biophysics.** Extend to ~880
    columns per eye and the left eye; add, one at a time and each validated
    (Pang et al. 2024 L1/L2 data, Drews et al. 2020 contrast curves): a
