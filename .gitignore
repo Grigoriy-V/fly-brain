@@ -29,3 +29,6 @@ htmlcov/
 
 # Local agent/runtime state
 .codex/sessions/
+
+# Stray logs (flyvis CLI writes train_single.log into the cwd)
+*.log
