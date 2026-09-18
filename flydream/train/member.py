@@ -38,6 +38,24 @@ def compose(connectome_path: str, run: str, n_iters: int, batch_size: int, dt: f
     return prepare_config(args)
 
 
+def _fit_diagnostic_loaders(task, batch_size: int) -> None:
+    """flyvis's one-batch diagnostic loaders (`val_batch`, `train_batch`) take
+    the first `batch_size` sequences but keep `batch_size` as the loader's
+    batch, and the checkpoint's `test()` builds the steady state at that
+    number. With 16 validation sequences a batch of 32 dies in the first
+    checkpoint ("size of tensor a (32) must match b (16)", the batch smoke
+    of 2026-09-18). Shrink the loader's batch to what it can hold; the
+    training loader (`drop_last=True`) and the full validation pass
+    (batch 1) are untouched, so the measured training is the reference's."""
+    from torch.utils.data import DataLoader
+    from flyvis.utils.dataset_utils import IndexSampler
+
+    for name, index in (("val_batch", task.val_seq_index), ("train_batch", task.train_seq_index)):
+        n = min(batch_size, len(index))
+        if n < batch_size:
+            setattr(task, name, DataLoader(task.dataset, batch_size=n, sampler=IndexSampler(list(index)[:n])))
+
+
 def train_member(connectome_path: str, run: str, n_iters: int, results_root: str, *,
                  batch_size: int = 4, dt: float = 0.02, init_path: str | None = None,
                  resume: bool = False, delete_if_exists: bool = False) -> dict:
@@ -52,6 +70,7 @@ def train_member(connectome_path: str, run: str, n_iters: int, results_root: str
     with set_root_context(results_root):
         solver = MultiTaskSolver(config=config, delete_if_exists=delete_if_exists)
     built = time.time() - t0
+    _fit_diagnostic_loaders(solver.task, batch_size)
     loaded = None
     if resume:
         solver.recover(network=True, decoder=True, optimizer=True, penalty=True,
