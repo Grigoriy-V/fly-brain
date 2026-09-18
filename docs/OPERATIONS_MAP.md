@@ -31,8 +31,11 @@ one place per fact.
   the run: a member's edge protocol recorded 39,225 s on 2026-09-18 across
   an eleven-hour sleep. Wall times in `runs.jsonl` for that day are suspect.
 - `config.toml` holds every non-secret setting: `[data]` (`min_weight` 5,
-  `side` R, `extent` 15), `[flyvis]` (version, ensemble, root_dir); `[model]`,
-  `[train]`, `[decode]`, `[modal]` are added by the steps that need them.
+  `side` R, `extent` 15, the weak-pair exception, columnar outputs),
+  `[flyvis]` (version, ensemble, root_dir), `[model]` (`rescale_cap`),
+  `[decode]` (model, members, splits, lags, lag_windows, metrics settings),
+  `[benchmark]` (the training-optimisation benchmark); `[generate]` is added
+  at ROADMAP item 9 (frames, margin).
 
 ## Commands (step 1)
 
@@ -165,7 +168,8 @@ in the network and is dropped from the outputs.
 
 ## Runs and evidence
 
-Training optimization benchmark (opt-in, prepared 2026-09-18; **not run on GPU**):
+Training optimization benchmark (run once on a T4, 2026-09-18 22:00, ~$0.30; result:
+`stats_relu` 1.17×, equivalent within CUDA noise — `reports/2026-09-18_training_optimization_bench.md`):
 
 ```powershell
 .venv\Scripts\python.exe -m flydream.train.benchmark  # print local plan only
@@ -192,9 +196,23 @@ no existing experiment is overwritten. Estimates and remaining gate:
 - A report per step under `reports/<date>_<step>.md`, with the numbers, the
   controls, the run ids and the commands.
 
+## Commands (item 8, the generator)
+
+```powershell
+.venv\Scripts\python.exe -m flydream.generate.invert --run <run with pairs.npz> --sample 3 --types T5a --frames 20 --steps 150   # local CPU, minutes per stage
+.venv\Scripts\python.exe -m flydream.generate.invert --run x --from-dataset --sample 3 --types T4a T4b T4c T4d T5a T5b T5c T5d
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --model malecns --sample 3      # every stage on a T4, ~10 min, ~$0.10
+.venv\Scripts\python.exe -m flydream.generate.figures --tags <tags from the app's output> --out <name>
+```
+
+The T4 app returns the recovered videos in its result (hundreds of KB) and
+writes them under `data/generate/<tag>/`; nothing large is downloaded. The
+model argument is a flyvis NetworkView name or `malecns[:member]`.
+
 ## Checks
 
-- `pytest -q` (to come): offline, no data download, no Modal, no credential.
+- `pytest -q -p no:cacheprovider`: 64 offline tests, no data download, no
+  Modal, no credential (~25 s).
 - A model's validation (flash and moving-edge protocols against FlyVis's
   targets) is a script, run locally on CPU for one model and on Modal for an
   ensemble.

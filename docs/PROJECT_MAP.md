@@ -6,10 +6,11 @@ Of?: components, ownership and data flows. Not a roadmap or a history.
 `ROADMAP.md` has current work, `DECISIONS.md` the reasons behind the
 boundaries below, `reports/` the evidence.
 
-**State on 2026-09-18 (evening):** data, model zero and the first two rungs
-of the decoder ladder exist and are tested; inversion (rung three), training
-on Modal and the central brain are marked "(to come)" until the step that
-builds them removes the mark.
+**State on 2026-09-19:** data, model zero, the decoder ladder (ridge and
+hex-conv), the generator (encoder inversion, rung three) and the Modal apps
+for training, decoding and generation exist and are tested (64 offline
+tests). The central brain is "(to come)". The deliverable is the generator
+(`ROADMAP.md`); the decoder is its baseline.
 
 ## System at a glance
 
@@ -90,22 +91,51 @@ builds them removes the mark.
   index; `map.py` is the driver, one row per cell type per control, model
   and connectome as arguments; `figures.py` draws the stage ladder and a
   clip from a run's cached pairs. Settings in `config.toml [decode]`,
-  including the lag windows, members and splits a reported number must
-  sweep (DECISIONS 2026-09-18; ISSUES ISS-0004). Inversion (`invert.py`) is
-  to come.
+  including the lag windows (consecutive lags only, ISS-0006); `sweep.py`
+  joins lag windows, `ensemble.py` joins members × splits (both beyond the
+  branch). The ridge's penalty is chosen on held-out scenes; GCV was
+  measured and rejected (under-penalises autocorrelated frames).
+- **Generate** (`flydream/generate/`, built 2026-09-19, the deliverable):
+  `invert.py` — encoder inversion: the video (frames × 721 hexals, one leaf)
+  optimised by Adam through the frozen network so that the chosen cells'
+  activity matches a target state, with a total-variation prior; the target
+  is re-simulated from a clip with the same grey steady state, or (item 11)
+  comes from a state no clip caused; the control is a second input clip.
+  `run_ladder` does every stage in one model load; `figures.py` draws the
+  ladder and the clip; `clip_from_sintel` takes the clip from the dataset
+  so no pairs file is needed. Settings in `config.toml [generate]` (to be
+  added at item 9: frames, margin).
+- **Train** (`flydream/train/`, built 2026-09-18): `member.py` composes
+  flyvis's own solver from its Hydra config on a connectome export
+  (`--init` a transplanted state, `--variant stats_relu` the two measured
+  source-level changes, actual-iteration timing, evidence and profiler);
+  `optimizations.py` binds those changes reversibly (device-side activity
+  statistics, ReLU before the gather; 1.17× on a T4, equivalent within
+  CUDA noise); `benchmark.py` is the paired benchmark. Training itself is
+  paused (ROADMAP 3').
 - **Tools** (`tools/`): `run_log.py`, the only writer of
-  `reports/runs.jsonl`.
-- **Tests** (`tests/`, 49 offline): `fixtures/mini_connectome.json` (five
+  `reports/runs.jsonl`; `modal_watch.py` (list, wait on, log Modal apps);
+  `map_local.py` (the ensemble map locally, parked); figure scripts
+  (`fig_batch_throughput.py`, `fig_optimization_bench.py`);
+  `verify_train_optimizations.py`, `summarize_training_benchmark.py`.
+- **Tests** (`tests/`, 64 offline): `fixtures/mini_connectome.json` (five
   types on a 19-column lattice, one double-inversion ON pathway and one
   strided wide-field type) with `test_mini_network.py` building and
   simulating it; `test_transplant.py` (the rescale invariant and the cap);
-  `test_decode.py` (metrics, ridge scale-invariance, controls, pairs,
-  raster); `test_hexconv.py`; `test_data_helpers.py`. No test downloads,
-  calls Modal or needs a credential.
-- **Deploy** (`deploy/modal/`, to come at roadmap 3): Modal Apps for
-  training, ensemble simulation, the hex-conv sweep and inversion batches;
-  Volumes for data and checkpoints; the patterns of the owner's harness
-  repository.
+  `test_decode.py` (metrics, batched SSIM against skimage, ridge
+  scale-invariance and GCV against hold-out, controls, pairs, raster);
+  `test_hexconv.py`; `test_sweep.py`; `test_train_optimizations.py`;
+  `test_data_helpers.py`. No test downloads, calls Modal or needs a
+  credential.
+- **Deploy** (`deploy/modal/`, built 2026-09-18/19): three Modal Apps on a
+  T4 — `train_app.py` (`smoke`, `smoke_packed`, `smoke_batch`, `train`,
+  `train_packed`, `benchmark`), `decode_app.py` (simulate a member on the
+  GPU, fit maps on CPU workers; parked, CPU workers cost more than local),
+  `generate_app.py` (`ladder`: every stage's inversion in one worker, the
+  videos returned, nothing large moved). Volumes `flydream-data` (export,
+  Sintel, init states, the pretrained ensemble) and `flydream-runs`
+  (results, benchmarks, decode and generate roots). `FLYDREAM_ROOT` points
+  a worker's project root at the Volume.
 
 ## Boundaries
 

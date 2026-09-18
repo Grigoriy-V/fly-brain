@@ -3,11 +3,16 @@
 Russian: «Что снится мухе?»
 
 A connectome-constrained model of the fruit fly visual system on the MaleCNS
-connectome, a map of how much of the visual world stays decodable at each
-stage of the fly's visual pathway, and a decoder that turns the model's
-internal states back into the stimulus most compatible with them. The last
-chapter asks what that decoder produces when the model runs with no visual
-input. The title is a metaphor; the method is not.
+connectome, and a **generator** that turns the model's internal states back
+into the video most compatible with them (encoder inversion through the
+frozen network). It works: from the state of any stage — photoreceptors,
+lamina, medulla, the T4/T5 motion detectors alone — the clip that caused the
+state comes back (r 0.92–1.00), and a state from another clip gives that
+other clip, on both the FlyVis brain and the MaleCNS model. The next chapter
+feeds the generator states that no clip caused — noise into the eye, the dark
+after a clip, noise inside the neurons — and asks what it draws. The title is
+a metaphor; the method is not. The deliverable is the generator, not a paper
+(`AGENTS.md`).
 
 The idea is [`what_does_a_fly_dream_of.md`](what_does_a_fly_dream_of.md). The
 research behind the plan, in Russian, is
@@ -27,8 +32,9 @@ with its primary-source notes under `research_notes/`.
   FIB-19 tiled over 721 columns) is not the substrate.
 - **Decoding:** ridge → hexagonal convolution → inversion of the model by
   gradient descent (Bauer et al., eLife 2026); every number beside a control.
-- **Compute:** data preparation locally; training, ensembles and inversion
-  batches on Modal.
+- **Compute:** the owner's CPU for everything that fits in hours; a Modal T4
+  for what needs a GPU (the generator: ten stages in ten minutes, ~$0.10);
+  training is paused — priced, over budget at the reference schedule.
 - **Framing:** a decoded image is "the stimulus most compatible with this
   state under this encoder". Nothing is a percept.
 
@@ -44,10 +50,10 @@ docs/                         PROJECT_MAP (system shape), OPERATIONS_MAP (data, 
 reports/                      evidence, dated; research reports; runs.jsonl
 research_notes/               literature notes behind each research report
 data/                         (not committed) connectome tables, stimuli, activity, checkpoints
-flydream/                     the package: data (MaleCNS export), model (model zero), decode (the ladder, figures)
-tools/                        run_log (the only writer of reports/runs.jsonl)
-tests/                        47 offline tests on a synthetic miniature connectome and synthetic decoder data
-deploy/modal/                 (to come at roadmap 3) Modal apps for training and batches
+flydream/                     the package: data (MaleCNS export), model (model zero), decode (the ladder), generate (the generator), train (flyvis's solver on the export)
+tools/                        run_log (the only writer of reports/runs.jsonl), modal_watch, figure scripts
+tests/                        64 offline tests on a synthetic miniature connectome and synthetic decoder data
+deploy/modal/                 Modal apps on a T4: train_app, decode_app, generate_app
 ```
 
 ## Where things are decided
