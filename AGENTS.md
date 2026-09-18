@@ -194,7 +194,12 @@ controls, clips, members) are batched into one pass until the card is
 saturated or memory is full, and a run's report states the batch and the
 utilisation it reached. If memory is the limit and there is still headroom
 in speed, an L4 is allowed for that job (the human, the same day); nothing
-above it.
+above it. **A GPU function does GPU work only.** Rendering, data assembly,
+augmentation and any other CPU step run on a CPU container or locally,
+and the GPU function starts from their finished output on the volume; the
+card's utilisation is sampled and stated in the report of every GPU run.
+(2026-09-19: fifteen minutes of a T4 spent rendering Sintel on the worker's
+CPU — the human: "такие вещи должны быть на CPU-воркере".)
 
 ## Safety and evidence
 
