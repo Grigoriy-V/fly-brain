@@ -3,7 +3,10 @@ import os
 import pathlib
 import tomllib
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+# The project root: config.toml, data/ and reports/ hang off it. On Modal the
+# code lives in the image and the outputs must land on a Volume, so a worker
+# points FLYDREAM_ROOT at a directory on the Volume holding a copy of config.toml.
+ROOT = pathlib.Path(os.environ.get("FLYDREAM_ROOT") or pathlib.Path(__file__).resolve().parents[2])
 
 
 def configure_flyvis_root() -> pathlib.Path:

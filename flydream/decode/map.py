@@ -192,9 +192,13 @@ def main(argv=None) -> int:
                    help="decoder window as frame offsets, e.g. 0 2 4; default config.toml [decode] lags")
     p.add_argument("--pairs-from", default=None,
                    help="run id whose pairs.npz to reuse (the simulation is identical across lag windows)")
+    p.add_argument("--seed", type=int, default=None,
+                   help="scene-split seed; default config.toml [decode] seed. A reported map sweeps [decode] splits")
     a = p.parse_args(argv)
     if a.lags is not None:
         s["lags"] = list(a.lags)
+    if a.seed is not None:
+        s["seed"] = int(a.seed)
 
     run = a.run or f"{time.strftime('%Y-%m-%d')}_decode_{a.stimuli}"
     outdir = ROOT / "data" / "decode" / run
