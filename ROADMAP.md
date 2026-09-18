@@ -18,8 +18,12 @@ chapter is a second stage after it.
 **Current approved step:** 4, the decodability map, in progress; its first
 figure was withdrawn by its own audit and is being redone with a lag sweep,
 several ensemble members and several splits (see item 4's state line). Next
-in the order: 3 (training on Modal), on the human's word, and not before
-the transplant is verified stable (ISS-0003).
+in the order: 3 (training on Modal), on the human's word. The transplant is
+verified stable on three members (v7, 2026-09-18: MaleCNS T4/T5 DSI 0.109
+against the raw copy's 0.020 and FlyVis's 0.391; direction and flash
+polarity at or above FlyVis); the remaining gap is attributed to ISS-0005
+and ISS-0002, which are step-1 export work and come before the priced run,
+so training does not pay to learn around a defect.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the

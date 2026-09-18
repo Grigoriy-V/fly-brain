@@ -111,9 +111,16 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 ### ISS-0003 — the transplant copied a connectome-relative gain across connectomes
 
-- **Status:** mitigated (the basis is corrected and capped; verification of
-  stability on three members is the v7 run). Seen 2026-09-18 by the audit,
-  verified in flyvis's source and by measurement by the project agent.
+- **Status:** mitigated. The basis is corrected and capped, and the v7 run
+  (`2026-09-18_step2_zero_R_v7_total_cap3`) is stable on all three members:
+  MaleCNS T4/T5 DSI 0.101 / 0.150 / 0.075 (mean 0.109) against the raw
+  copy's 0.020 and FlyVis's 0.547 / 0.344 / 0.281 (mean 0.391);
+  preferred-direction error 35.7° / 10.2° / 8.2° against FlyVis's 11.5° /
+  14.4° / 69.1°; flash polarity 0.933 / 0.933 / 0.967 against 0.938 / 0.875
+  / 0.906. The gap to FlyVis went from 20× to 3.6×; what remains is
+  attributed, not fixed: the 114 capped pairs (ISS-0005) and the missing
+  CT1 (ISS-0002). Seen 2026-09-18 by the audit, verified in flyvis's source
+  and by measurement by the project agent.
 - **Seen:** `flyvis/network/initialization.py:501` sets `syn_strength =
   scale / <n_syn>` for the pair in that connectome and `dynamics.py:165`
   forms `weight = sign * n_syn * syn_strength`; `zero.transplant` copied
