@@ -109,13 +109,24 @@ command below. The `modal` client is in the project `.venv`
 `D:/ML/local-multimodal-agent/deploy/modal/`.
 
 - **App `flydream-train`** (`deploy/modal/train_app.py`): `smoke` (a few
-  iterations on the GPU, the price measurement), `train` (one member,
-  `<ensemble>/<member>`), `train_ensemble` (N members on N GPUs). The solver
-  is flyvis's own `MultiTaskSolver` composed from its Hydra config with the
-  connectome file, `n_syn_fill=0` and the iteration count overridden;
-  `--init <state>` starts from a transplanted state
-  (`flydream.model.init_state`), without it from flyvis's initialisation.
-  GPU by `FLYDREAM_GPU` (default `A100-40GB`).
+  iterations on the GPU, the price measurement), `smoke_packed` (N members
+  as N processes on one card), `smoke_batch` (one member at several batch
+  sizes), `train` (one member, `<ensemble>/<member>`), `train_packed` (N
+  members packed on one card). The solver is flyvis's own `MultiTaskSolver`
+  composed from its Hydra config with the connectome file, `n_syn_fill=0`
+  and the iteration count overridden; `--init <state>` starts from a
+  transplanted state (`flydream.model.init_state`), without it from
+  flyvis's initialisation. GPU by `FLYDREAM_GPU`: **T4** by default, L4 the
+  alternative, nothing above (the human, 2026-09-18). Measured on T4: batch
+  4 at 0.434 s/iter (9.2 samples/s), throughput saturating at ~14 samples/s
+  from batch 16 (~$12 per member at 10^6 samples); batch 64 and above
+  cannot run (fewer than 64 training clips).
+- **Decoding on Modal:** long local decode jobs (a ridge map over 65 types
+  takes 12-45 min per lag window on the owner's CPU) may be run on Modal
+  without a per-action gate (the human, 2026-09-18: "если на локале так
+  долго, разрешаю запускать такое на модале"); the price is still stated in
+  the report. The ridge fit is SVD-bound, so a many-core CPU function is the
+  first choice unless the fit is moved to torch on the card.
 - **Volumes:** `flydream-data` (`/ol/<export>.json`, `/flyvis/SintelDataSet`,
   `/init/<state>.pt`), `flydream-runs` (`/results/flow/<ensemble>/<member>/`
   as flyvis's NetworkDir, plus datamate's connectome cache and the Sintel
