@@ -202,13 +202,22 @@ def main(argv=None) -> int:
     t0 = time.time()
 
     print(f"model: {a.model}")
-    if a.model == "malecns":
-        from flydream.model.zero import build_network, content_addressed
-
+    if a.model.startswith("malecns"):
+        # "malecns" or "malecns:<member>": model zero, i.e. the export named by
+        # config.toml with FlyVis member <member>'s parameters transplanted
+        # (rescaled, capped), the same network step 2 validates. Without the
+        # transplant the network would be flyvis's random initialisation.
         from flydream.data.export import filters_path
+        from flydream.model.zero import build_network, content_addressed, transplant
 
         cfg = tomllib.loads((ROOT / "config.toml").read_text())
-        net = build_network(content_addressed(filters_path(cfg)), extent=cfg["data"]["extent"])
+        member = int(a.model.split(":")[1]) if ":" in a.model else 0
+        fv = flyvis.NetworkView(f"flow/0000/{member:03d}").init_network(checkpoint="best")
+        export = filters_path(cfg)
+        net = build_network(content_addressed(export), extent=cfg["data"]["extent"])
+        rep = transplant(fv, net, rescale=True, rescale_cap=float(cfg.get("model", {}).get("rescale_cap", 3.0)))
+        print(f"model zero: {export.name}, FlyVis member {member:03d} transplanted "
+              f"({rep['syn_strength']['matched']} pairs, {rep['syn_strength']['capped']} capped)")
     else:
         net = flyvis.NetworkView(a.model).init_network(checkpoint="best")
     net.eval()
