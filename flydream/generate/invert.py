@@ -49,11 +49,39 @@ from flydream.decode.hexraster import neighbour_index, to_raster  # noqa: E402
 
 
 def load_network(model: str):
-    net = flyvis.NetworkView(model).init_network(checkpoint="best")
+    """A flyvis NetworkView name, or `malecns[:member]` for model zero (the
+    MaleCNS export with that FlyVis member's parameters transplanted, the same
+    network `flydream.decode.map --model malecns` reads)."""
+    if model.startswith("malecns"):
+        import tomllib
+        from flydream.data.export import filters_path
+        from flydream.model.zero import build_network, content_addressed, transplant
+
+        cfg = tomllib.loads((ROOT / "config.toml").read_text(encoding="utf-8"))
+        member = int(model.split(":")[1]) if ":" in model else 0
+        fv = flyvis.NetworkView(f"flow/0000/{member:03d}").init_network(checkpoint="best")
+        net = build_network(content_addressed(filters_path(cfg)), extent=cfg["data"]["extent"])
+        transplant(fv, net, rescale=True, rescale_cap=float(cfg.get("model", {}).get("rescale_cap", 3.0)))
+    else:
+        net = flyvis.NetworkView(model).init_network(checkpoint="best")
     net.eval()
     for p in net.parameters():
         p.requires_grad_(False)
     return net
+
+
+def device_of(net) -> torch.device:
+    return next(net.parameters()).device
+
+
+def clip_from_sintel(sample: int, frames: int, dt: float) -> np.ndarray:
+    """The luminance video (frames, 721) of one AugmentedSintel clip, the same
+    dataset and index the decoder map uses, so no pairs file is needed."""
+    from flydream.decode.map import stimulus_set
+
+    ds, _, _, _ = stimulus_set("sintel", dt)
+    lum = np.asarray(ds[int(sample)]["lum"], dtype=np.float32)
+    return lum.reshape(lum.shape[0], -1)[:frames]
 
 
 def simulate(net, video: torch.Tensor, dt: float, state) -> torch.Tensor:
@@ -78,11 +106,13 @@ def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, st
            tv: float, init: torch.Tensor | None, log_every: int = 10) -> tuple[torch.Tensor, list[float]]:
     """Return the recovered video (B, T, H) and the loss trace."""
     B, T = target.shape[:2]
+    dev = device_of(net)
     H = net.stimulus.n_input_elements if hasattr(net.stimulus, "n_input_elements") else 721
-    video = (init.clone() if init is not None else torch.full((B, T, H), 0.5)).requires_grad_(True)
+    video = (init.clone().to(dev) if init is not None else torch.full((B, T, H), 0.5, device=dev)).requires_grad_(True)
     opt = torch.optim.Adam([video], lr=lr)
-    nb = torch.as_tensor(neighbour_index(H), dtype=torch.long)
-    idx = torch.as_tensor(cells, dtype=torch.long)
+    nb = torch.as_tensor(neighbour_index(H), dtype=torch.long, device=dev)
+    idx = torch.as_tensor(cells, dtype=torch.long, device=dev)
+    target = target.to(dev)
     trace = []
     t0 = time.time()
     for step in range(steps):
@@ -97,7 +127,57 @@ def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, st
         trace.append(float(fit))
         if step % log_every == 0 or step == steps - 1:
             print(f"  step {step:4d}  fit {float(fit):.5f}  loss {float(loss):.5f}  {time.time() - t0:.0f}s", flush=True)
-    return video.detach(), trace
+    return video.detach().cpu(), trace
+
+
+def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int, steps: int, lr: float, tv: float,
+               dt: float, t_pre: float, control_sample: int | None = None, out_root: Path | None = None,
+               tag_prefix: str = "") -> list[dict]:
+    """The inversion of one clip from each stage in turn, one network load.
+    Returns one record per stage with the videos and scores; writes the same
+    under `out_root/<tag>/recovered.npz` + `meta.json` when `out_root` is given
+    (the shape `flydream.generate.figures` reads)."""
+    net = load_network(model)
+    dev = device_of(net)
+    types, index = P.type_index(net.connectome)
+    true_np = clip_from_sintel(sample, frames, dt)
+    ctrl_i = control_sample if control_sample is not None else sample + 7
+    other_np = clip_from_sintel(ctrl_i, frames, dt)
+    true = torch.as_tensor(true_np[None], device=dev)
+    other = torch.as_tensor(other_np[None], device=dev)
+    state = net.steady_state(t_pre, dt, batch_size=1, value=0.5)
+    with torch.no_grad():
+        target, target_other = simulate(net, true, dt, state), simulate(net, other, dt, state)
+    records = []
+    for stage in stages:
+        missing = [t for t in stage if t not in index]
+        if missing:
+            print(f"skipping {stage}: not in this model: {missing}"); continue
+        cells = np.concatenate([index[t] for t in stage])
+        label = "T4T5" if len(stage) == 8 else "_".join(stage)
+        tag = f"{tag_prefix}invert_{label}_s{sample}"
+        print(f"=== {tag}: {len(cells)} cells on {dev}", flush=True)
+        t0 = time.time()
+        rec, trace = invert(net, target, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
+        ctrl, trace_c = invert(net, target_other, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
+        r, c = rec[0].numpy(), ctrl[0].numpy()
+        s_rec, s_ctrl = pixcorr_per_frame(r, true_np), pixcorr_per_frame(c, true_np)
+        record = {"tag": tag, "model": model, "sample": sample, "control_sample": ctrl_i, "types": stage,
+                  "cells": int(len(cells)), "frames": frames, "steps": steps, "lr": lr, "tv": tv, "dt": dt,
+                  "inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
+                  "fit_first": trace[0], "fit_final": trace[-1], "control_fit_final": trace_c[-1],
+                  "seconds": round(time.time() - t0, 1), "device": str(dev)}
+        print(f"    r = {record['inversion']:+.3f} (control {record['control']:+.3f}), fit {trace[0]:.4f} -> {trace[-1]:.4f}, "
+              f"{record['seconds']} s", flush=True)
+        arrays = {"true": true_np, "recovered": r, "control": c, "s_rec": s_rec, "s_ctrl": s_ctrl,
+                  "trace": np.asarray(trace), "trace_control": np.asarray(trace_c)}
+        if out_root is not None:
+            d = out_root / tag
+            d.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(d / "recovered.npz", **arrays)
+            (d / "meta.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
+        records.append({**record, "arrays": arrays})
+    return records
 
 
 def pixcorr_per_frame(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -179,18 +259,26 @@ def main(argv=None) -> int:
     p.add_argument("--t-pre", type=float, default=1.0)
     p.add_argument("--tag", default=None)
     p.add_argument("--show-frames", nargs="*", type=int, default=[2, 9, 17])
+    p.add_argument("--from-dataset", action="store_true",
+                   help="take the clip from AugmentedSintel instead of pairs.npz (no pairs file needed)")
     a = p.parse_args(argv)
     tag = a.tag or f"{time.strftime('%Y-%m-%d')}_invert_{'_'.join(a.types[:2])}{'_etc' if len(a.types) > 2 else ''}_s{a.sample}"
     out = ROOT / "data" / "generate" / tag
     out.mkdir(parents=True, exist_ok=True)
 
-    pairs = P.Pairs.load(ROOT / "data" / "decode" / a.run / "pairs.npz")
-    ctrl_i = a.control_sample if a.control_sample is not None else (a.sample + 7) % pairs.n_samples
-    true = torch.as_tensor(pairs.stimulus[[a.sample], :a.frames], dtype=torch.float32)
-    other = torch.as_tensor(pairs.stimulus[[ctrl_i], :a.frames], dtype=torch.float32)
-    print(f"clip {a.sample} (control clip {ctrl_i}), {a.frames} frames, types {a.types}")
-
     net = load_network(a.model)
+    dev = device_of(net)
+    if a.from_dataset:
+        ctrl_i = a.control_sample if a.control_sample is not None else a.sample + 7
+        true = torch.as_tensor(clip_from_sintel(a.sample, a.frames, a.dt)[None], device=dev)
+        other = torch.as_tensor(clip_from_sintel(ctrl_i, a.frames, a.dt)[None], device=dev)
+    else:
+        pairs = P.Pairs.load(ROOT / "data" / "decode" / a.run / "pairs.npz")
+        ctrl_i = a.control_sample if a.control_sample is not None else (a.sample + 7) % pairs.n_samples
+        true = torch.as_tensor(pairs.stimulus[[a.sample], :a.frames], dtype=torch.float32, device=dev)
+        other = torch.as_tensor(pairs.stimulus[[ctrl_i], :a.frames], dtype=torch.float32, device=dev)
+    print(f"clip {a.sample} (control clip {ctrl_i}), {a.frames} frames, types {a.types}, device {dev}")
+
     types, index = P.type_index(net.connectome)
     missing = [t for t in a.types if t not in index]
     if missing:
@@ -209,7 +297,7 @@ def main(argv=None) -> int:
     print("wrong-target control:")
     ctrl, trace_c = invert(net, target_other, cells, dt=a.dt, state=state, steps=a.steps, lr=a.lr, tv=a.tv, init=None)
 
-    t, r, c = true[0].numpy(), rec[0].numpy(), ctrl[0].numpy()
+    t, r, c = true[0].cpu().numpy(), rec[0].numpy(), ctrl[0].numpy()
     s_rec, s_ctrl = pixcorr_per_frame(r, t), pixcorr_per_frame(c, t)
     scores = {"inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
               "inversion_per_frame": s_rec.tolist(), "control_per_frame": s_ctrl.tolist(),
