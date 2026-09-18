@@ -184,7 +184,7 @@ def task_weights(cells: list[np.ndarray], n_nodes: int, device) -> torch.Tensor:
 
 def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: float, state, steps: int, lr: float,
                  tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3,
-                 log_every: int = 10) -> tuple[torch.Tensor, np.ndarray, int]:
+                 log_every: int = 10, time_weight: torch.Tensor | None = None) -> tuple[torch.Tensor, np.ndarray, int]:
     """B independent inversions in one pass: `targets` (B, T, n_nodes), task b
     read on `cells[b]`. Returns the videos (B, T, H), the fit trace (steps, B)
     and the number of steps run. Stops early when every task's fit changed by
@@ -202,13 +202,17 @@ def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: flo
     valid = nb >= 0
     w = task_weights(cells, targets.shape[2], dev)
     targets = targets.to(dev)
+    # which frames the fit reads (B, T), normalised per task; all of them by
+    # default; the "dark after a clip" dream reads only the dark ones
+    tw = torch.ones(B, T, device=dev) if time_weight is None else time_weight.to(dev).float()
+    tw = tw / tw.sum(1, keepdim=True).clamp(min=1e-12)
     trace = []
     t0 = time.time()
     steps_run = 0
     for step in range(steps):
         opt.zero_grad(set_to_none=True)
         act = simulate(net, video, dt, state)
-        fit = (((act - targets) ** 2) * w[:, None, :]).sum(-1).mean(1)          # (B,) each task's own MSE
+        fit = ((((act - targets) ** 2) * w[:, None, :]).sum(-1) * tw).sum(1)   # (B,) each task's own MSE
         v = video[..., nb.clamp(min=0)]
         space = ((v - video[..., None]) ** 2 * valid).sum(-1).mean((1, 2)) / valid.float().mean().clamp(min=1e-6)
         time_ = ((video[:, 1:] - video[:, :-1]) ** 2).mean((1, 2)) if T > 1 else video.new_zeros(B)

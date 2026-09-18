@@ -126,6 +126,25 @@ plateau_tol = 0.01
 # On the 2026-09-19 ladder this stops at step 127 of 150, fits within 2.4 %.
 plateau_floor = 0.001
 
+[generate.dreams]
+# Dreams-lite (ROADMAP item 11, flydream.generate.dreams): states no clip caused.
+# White noise into the eye: luminance 0.5 + N(0, sd), clipped to [0, 1], a new
+# draw every frame. 0.15 is about the sd of a Sintel frame's luminance across
+# the eye (0.18 for clip 3).
+eye_noise_sd = 0.15
+# Flash: grey, then flash_frames frames of white starting at flash_start.
+flash_start = 10
+flash_frames = 5
+# The dark after a clip: this Sintel clip, then dark_frames of black; the fit
+# reads the dark frames only.
+dark_after_sample = 3
+dark_frames = 40
+# Internally generated activity: Gaussian noise of this sd added to every
+# cell's activity after every Euler step of the target simulation (the eye
+# sees grey). The median cell's sd over time under a Sintel clip is 0.11 in
+# FlyVis (measured 2026-09-19); 0.05 is half of that.
+neuron_noise_sd = 0.05
+
 [benchmark]
 # Engineering experiment only; does not change the reference training recipe.
 # 30 requested updates matches the previous smoke; the actual count is recorded.

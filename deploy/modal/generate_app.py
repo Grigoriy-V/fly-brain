@@ -98,20 +98,65 @@ def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, marg
     return out
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=2, memory=12288, timeout=60 * MINUTES)
+def dreams(model: str = "malecns", sources: str = "eye_noise,flash,dark_after,neuron_noise", frames: int = 40,
+           margin: int = 5, steps: int = 150, lr: float = 0.05, tv: float = 0.02, dt: float = 0.02,
+           t_pre: float = 1.0, stages: str = "", batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0,
+           plateau_floor: float = 1e-3, seed: int = 0) -> list[dict]:
+    """ROADMAP item 11: every source in `sources`, every stage, inversion beside
+    its shuffled-state control, one batch per source."""
+    import numpy as np
+
+    _prepare_root()
+    from flydream.generate.dreams import run_dreams
+
+    st = [s.split("+") for s in stages.split(",")] if stages else STAGES
+    prefix = f"{time.strftime('%Y-%m-%d')}_{'malecns' if model.startswith('malecns') else 'flyvis'}_"
+    t0 = time.time()
+    out = []
+    for source in sources.split(","):
+        records = run_dreams(model, source.strip(), st, frames=frames, margin=margin, steps=steps, lr=lr, tv=tv, dt=dt,
+                             t_pre=t_pre, batch=batch, plateau_steps=plateau_steps, plateau_tol=plateau_tol,
+                             plateau_floor=plateau_floor, seed=seed, out_root=Path(GEN_ROOT) / "data" / "generate",
+                             tag_prefix=prefix)
+        for r in records:
+            buf = io.BytesIO()
+            np.savez_compressed(buf, **r["arrays"])
+            out.append({**{k: v for k, v in r.items() if k != "arrays"}, "npz_b64": base64.b64encode(buf.getvalue()).decode()})
+    runs_volume.commit()
+    print(f"dreams: {len(out)} records in {time.time() - t0:.0f} s on {GPU}", flush=True)
+    return out
+
+
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
-         stages: str = ""):
+         stages: str = "", dream_sources: str = "", seed: int = 0):
+    """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
+    instead of the clip ladder."""
     root = Path(__file__).resolve().parents[2]
     frames = GEN.get("frames", 40) if frames < 0 else frames
     margin = GEN.get("margin", 5) if margin < 0 else margin
     steps = GEN.get("steps", 150) if steps < 0 else steps
-    print(f"ladder on {GPU}: {model}, clip {sample}, {frames} frames + margin {margin}, {steps} steps")
+    common = dict(model=model, frames=frames, margin=margin, steps=steps, lr=GEN.get("lr", 0.05), tv=GEN.get("tv", 0.02),
+                  dt=GEN.get("dt", 0.02), t_pre=GEN.get("t_pre", 1.0), stages=stages, batch=GEN.get("batch", 0),
+                  plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
+                  plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
-    records = ladder.remote(model=model, sample=sample, frames=frames, margin=margin, steps=steps,
-                            lr=GEN.get("lr", 0.05), tv=GEN.get("tv", 0.02), dt=GEN.get("dt", 0.02),
-                            t_pre=GEN.get("t_pre", 1.0), stages=stages, batch=GEN.get("batch", 0),
-                            plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
-                            plateau_floor=GEN.get("plateau_floor", 1e-3))
+    if dream_sources:
+        print(f"dreams on {GPU}: {model}, sources {dream_sources}, {frames} frames + margin {margin}, {steps} steps")
+        records = dreams.remote(sources=dream_sources, seed=seed, **common)
+        for r in records:
+            d = root / "data" / "generate" / r["tag"]
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "recovered.npz").write_bytes(base64.b64decode(r.pop("npz_b64")))
+            (d / "meta.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+            rr = f"r {r['inversion']:+.3f} (control {r['control']:+.3f})" if r["inversion"] is not None else "r n/a"
+            print(f"{r['tag']:<44} {rr}  contrast out {r['contrast_inversion']:.3f} / control {r['contrast_control']:.3f}")
+        print(f"done in {time.time() - t0:.0f} s; draw with: python tools/fig_dreams.py --prefix {records[0]['tag'].split('_dream_')[0]}")
+        return
+    print(f"ladder on {GPU}: {model}, clip {sample}, {frames} frames + margin {margin}, {steps} steps")
+    records = ladder.remote(sample=sample, **common)
     tags = []
     for r in records:
         d = root / "data" / "generate" / r["tag"]

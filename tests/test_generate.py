@@ -80,3 +80,42 @@ def test_batched_inversion_matches_the_single_one(tmp_path):
     assert n == 5 and trace.shape == (5, 2)
     for b in range(2):
         assert torch.allclose(batched[b], single[b], atol=1e-5), b
+
+
+def test_dream_inputs_and_shuffle_and_noisy_simulation(tmp_path):
+    import os
+    os.environ["FLYVIS_ROOT_DIR"] = str(tmp_path)
+    import torch
+    from flydream.model import patch_datamate_for_windows
+    patch_datamate_for_windows()
+    from flyvis import Network
+    from flyvis.utils.config_utils import Namespace
+    from flydream.generate import dreams as D
+    from flydream.generate import invert as I
+
+    d = {"eye_noise_sd": 0.1, "flash_start": 2, "flash_frames": 2, "dark_frames": 4}
+    rng = np.random.default_rng(0)
+    v, tw = D.input_video("eye_noise", 6, 2, 0.02, d, rng)
+    assert v.shape == (8, 721) and v.min() >= 0 and v.max() <= 1 and tw.sum() == 8
+    v, tw = D.input_video("flash", 6, 2, 0.02, d, rng)
+    assert v[1].max() == 0.5 and v[2].min() == 1.0 and v[4].max() == 0.5
+    v, tw = D.input_video("neuron_noise", 6, 2, 0.02, d, rng)
+    assert np.all(v == 0.5)
+
+    fixture = str(__import__("pathlib").Path(__file__).parent / "fixtures" / "mini_connectome.json")
+    net = Network(connectome=Namespace(type="ConnectomeFromAvgFilters", file=fixture, extent=2, n_syn_fill=0))
+    net.eval()
+    H, T, dt = net.stimulus.n_input_elements, 5, 0.02
+    grey = torch.full((1, T, H), 0.5)
+    state = net.steady_state(0.2, dt, batch_size=1, value=0.5)
+    with torch.no_grad():
+        quiet = I.simulate(net, grey, dt, state)
+        noisy0 = D.simulate_noisy(net, grey, dt, state, 0.0, seed=0)
+        noisy = D.simulate_noisy(net, grey, dt, state, 0.1, seed=0)
+        again = D.simulate_noisy(net, grey, dt, state, 0.1, seed=0)
+    assert torch.allclose(noisy0, quiet, atol=1e-6)        # sd 0 is the plain forward
+    assert not torch.allclose(noisy, quiet) and torch.allclose(noisy, again)   # noise acts, and is seeded
+    cells = np.arange(0, 4)
+    sh = D.shuffled(quiet, cells, np.random.default_rng(1))
+    assert torch.allclose(sh[:, :, 4:], quiet[:, :, 4:])
+    assert torch.allclose(sh[:, :, :4].sort(-1).values, quiet[:, :, :4].sort(-1).values)
