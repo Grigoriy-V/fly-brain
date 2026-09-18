@@ -1,9 +1,9 @@
 # Operations Map
 
 Configuration, data locations, Modal, and how a run is started and read
-back. Not a roadmap. **State on 2026-09-18:** nothing is set up yet; the
-sections below name what each step fills in, so that a later reader finds
-one place per fact.
+back. Not a roadmap. **State on 2026-09-19:** data, model zero, the
+decoder, the generator and the three Modal apps are set up; each section
+below names where its facts live so a later reader finds one place per fact.
 
 ## Machine and environment
 
@@ -48,7 +48,7 @@ one place per fact.
 .venv\Scripts\python.exe -m flydream.data.export
 .venv\Scripts\python.exe -m flydream.model.zero --models 0 1 2 --protocols flash edge --control --run <id>   # step 2, ~8 min CPU without --control
 .venv\Scripts\python.exe -m flydream.model.zero --models 0 --no-rescale --run <id>          # reproduces the pre-fix transplant (ISS-0003)
-.venv\Scripts\python.exe -m pytest -q                                                       # 47 offline tests
+.venv\Scripts\python.exe -m pytest -q                                                       # 64 offline tests
 .venv\Scripts\python.exe tools\run_log.py --agent claude --run <id> --experiment <x> --metric <m> --value <v>
 ```
 
