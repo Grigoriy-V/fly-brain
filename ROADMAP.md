@@ -174,7 +174,15 @@ One item at a time; the human's word starts each. Order: **13**; then the paused
     **13B, the generative decoder** (only after 13A shows a measured
     dependence on the state in `deep`): `state → a distribution of
     compatible videos` — one state is compatible with many inputs — via a
-    small latent (a conditional VAE or a flow), `state + z → video`; every
+    small latent, `state + z → video`; candidates, none chosen yet (the
+    human, 2026-09-19): a conditional VAE, a normalising flow, or a
+    conditional diffusion / flow-matching model on the 721-column frames
+    (a small DiT over columns as tokens) — the modern generative
+    architectures fit here, not in 13A, because 13A measures a
+    deterministic dependence on the state and a stochastic model cannot be
+    compared with the inversion by r. The choice is made on 13A's numbers:
+    the weaker the decoder that already reads the state, the less a strong
+    prior can add without hiding it (the round trip decides). Every
     sample goes round the trip and reports distance(state′, target). The
     latent is the "parameters, not a copy" the human asked for; edited
     states (item 12) are inputs like any other. Perceptual quality is not
