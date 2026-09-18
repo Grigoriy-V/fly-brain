@@ -104,8 +104,10 @@ and authorization.
 One item at a time; the human's word starts each. Order: **9 → 11 → 12 →
 13**; then the paused items of this branch when the human says so.
 
-9. **The end of the window is constrained.** The generator fits 25 frames
-   and shows the first 20, so the last shown frames have a future that the
+9. **The end of the window is constrained; clip length is a setting.** The
+   generator fits `frames + margin` and shows `frames` (`config.toml
+   [generate]`: frames 40 — the whole Sintel clip, 0.8 s — margin 5; the
+   human, 2026-09-19: longer clips are wanted, cost is linear in length), so the last shown frames have a future that the
    recorded activity reflects; the item-8 defect (blurred frames 18-20)
    should disappear. Change in `flydream.generate.invert` (buffer length
    and the slice on save), one rerun of the MaleCNS ladder on a T4
@@ -193,6 +195,22 @@ cancelled; it waits for the human's word.
   language model made of fly wiring). Parked 2026-09-18 ("я бы начал не с
   LLM"); if revisited, a degree-preserving shuffled connectome must do
   measurably worse or nothing was shown.
+- **14, colour as an ML task** (the human, 2026-09-19). FlyVis reads one
+  luminance in all eight photoreceptor types and has no colour pathway;
+  MaleCNS has the types (R7p/y, R8p/y, Dm8a/b, Dm9) but no parameters to
+  transplant. Task: give the model a UV/blue/green input and learn the
+  colour pathway's parameters on a task or a fit; until then colour in
+  outputs is a display overlay from the source clip and says so. Weeks,
+  training beyond $0.50; beyond the branch.
+- **15, HDRI / 360° panoramas as the stimulus source and training data**
+  (the human, 2026-09-19). A virtual fly camera inside a panorama (Poly
+  Haven, CC0, thousands free) rendered onto the 721 ommatidia with its
+  orientation as a parameter: unlimited clips with exact optic flow from
+  rotations — the reference task's training signal, against Sintel's 23
+  scenes. Translation needs scenes with depth (3D environments); HDR range
+  needs item 5's luminance adaptation, otherwise the panorama is tone-mapped
+  to 0..1. A day for the renderer; then the stimulus set for 11/12 and the
+  data for 3'. Beyond the branch until the renderer exists, then it joins it.
 - **One-liners, recorded only:** the three-connectome comparison (FlyVis,
   FlyWire, MaleCNS on one map); a second training objective; the embodied
   loop (the model as the eyes of a MuJoCo fly); inversion on real
