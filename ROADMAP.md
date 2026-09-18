@@ -210,6 +210,23 @@ cancelled; it waits for the human's word.
   needs item 5's luminance adaptation, otherwise the panorama is tone-mapped
   to 0..1. A day for the renderer; then the stimulus set for 11/12 and the
   data for 3'. Beyond the branch until the renderer exists, then it joins it.
+- **16, the brain as its own generator — feedback connections** (the
+  human, 2026-09-19: "чтобы сам мозг стал нейронной моделью-генератором";
+  "вернёмся к ней позже"). Items 8-13 generate *beside* the brain: an
+  optimiser or a separate network turns a state into a video. The
+  alternative is inside it: the MaleCNS export carries top-down and
+  between-layer feedback edges that model zero, shaped like FlyVis
+  (feed-forward, input → output), does not use. Connect them, drive the
+  deep types (T4/T5, or a manipulated state from item 12) and read the
+  picture off the early layers (L1/L3 are the video to r 0.99 for the
+  ridge decoder) — no second model, the wiring itself makes the image, as
+  in the biological account of dreaming. Before building: count the
+  feedback edges onto the ladder's types in the export and their weight;
+  a network with feedback must be checked for stability at dt 0.02 (a
+  spectral or a long-run test) before any picture is read. Deliverable:
+  one clip beside the item-8 inversion of the same state and a
+  shuffled-feedback control (same edges, permuted targets). Beyond the
+  branch until 13A is measured.
 - **One-liners, recorded only:** the three-connectome comparison (FlyVis,
   FlyWire, MaleCNS on one map); a second training objective; the embodied
   loop (the model as the eyes of a MuJoCo fly); inversion on real
