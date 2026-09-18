@@ -115,6 +115,14 @@ and authorization.
   diagonal stripes from Mi4/Tm9/T4a — the wiring's own texture.
   `reports/2026-09-19_step11_dreams_lite.md`,
   `reports/figures/2026-09-19_malecns_dream_*.gif`.
+- **12, manipulated states** (2026-09-19): per-type normalised loss, 15
+  tasks in one T4 batch (≈ $0.05). Gain edits of one type leave the clip
+  (r_A 0.95-1.00) with a residual 2,000-8,000× the control's — unreachable
+  states; the mix of T4a states is the state of the mixed video (r 0.99 at
+  α = 0.5, monotone in α); hybrids are a contest that T4/T5 win
+  (0.51/0.62 and 0.88/0.15). The three-source hybrid waits for a balanced
+  readout. `reports/2026-09-19_step12_manipulated_states.md`,
+  `reports/figures/2026-09-19_malecns_mix_{C,A,B}.gif`.
 - **3, training priced** (2026-09-18): T4 smoke, packing, batch sweep and
   the Codex session's optimisation benchmark; the reference schedule
   (~$10-15 per member) is over budget and was withdrawn; what remains is
@@ -123,26 +131,7 @@ and authorization.
 
 ## Queue: the dreams and visual-data branch
 
-One item at a time; the human's word starts each. Order: **12 → 13**; then the paused items of this branch when the human says so.
-
-12. **Level B, manipulated states** (the human's note
-    `docs/ideas/mixed_brain_state_video_generation.md`, 2026-09-19, agreed
-    in chat). The target state is assembled from several sources and the
-    loss is **normalised per type** (1 / (cells × variance) so T4/T5 at sd
-    0.4 cannot drown L3 at 0.04). Three scenarios in one batch on a T4
-    (≈ $0.10), each column scored by r to clip A *and* r to clip B so the
-    winner is visible, each beside its unmanipulated state:
-    (C) **gain edits** of one clip's state — T4a × 0.5, × 2, T5 × 0,
-    Mi4 × 1.5, with × 1 as the control that must give back the clip;
-    (A) **interpolation** of one type's state between clips 3 and 10 at
-    five points, beside the state the averaged video causes (is the mix
-    linear?); (B) **hybrid** — L1/L3 from clip 3 with T4/T5 from clip 10,
-    and the reverse (appearance from one clip, motion from the other?
-    T4/T5 alone give the clip back with r 0.93-1.00, so a contest between
-    the clips is expected, not a clean transfer). A three-source hybrid
-    (the note's D) waits for B's answer. A hybrid is a counterfactual set
-    of constraints, not a perception: the video most compatible with
-    conditions no input produces together.
+One item at a time; the human's word starts each. Order: **13**; then the paused items of this branch when the human says so.
 
 13. **Level C, a learned generator.** A network "state → video" trained on
     pairs the model produces without limit, for one-pass generation from any
