@@ -159,21 +159,17 @@ def mix(model: str = "malecns", sample_a: int = 3, sample_b: int = 10, frames: i
     return out
 
 
-@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=4, memory=24576, timeout=120 * MINUTES)
-def pairs13(procedural: str = "pairs13/procedural_800_s0.npz", model: str = "malecns", frames: int = 45,
-            dt: float = 0.02, t_pre: float = 1.0, sim_batch: int = 32, shard: int = 512, seed: int = 0,
-            held_scenes: str = "", held_classes: str = "", val_fraction: float = 0.1, out: str = "pairs13") -> dict:
-    """ROADMAP 13A data: the augmented Sintel clips (rendered here, cached on the
-    data volume) plus the uploaded procedural clips, simulated through model
-    zero; the 14 ladder types' activity written float16 in shards under
-    /runs/<out>/ with a manifest (meta per clip, the split)."""
+@app.function(image=image, volumes={DATA: data_volume}, cpu=8, memory=24576, timeout=120 * MINUTES)
+def pairs13_videos(procedural: str = "pairs13/procedural_800_s0.npz", frames: int = 45, dt: float = 0.02,
+                   out: str = "pairs13/videos.npz") -> dict:
+    """ROADMAP 13A data, the CPU half: render the augmented Sintel clips (flyvis
+    caches the render on the data volume), append the uploaded procedural
+    clips, write every video with its meta to /data/<out>. No GPU: AGENTS
+    "a GPU function does GPU work only"."""
     import numpy as np
 
     _prepare_root()
-    from flydream.generate.invert import load_network
-    from flydream.generate.pairs13 import LADDER_TYPES, simulate_states, sintel_videos, split_indices
-    from flydream.decode import pairs as P
+    from flydream.generate.pairs13 import sintel_videos
 
     t0 = time.time()
     z = np.load(f"{DATA}/{procedural}")
@@ -181,9 +177,36 @@ def pairs13(procedural: str = "pairs13/procedural_800_s0.npz", model: str = "mal
     print(f"procedural: {proc_v.shape}", flush=True)
     sin_v, scenes, names = sintel_videos(frames, dt)
     print(f"sintel augmented: {sin_v.shape}, {len(set(scenes))} scenes, {time.time() - t0:.0f} s", flush=True)
-    data_volume.commit()          # the rendered sintel cache
     videos = np.concatenate([sin_v, proc_v])
-    meta = [{"source": "sintel", "scene": sc, "name": nm} for sc, nm in zip(scenes, names)] +            [{"source": "procedural", "class": p["class"], "params": p} for p in proc_p]
+    meta = [{"source": "sintel", "scene": sc, "name": nm} for sc, nm in zip(scenes, names)] + \
+           [{"source": "procedural", "class": p["class"], "params": p} for p in proc_p]
+    np.savez(f"{DATA}/{out}", videos=videos, meta=np.array([json.dumps(m) for m in meta]))
+    data_volume.commit()
+    print(f"videos: {videos.shape} in {time.time() - t0:.0f} s (CPU)", flush=True)
+    return {"n": int(len(videos)), "n_sintel": int(len(sin_v)), "n_procedural": int(len(proc_v)), "seconds": round(time.time() - t0, 1)}
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=4, memory=24576, timeout=120 * MINUTES)
+def pairs13(videos_file: str = "pairs13/videos.npz", model: str = "malecns", frames: int = 45,
+            dt: float = 0.02, t_pre: float = 1.0, sim_batch: int = 32, shard: int = 512, seed: int = 0,
+            held_scenes: str = "", held_classes: str = "", val_fraction: float = 0.1, out: str = "pairs13") -> dict:
+    """ROADMAP 13A data, the GPU half: the assembled videos of `pairs13_videos`
+    simulated through model zero; the 14 ladder types' activity written
+    float16 in shards under /runs/<out>/ with a manifest (meta per clip, the
+    split). Starts from finished inputs; the card's utilisation is sampled."""
+    import numpy as np
+
+    _prepare_root()
+    from flydream.generate.invert import GpuSampler, load_network
+    from flydream.generate.pairs13 import LADDER_TYPES, simulate_states, split_indices
+    from flydream.decode import pairs as P
+
+    t0 = time.time()
+    z = np.load(f"{DATA}/{videos_file}")
+    videos, meta = z["videos"], [json.loads(x) for x in z["meta"]]
+    sin_v = [m for m in meta if m["source"] == "sintel"]; proc_v = [m for m in meta if m["source"] == "procedural"]
+    print(f"videos: {videos.shape} ({len(sin_v)} sintel, {len(proc_v)} procedural)", flush=True)
     split = split_indices(meta, held_scenes.split(",") if held_scenes else [], held_classes.split(",") if held_classes else [],
                           val_fraction, seed)
     net = load_network(model)
@@ -193,16 +216,19 @@ def pairs13(procedural: str = "pairs13/procedural_800_s0.npz", model: str = "mal
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
     shards = []
-    for i in range(0, len(videos), shard):
-        act = simulate_states(net, videos[i:i + shard], cells, dt, t_pre, sim_batch)
-        f = outdir / f"shard_{i // shard:03d}.npz"
-        np.savez(f, videos=videos[i:i + shard], states=act, index=np.arange(i, i + len(act)))
-        shards.append(f.name)
-        print(f"  {f.name}: {act.shape} ({time.time() - t0:.0f} s)", flush=True)
+    with GpuSampler() as gpu:
+        for i in range(0, len(videos), shard):
+            act = simulate_states(net, videos[i:i + shard], cells, dt, t_pre, sim_batch)
+            f = outdir / f"shard_{i // shard:03d}.npz"
+            np.savez(f, videos=videos[i:i + shard], states=act, index=np.arange(i, i + len(act)))
+            shards.append(f.name)
+            print(f"  {f.name}: {act.shape} ({time.time() - t0:.0f} s)", flush=True)
     manifest = {"model": model, "frames": frames, "dt": dt, "t_pre": t_pre, "types": LADDER_TYPES,
                 "cells": cells.tolist(), "type_of_cell": type_of.tolist(), "n": int(len(videos)),
                 "n_sintel": int(len(sin_v)), "n_procedural": int(len(proc_v)), "shards": shards, "shard_size": shard,
-                "meta": meta, "split": split, "seconds": round(time.time() - t0, 1), "gpu": GPU}
+                "meta": meta, "split": split, "seconds": round(time.time() - t0, 1), "gpu": GPU,
+                "gpu_utilisation": gpu.mean}
+    print(f"GPU utilisation over the simulation: {gpu.mean}", flush=True)
     (outdir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     runs_volume.commit()
     print(f"pairs13: {len(videos)} clips in {len(shards)} shards, {time.time() - t0:.0f} s on {GPU}", flush=True)
@@ -227,11 +253,12 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
 
     _prepare_root()
     from flydream.generate import learned as L
-    from flydream.generate.invert import invert_batch, load_network, simulate
+    from flydream.generate.invert import GpuSampler, invert_batch, load_network, simulate
     from flydream.generate.mix import type_weights
     from flydream.decode import pairs as P
 
     torch.manual_seed(seed); np.random.seed(seed)
+    gpu = GpuSampler(); gpu.__enter__()
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     root = Path(RUNS) / run
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
@@ -315,9 +342,11 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
         results[cond] = res
         del train, val, test, targets
         torch.cuda.empty_cache()
+    gpu.__exit__(None, None, None)
     summary = {"run": run, "epochs": epochs, "batch": batch, "lr": lr, "width": width, "depth": depth, "rings": rings,
                "taps": taps, "frames": frames, "margin": margin, "seconds": round(time.time() - t0, 1), "gpu": GPU,
-               "conditions": results}
+               "gpu_utilisation": gpu.mean, "conditions": results}
+    print(f"GPU utilisation over train13: {gpu.mean}", flush=True)
     (outdir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     runs_volume.commit()
     print(f"train13 done in {time.time() - t0:.0f} s on {GPU}", flush=True)
@@ -327,7 +356,7 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
          stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = "", pairs13_run: bool = False,
-         train13_run: bool = False, epochs: int = 12):
+         train13_run: bool = False, epochs: int = 12, pairs13_videos_run: bool = False):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -353,10 +382,17 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
             print(f"{cond:>6} {'inversion':<9} r {res['inversion']['test_r']:+.3f}  round trip {np.mean(res['inversion']['roundtrip_per_clip']):.4f}")
         print(f"done in {time.time() - t0:.0f} s")
         return
+    if pairs13_videos_run:
+        P13 = _generate_settings_all().get("pairs13", {})
+        print(f"pairs13 videos on CPU: {frames + margin} frames, procedural {P13.get('n_per_class', 800)}/class")
+        r = pairs13_videos.remote(procedural=f"pairs13/procedural_{P13.get('n_per_class', 800)}_s{P13.get('seed', 0)}.npz",
+                                  frames=frames + margin, dt=GEN.get("dt", 0.02))
+        print(json.dumps(r)); print(f"done in {time.time() - t0:.0f} s")
+        return
     if pairs13_run:
         P13 = _generate_settings_all().get("pairs13", {})
-        print(f"pairs13 on {GPU}: {model}, {frames + margin} frames, procedural {P13.get('n_per_class', 800)}/class")
-        r = pairs13.remote(procedural=f"pairs13/procedural_{P13.get('n_per_class', 800)}_s{P13.get('seed', 0)}.npz",
+        print(f"pairs13 on {GPU}: {model}, {frames + margin} frames, from /data/pairs13/videos.npz")
+        r = pairs13.remote(videos_file="pairs13/videos.npz",
                            model=model, frames=frames + margin, dt=GEN.get("dt", 0.02), t_pre=GEN.get("t_pre", 1.0),
                            sim_batch=P13.get("sim_batch", 32), seed=P13.get("seed", 0),
                            held_scenes=",".join(P13.get("held_scenes", [])), held_classes=",".join(P13.get("held_classes", [])),
