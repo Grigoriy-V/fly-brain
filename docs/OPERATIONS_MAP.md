@@ -137,12 +137,13 @@ command below. The `modal` client is in the project `.venv`
   4 at 0.434 s/iter (9.2 samples/s), throughput saturating at ~14 samples/s
   from batch 16 (~$12 per member at 10^6 samples); batch 64 and above
   cannot run (fewer than 64 training clips).
-- **Decoding on Modal:** long local decode jobs (a ridge map over 65 types
-  takes 12-45 min per lag window on the owner's CPU) may be run on Modal
-  without a per-action gate (the human, 2026-09-18: "если на локале так
-  долго, разрешаю запускать такое на модале"); the price is still stated in
-  the report. The ridge fit is SVD-bound, so a many-core CPU function is the
-  first choice unless the fit is moved to torch on the card.
+- **When Modal at all (DECISIONS 2026-09-18, night):** only for a GPU or for
+  a measured ≥4× (better ≥6×) wall-clock gain over the owner's machine (32
+  cores, 102 GB RAM); a training proposal costs single dollars. The ridge
+  map is CPU-bound and runs locally, several processes at once
+  (`tools/map_local.py`); `deploy/modal/decode_app.py` stays for a
+  GPU-bound case. This supersedes the same day's earlier "decode on Modal
+  without a gate".
 - **Volumes:** `flydream-data` (`/ol/<export>.json`, `/flyvis/SintelDataSet`,
   `/init/<state>.pt`), `flydream-runs` (`/results/flow/<ensemble>/<member>/`
   as flyvis's NetworkDir, plus datamate's connectome cache and the Sintel

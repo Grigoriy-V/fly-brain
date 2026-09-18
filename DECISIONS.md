@@ -330,3 +330,28 @@ and a writer (~630k subagent tokens) with no rule saying what they may do.
 Consequences: the `Agent` calls name a model; a subagent's output is data
 checked by the project agent; the step's report carries the delegation's
 cost.
+
+## 2026-09-18 — Modal is used only for a measured ≥4× speed-up or for a GPU; training is priced in single dollars
+
+Decision (the human, 2026-09-18, night): "если доп скорости нет, модал не
+надо использовать, модал используем если есть х4 или лучше х6 ускорение,
+либо если надо гпу. Сразу скажу никаких $30 на обучение будет и быть не
+может." Modal runs a job only when it needs a GPU or when it is at least
+four times (better six) faster wall-clock than the owner's machine (32
+cores, 102 GB); a training proposal costs a few dollars at most.
+
+Why: the pilot of the ensemble map on Modal priced 100 CPU-bound ridge jobs
+at ~$30 for a wall-clock gain that the local machine gives by running
+several map processes at once; the reference schedule at ~$10–15 per
+member is over the project's budget for a single run.
+
+Consequences: the decodability map (ten members, five splits, two windows)
+runs locally with `tools/map_local.py` (N processes at once); member
+simulation stays local too (624 s per member on CPU against ~2 min plus
+transfer on a T4, no ≥4× gain after moving 1.3 GB per member back);
+`deploy/modal/decode_app.py` is kept for a GPU-bound case only. Training
+options are re-priced under single-digit dollars: a short schedule from the
+transplant with checkpoints and the plateau read off the validation loss
+(`reports/2026-09-18_step3_training_options.md`); the two-member reference
+schedule is withdrawn as a proposal. Supersedes the blanket "decode on Modal"
+line of the same day in `docs/OPERATIONS_MAP.md`.
