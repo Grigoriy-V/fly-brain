@@ -1,19 +1,14 @@
 # Roadmap
 
-**Updated:** 2026-09-18
+**Updated:** 2026-09-19
 
-**Project status:** steps 1 (data) and 2 (model zero) are built, measured
-and reported; step 4 (the decodability map) is built and under correction
-after an adversarial audit of 2026-09-18 (`ISSUES.md` ISS-0003 to ISS-0005).
-The research report (`reports/Коннектом мухи и план проекта.md`, 2026-09-18)
-surveyed the connectome datasets, FlyVis and the whole-brain simulators,
-decoding methods and the biology of fly sleep. The human's word of 2026-09-18
-fixed the shape: MaleCNS v1.0 is the canonical connectome from the first
-step, FlyVis is the reference model and the source of the starting
-parameters, training runs on Modal (`DECISIONS.md`, 2026-09-18). The human's
-word of the same day fixed the goal: the generative inverse model is the
-load-bearing deliverable, "что снится мухе" is the title, and the sleep
-chapter is a second stage after it.
+**Project status (2026-09-19):** steps 1 (data), 2 (model zero on
+MaleCNS), 4 (the decoder ladder) and 8 (the generator by encoder inversion)
+are done at their minimal shape; the deliverable — a working generator of
+clips from the model's internal states — exists on both brains as the check
+"state → the clip that caused it". Current step: 9, generation from states
+no clip caused. The research behind the plan is
+`reports/Коннектом мухи и план проекта.md`.
 
 **Change of course, 2026-09-18 night (the human: "да, меняй").** The human
 is not writing a paper; the deliverable is a working generator of images
@@ -58,46 +53,36 @@ equivalent within CUDA noise (`reports/2026-09-18_training_optimization_bench.md
 
 ## Current state
 
-- **Data:** the three MaleCNS v1.0 core Feather files and the FlyVis 1.2.0
-  pretrained ensemble are under `data/` with hashes in `data/manifest.json`;
-  neuPrint `male-cns:v1.0` reachable with the token in `.env`. The right
-  optic lobe is exported as `data/ol/filters_R.json` (55 nodes, 1,234
-  type-pair edges, FlyVis shape) and as per-neuron tables
-  (`data/ol/neurons_R.parquet`, `edges_R_w5.parquet`); the type bridge is
-  `data/bridge/types.csv` (61 of 65 FlyVis nodes matched). Settings in
-  `config.toml [data]`.
-- **Model:** model zero (`flydream/model/zero.py`): FlyVis's deep
-  mechanistic network on the MaleCNS export with a pretrained member's
-  parameters transplanted by type; 31,526 neurons, 829k edges at the
-  density strides. Not trained on MaleCNS yet.
-- **Decoders:** `flydream/decode/` (rung one of the ladder): paired stimulus
-  and per-cell-type activity split by scene, ridge with the penalty tuned per
-  cell type, PixCorr / R2 / SSIM on the lattice / identification, the
-  hexagonal lattice as a raster, and a driver writing one row per cell type
-  per control. Model and connectome are arguments (`--model malecns` runs the
-  same map on the MaleCNS export). Settings in `config.toml [decode]`.
-  Neither the hexagonal convolutional decoder nor encoder inversion is built.
-- **Environment:** `.venv` by `uv` on Python 3.12, `pyproject.toml`; torch
-  CPU locally, plus scipy and scikit-image for the raster metrics.
-  `pytest -q`: 34 offline tests, on a synthetic miniature connectome and
-  synthetic decoder data.
-- **Compute:** the owner's Windows machine for data preparation and small
-  runs; Modal for training, ensembles and inversion batches (the Modal
-  patterns of `D:/ML/local-multimodal-agent/deploy/modal/` are the reference
-  when that step comes).
-- **Measurement:** model zero validated against FlyVis (flash polarity 0.911
-  against 0.906; T4/T5 preferred direction within 45 degrees in 0.79 against
-  0.83, but DSI 0.020 against 0.391), `reports/2026-09-18_step2_model_zero.md`.
-  The decoder stack is checked but has no decodability result yet: on the
-  moving-edge protocol the sample-shuffle control scores what the real fit
-  scores (0.903 against 0.902, the control at least as high in 55 of 65
-  types), because every condition runs one schedule and the frame index alone
-  determines the stimulus. The map needs stimuli that are not synchronised to
-  each other; see `reports/2026-09-18_step4_decoder_stack.md`. Targets stay
-  FlyVis's (ON/OFF selectivity for 32 cell types, T4/T5 direction selectivity
-  against the 26 studies Lappalainen et al. used) and the decodability metrics
-  of the references (PixCorr, SSIM on the hexagonal lattice, identification,
-  spatiotemporal correlation for video).
+- **Data:** MaleCNS v1.0 core files and the FlyVis 1.2.0 ensemble under
+  `data/` with hashes in `data/manifest.json`; the right optic lobe exported
+  as `data/ol/filters_R_w5wk50m500oc.json` (60 types, 677 type pairs,
+  31,526 neurons, 1.39 M edges; weak-pair exception, outputs restricted to
+  the 18 columnar types); Sintel under `data/flyvis/SintelDataSet`.
+  Settings in `config.toml [data]`.
+- **Model:** model zero (`flydream/model/zero.py`): FlyVis's network on the
+  MaleCNS export with a member's parameters transplanted by type, gain
+  rescaled to total input per target and capped (v9: DSI 0.152 against
+  FlyVis's 0.391, flash polarity and direction at or above FlyVis, stable
+  on three members). Not trained on MaleCNS; training is optional (3').
+- **Decoders:** `flydream/decode/`: ridge per cell type (penalty chosen on
+  held-out scenes; float32 SVD), hex-conv head, metrics, raster, the map
+  driver, the lag sweep, the ensemble aggregation (parked). The window is
+  part of the measurement (ISS-0004), consecutive lags only (ISS-0006).
+- **Generator:** `flydream/generate/invert.py`: encoder inversion — a
+  20 × 721 video optimised through the frozen network to reproduce one
+  stage's state (Adam, TV prior, grey start); `run_ladder` for all stages
+  in one model load; `deploy/modal/generate_app.py` runs it on a T4
+  (10 stages in ~10 min, ~$0.10); `flydream/generate/figures.py` and the
+  two-input figures of 2026-09-19 draw it. Known defect: the last 2-3
+  frames of the window are unconstrained and blur.
+- **Compute:** the owner's machine (32 cores, 102 GB, CPU) for everything
+  that fits in hours; Modal T4 only for a GPU-bound job or a ≥4× gain;
+  training within $0.50 (DECISIONS 2026-09-18 night).
+- **Measurement:** decoder ladders at 0 and 80 ms on both brains
+  (`2026-09-19_decoder_ladders_flyvis_vs_malecns.gif`); the generator
+  recovers clips 3 and 10 from every stage with r 0.92-1.00 on both brains
+  (`2026-09-19_*_generator_two_inputs.*`,
+  `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). Tests: 64 offline.
 
 ## Done
 
@@ -127,14 +112,7 @@ equivalent within CUDA noise (`reports/2026-09-18_training_optimization_bench.md
   exists; CT1 absent (ISS-0002); datamate Windows and cache fixes.
   `reports/2026-09-18_step2_model_zero.md`.
 
-## Queue
-
-One item at a time; the human's word starts each. Order as of 2026-09-19:
-**9 (blur fix → A → B → C)**; later, not a priority: the hexal raster at
-64/128 px, 10, 3'; parked: 7 (full protocol), 5, 6, and item 3 as the
-reference schedule. Items 4 and 8 are closed at their minimal shape. Item
-bodies below keep their original text; the state lines say what of each
-still applies.
+**Closed 2026-09-19 at their minimal shape (moved here from the queue; the state lines inside say what was done and what was parked):**
 
 4. **The decodability map.** For every cell type of the optic lobe, three
    decoders back to the 721-hexal rendered input: ridge, a hexagonal
@@ -172,6 +150,119 @@ still applies.
    stopped mid-run and not repeated). Report:
    `reports/2026-09-18_step4_decoder_stack.md` (§9 the correction, §10 the
    aliased sweep).
+
+8. **The generator: encoder inversion.** Given the state of one or several
+   cell types at a moment, find the stimulus (721 hexals, then a 64×64 or
+   128×128 image through the hex raster) that the encoder — the FlyVis
+   network, later the MaleCNS model zero — maps closest to that state:
+   gradient descent on the input through the differentiable network (Bauer
+   et al. 2026), initialised from the ridge decoder's guess, with a
+   smoothness prior; the ridge reconstruction is the baseline it must beat,
+   the time-shuffle control the floor. Run first on CPU on short clips (the
+   network's step is ~0.4 s per frame at batch 1 on this machine); moved to
+   a T4 only if that is ≥4× faster for the batch that matters. Deliverable:
+   the same ladder picture as item 4 with an "inversion" column per stage,
+   a clip, and the compatibility score per frame; then the same on the
+   MaleCNS model zero. Report: `reports/<date>_step8_generator.md`.
+
+   State 2026-09-19: done as the check "state → the clip that caused it"
+   on both brains (10 stages, r 0.92–1.00, clips 3 and 10, T4, ~$0.20;
+   figures `2026-09-19_*_generator_two_inputs.*`,
+   `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). The generator is a
+   video optimiser conditioned on a brain state (20 frames × 721 hexals at
+   once, grey start, 150 Adam steps, TV prior); its known defect is the
+   blurred last 2–3 frames of the window. The human (2026-09-19): this is
+   verification, not yet generation; generation is what follows.
+
+
+## Queue
+
+One item at a time; the human's word starts each. Order as of 2026-09-19:
+**9 (blur fix → A → B → C)**; later, not a priority: the hexal raster at
+64/128 px, 10, 3'; parked: 7 (full protocol), 5, 6, and item 3 as the
+reference schedule. Items 4 and 8 are closed at their minimal shape. Item
+bodies below keep their original text; the state lines say what of each
+still applies.
+
+9. **Generation from states that no clip caused — the three levels the
+   human asked for (2026-09-19, "наконец-то мы говорим о том что я хотел").**
+   Level A, dreams-lite: input removed; the state comes from noise on the
+   input, a flash, a slow drift, or the dark after a clip (after-effect);
+   the item-8 generator turns it into a clip, beside a shuffled-state
+   control. Fourth input of level A (the human, 2026-09-19): **internally
+   generated activity** — the eye sees nothing (grey), noise is injected
+   into the neurons' own dynamics (a noise term in the Euler step, all
+   types or one type at a time, amplitude a setting in `config.toml`), the
+   state that results goes through the generator; the picture is then from
+   the wiring, not from the input's statistics. Control the same: the
+   generator on the shuffled state. Level B, manipulated states: mix two clips' states across
+   stages (a face in L3, a forest in T4/T5), amplify one type, interpolate
+   between two states; generate. Level C, a learned generator: a network
+   "state → video" trained on pairs the model produces without limit, for
+   one-pass generation from any state, with a generative prior for
+   resolution if wanted; checked against the inversion of A/B for what is
+   from the brain and what from the network. On MaleCNS; T4 minutes per
+   clip. Deliverables: one stacked clip per level with its control.
+   Fix on the way: fit with a few frames of margin past the window so the
+   end of the clip is constrained (item 8's blur).
+
+10. **A dense MaleCNS export: every type on all 721 columns** — recorded,
+    **not a priority** (the human, 2026-09-19: "вернёмся к ней позже"; it
+    replaces a fact of the data with FlyVis's one-cell-per-column
+    assumption, so it is a cosmetic choice for the pictures). Every
+    type with fewer than 721 cells in the right lobe (15 of the 33 output
+    types, e.g. Tm5a 251 cells at [3,1], TmY15 [3,3], Tm30 [4,4]) is
+    tiled onto the empty columns with the type's shared filters, the way
+    FlyVis assumes one cell per column; the transplant renormalises total
+    input per target cell; model zero is rebuilt and checked stable
+    (flash, DSI); the decoder and generator ladders on MaleCNS are redrawn
+    and the Tm5a/T5a lattice should be gone. Local CPU, about a day; the
+    generator on a T4 for cents. Every artefact from the dense export says
+    which cells were tiled in; the sparse export stays as the alternative
+    (`config.toml [data]` setting, new export tag).
+
+
+## Parked
+
+Kept, not cancelled: work the 2026-09-18 change of course moved off the path,
+with the reason, so a later reader can pick it up deliberately rather than
+rediscover it. Nothing here is refuted; it is out of the way.
+
+- **Paper-grade rigour (2026-09-18 night, the human: not a paper).** The
+  ensemble map (ten members × five splits × windows, `tools/map_local.py`,
+  `deploy/modal/decode_app.py`, `flydream.decode.ensemble`), per-type nulls,
+  the random-subset curves on every run, the four-window sweep on more than
+  one member, the from-scratch training control, validation against the 26
+  physiology studies, and the reference schedule of training (250k
+  iterations, ~$10-15 per member). All the code exists and is tested; the
+  measurements are stopped. Picked up only on the human's word.
+- **Training on MaleCNS as item 3.** Reduced to 3': an optional fine-tune
+  from the transplanted weights within $0.50 (about 1,200 iterations at batch
+  16 with `stats_relu` on a T4, `reports/2026-09-18_step3_training_options.md`
+  §5б), or longer on a cheaper provider (Vast.ai T4 ~$0.07/h) if the human
+  opens one. Bought only if the generator on model zero is visibly worse
+  than on FlyVis.
+
+- **The connectome as a computational substrate (an image generator or a
+  language model made out of fly wiring).** Parked on the human's word
+  2026-09-18: "я бы начал не с LLM". This was the first spark as the project
+  agent had read it, and the reading was wrong. The human's "image generator"
+  means the generative inverse model, which is the decoder ladder's third rung
+  and now the load-bearing item, not the connectome used as a substrate for
+  an unrelated task. If it is ever revisited, the control it needs is stated:
+  a connectome shuffled to the same degree distribution must do measurably
+  worse, or the experiment has shown nothing.
+- **Sleep and spontaneous activity as the project's culmination.** Not parked,
+  resequenced: the human confirmed 2026-09-18 that "что снится мухе" is a
+  marketing title and the chapter is a second stage, after the generator
+  works. The scientific content stays (decoding internally generated activity
+  against the orthogonality control); only its position moved.
+- **Per-target and per-pair filter normalisation** (`config.toml [data]
+  normalisation`). Measured and set aside at step 1: per-target sent TmY15 to
+  1.2e5 against FlyVis's 1.4, per-pair produced NaN. `"src"` stands. Kept
+  because a different substrate may behave differently.
+
+**Moved out of the queue 2026-09-19 (the human: the generator is the goal; these stay as written, for later):**
 
 3. **Training on Modal.** The optic-flow task of Lappalainen et al. on
    Sintel, the same loss, schedule and augmentations, on the MaleCNS model;
@@ -243,105 +334,6 @@ still applies.
    run on the resulting states, each clip beside its noise-input control.
    The full three-experiment protocol stays parked.
 
-8. **The generator: encoder inversion.** Given the state of one or several
-   cell types at a moment, find the stimulus (721 hexals, then a 64×64 or
-   128×128 image through the hex raster) that the encoder — the FlyVis
-   network, later the MaleCNS model zero — maps closest to that state:
-   gradient descent on the input through the differentiable network (Bauer
-   et al. 2026), initialised from the ridge decoder's guess, with a
-   smoothness prior; the ridge reconstruction is the baseline it must beat,
-   the time-shuffle control the floor. Run first on CPU on short clips (the
-   network's step is ~0.4 s per frame at batch 1 on this machine); moved to
-   a T4 only if that is ≥4× faster for the batch that matters. Deliverable:
-   the same ladder picture as item 4 with an "inversion" column per stage,
-   a clip, and the compatibility score per frame; then the same on the
-   MaleCNS model zero. Report: `reports/<date>_step8_generator.md`.
-
-   State 2026-09-19: done as the check "state → the clip that caused it"
-   on both brains (10 stages, r 0.92–1.00, clips 3 and 10, T4, ~$0.20;
-   figures `2026-09-19_*_generator_two_inputs.*`,
-   `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). The generator is a
-   video optimiser conditioned on a brain state (20 frames × 721 hexals at
-   once, grey start, 150 Adam steps, TV prior); its known defect is the
-   blurred last 2–3 frames of the window. The human (2026-09-19): this is
-   verification, not yet generation; generation is what follows.
-
-9. **Generation from states that no clip caused — the three levels the
-   human asked for (2026-09-19, "наконец-то мы говорим о том что я хотел").**
-   Level A, dreams-lite: input removed; the state comes from noise on the
-   input, a flash, a slow drift, or the dark after a clip (after-effect);
-   the item-8 generator turns it into a clip, beside a shuffled-state
-   control. Fourth input of level A (the human, 2026-09-19): **internally
-   generated activity** — the eye sees nothing (grey), noise is injected
-   into the neurons' own dynamics (a noise term in the Euler step, all
-   types or one type at a time, amplitude a setting in `config.toml`), the
-   state that results goes through the generator; the picture is then from
-   the wiring, not from the input's statistics. Control the same: the
-   generator on the shuffled state. Level B, manipulated states: mix two clips' states across
-   stages (a face in L3, a forest in T4/T5), amplify one type, interpolate
-   between two states; generate. Level C, a learned generator: a network
-   "state → video" trained on pairs the model produces without limit, for
-   one-pass generation from any state, with a generative prior for
-   resolution if wanted; checked against the inversion of A/B for what is
-   from the brain and what from the network. On MaleCNS; T4 minutes per
-   clip. Deliverables: one stacked clip per level with its control.
-   Fix on the way: fit with a few frames of margin past the window so the
-   end of the clip is constrained (item 8's blur).
-
-10. **A dense MaleCNS export: every type on all 721 columns** — recorded,
-    **not a priority** (the human, 2026-09-19: "вернёмся к ней позже"; it
-    replaces a fact of the data with FlyVis's one-cell-per-column
-    assumption, so it is a cosmetic choice for the pictures). Every
-    type with fewer than 721 cells in the right lobe (15 of the 33 output
-    types, e.g. Tm5a 251 cells at [3,1], TmY15 [3,3], Tm30 [4,4]) is
-    tiled onto the empty columns with the type's shared filters, the way
-    FlyVis assumes one cell per column; the transplant renormalises total
-    input per target cell; model zero is rebuilt and checked stable
-    (flash, DSI); the decoder and generator ladders on MaleCNS are redrawn
-    and the Tm5a/T5a lattice should be gone. Local CPU, about a day; the
-    generator on a T4 for cents. Every artefact from the dense export says
-    which cells were tiled in; the sparse export stays as the alternative
-    (`config.toml [data]` setting, new export tag).
-
-## Parked
-
-Kept, not cancelled: work the 2026-09-18 change of course moved off the path,
-with the reason, so a later reader can pick it up deliberately rather than
-rediscover it. Nothing here is refuted; it is out of the way.
-
-- **Paper-grade rigour (2026-09-18 night, the human: not a paper).** The
-  ensemble map (ten members × five splits × windows, `tools/map_local.py`,
-  `deploy/modal/decode_app.py`, `flydream.decode.ensemble`), per-type nulls,
-  the random-subset curves on every run, the four-window sweep on more than
-  one member, the from-scratch training control, validation against the 26
-  physiology studies, and the reference schedule of training (250k
-  iterations, ~$10-15 per member). All the code exists and is tested; the
-  measurements are stopped. Picked up only on the human's word.
-- **Training on MaleCNS as item 3.** Reduced to 3': an optional fine-tune
-  from the transplanted weights within $0.50 (about 1,200 iterations at batch
-  16 with `stats_relu` on a T4, `reports/2026-09-18_step3_training_options.md`
-  §5б), or longer on a cheaper provider (Vast.ai T4 ~$0.07/h) if the human
-  opens one. Bought only if the generator on model zero is visibly worse
-  than on FlyVis.
-
-- **The connectome as a computational substrate (an image generator or a
-  language model made out of fly wiring).** Parked on the human's word
-  2026-09-18: "я бы начал не с LLM". This was the first spark as the project
-  agent had read it, and the reading was wrong. The human's "image generator"
-  means the generative inverse model, which is the decoder ladder's third rung
-  and now the load-bearing item, not the connectome used as a substrate for
-  an unrelated task. If it is ever revisited, the control it needs is stated:
-  a connectome shuffled to the same degree distribution must do measurably
-  worse, or the experiment has shown nothing.
-- **Sleep and spontaneous activity as the project's culmination.** Not parked,
-  resequenced: the human confirmed 2026-09-18 that "что снится мухе" is a
-  marketing title and the chapter is a second stage, after the generator
-  works. The scientific content stays (decoding internally generated activity
-  against the orthogonality control); only its position moved.
-- **Per-target and per-pair filter normalisation** (`config.toml [data]
-  normalisation`). Measured and set aside at step 1: per-target sent TmY15 to
-  1.2e5 against FlyVis's 1.4, per-pair produced NaN. `"src"` stands. Kept
-  because a different substrate may behave differently.
 
 ## Not started
 
