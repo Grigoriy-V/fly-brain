@@ -75,7 +75,10 @@ dt = 0.02
 # window). A reported number is a sweep over `lag_windows`; `lags` is the
 # single window a quick run uses.
 lags = [0]
-lag_windows = [[0], [0, 1], [0, 2, 4], [0, 2, 4, 6, 8]]
+# Consecutive lags only: Sintel is 24 fps held over ~2 model steps at 50 Hz, and
+# taps two steps apart always land in the same phase of that hold, so a [0 2 4]
+# decoder alternates between two regimes frame by frame (ISSUES ISS-0006).
+lag_windows = [[0], [0, 1], [0, 1, 2, 3, 4], [0, 1, 2, 3, 4, 5, 6, 7, 8]]
 # Whole groups (a Sintel scene, a stimulus condition) held out for the test set,
 # and a second slice of the training groups used to choose the ridge penalty.
 test_fraction = 0.2

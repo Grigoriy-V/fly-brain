@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0006 | open | a decoder window of even-spaced lags ([0 2 4], [0 2 4 6 8]) aliases Sintel's 24→50 Hz frame hold: taps two steps apart sit in one phase of the two-step hold, the fit averages two regimes and the reconstruction alternates frame by frame (L3 per-frame corr 0.94/0.92/0.94/0.89/0.93/0.86…); consecutive lags [0 1 2 3 4] remove it; the sweep at those two windows is being redone | roadmap 4 |
 | ISS-0005 | mitigated (b fixed, a third-party) | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am (a: MaleCNS has 49 Lai fragments for ~750 Am, a reconstruction gap) and on the feedback pairs Tm2→L2 and Mi4→Tm2 (b: the min_weight cut, fixed by the weak-pair exception; v9 DSI 0.152 against v7's 0.109, all members stable) | roadmap 1, ISS-0003 |
 | ISS-0004 | open | the step-4 stage curve (R → L → Mi/Tm → T4/T5) is a decoder artefact: at a 60 ms window instead of lag 0, T5a's control-corrected score goes 0.057 → 0.625 and the order inverts; stage explains R² 0.317 of the map; read from the best of 50 members on one split | roadmap 4 |
 | ISS-0003 | mitigated | `transplant` copied FlyVis's `syn_strength` raw, though it is a gain divided by that connectome's own synapse count; on MaleCNS the copy underweighted T5's main drive and overweighted its inhibition, and step 2's DSI 0.020 was at least partly that (member 000 → 0.161 corrected) | roadmap 2, 3; DECISIONS 2026-09-18 |
@@ -36,6 +37,35 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0006 — even-spaced decoder lags alias the stimulus frame hold
+
+- **Status:** open; `config.toml [decode] lag_windows` changed to consecutive
+  lags, the 80 ms and 160 ms windows of the sweep being recomputed. Seen
+  2026-09-18 (night) by the human in the 80 ms ladder clip
+  (`2026-09-18_decode_sintel_flyvis_ladder_lag_0_2_4.gif`): L3 flickers.
+- **Seen:** Sintel is 24 fps resampled to the model's 50 Hz, so each source
+  frame is held for about two steps and the stimulus changes mostly on even
+  steps (mean frame-to-frame change 0.027 on even, 0.013 on odd steps). With
+  lags (0, 2, 4) the decoder's taps sit in one phase of that hold; the fit
+  averages the two regimes and the prediction alternates: L3 per-frame
+  PixCorr on five test clips 0.94 / 0.92 / 0.94 / 0.89 / 0.93 / 0.86 / 0.92
+  / 0.85 …, prediction jump even→odd 0.031 against odd→even 0.043. At lag 0
+  the curve declines smoothly; at (0, 1, 2, 3, 4) the jumps are 0.0385 /
+  0.0378 and the alternation is gone (mean corr 0.896). L3 shows it most
+  (an integrating cell whose response to each frame update is what the
+  40 ms taps read); Tm5a less.
+- **Costs:** the sweep's 80 ms and 160 ms points (report §10, ISS-0004)
+  were measured with aliased windows; the stage-level conclusion may hold
+  but the per-type numbers at those windows are not the final ones.
+- **Reproduce:** the script in the session transcript of 2026-09-18 night;
+  `flydream.decode.map --lags 0 2 4` against `--lags 0 1 2 3 4` on
+  `2026-09-18_decode_sintel_flyvis/pairs.npz`, per-frame correlation on
+  the test clips.
+- **Cause:** lags were chosen as a reach in milliseconds without regard to
+  the stimulus's own update period; a window must sample every step it
+  spans.
+- **Related:** roadmap 4; ISS-0004.
 
 ### ISS-0005 — the export's lamina and feedback pairs carry ~30× less total input than FlyVis
 
