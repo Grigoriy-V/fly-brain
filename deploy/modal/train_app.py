@@ -166,14 +166,25 @@ def smoke_batch(connectome: str = CONNECTOME, batches: str = "4,8,16,32", n_iter
     assumed; this only prices it."""
     from flydream.train.member import train_member
 
+    import torch
+
     out = []
     for i, b in enumerate(int(x) for x in batches.split(",")):
-        r = train_member(f"{DATA}/ol/{connectome}", f"9996/{i:03d}", n_iters, RESULTS, batch_size=b, dt=dt,
-                         delete_if_exists=True)
-        r["samples_per_s"] = round(b / max(r["s_per_iter"], 1e-9), 1)
+        try:
+            r = train_member(f"{DATA}/ol/{connectome}", f"9996/{i:03d}", n_iters, RESULTS, batch_size=b, dt=dt,
+                             delete_if_exists=True)
+            r["samples_per_s"] = round(b / max(r["s_per_iter"], 1e-9), 1)
+            r["peak_mem_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2) if torch.cuda.is_available() else None
+        except RuntimeError as e:                     # an OOM at a large batch is a result, not a crash
+            r = {"batch_size": b, "error": str(e)[:300], "s_per_iter": None, "samples_per_s": None, "train_s": None,
+                 "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         r["gpu_spec"] = GPU
-        print(json.dumps({k: r[k] for k in ("batch_size", "s_per_iter", "samples_per_s", "train_s", "gpu")}), flush=True)
+        print(json.dumps({k: r.get(k) for k in ("batch_size", "s_per_iter", "samples_per_s", "train_s", "peak_mem_gb", "gpu", "error")}), flush=True)
         out.append(r)
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
     runs_volume.commit()
     return out
 
