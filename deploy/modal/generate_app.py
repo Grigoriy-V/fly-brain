@@ -62,9 +62,10 @@ def _prepare_root() -> None:
 def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 20, steps: int = 150,
            lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, stages: str = "") -> list[dict]:
     import numpy as np
+
+    _prepare_root()          # before the import: flydream.model reads ROOT/config.toml on import
     from flydream.generate.invert import run_ladder
 
-    _prepare_root()
     st = [s.split("+") for s in stages.split(",")] if stages else STAGES
     prefix = f"{time.strftime('%Y-%m-%d')}_{'malecns' if model.startswith('malecns') else 'flyvis'}_"
     t0 = time.time()
