@@ -23,7 +23,7 @@ steps with the plateau stop (fired at 120). Every task is scored by mean
 per-frame PixCorr to clip A, to clip B, and to the averaged video ½(A+B).
 
 - **C, gain edits**: clip A's state on the ladder's 14 types (L1, L3, Mi1,
-  Mi4, Tm5a, Tm9, T4a-d, T5a-d; 10,094 cells) with one type scaled; × 1 is the
+  Mi4, Tm5a, Tm9, T4a-d, T5a-d; 9,624 cells) with one type scaled; × 1 is the
   control.
 - **A, interpolation**: T4a's state at α·A + (1−α)·B, read on T4a alone (721
   cells); control: the state the averaged video causes.

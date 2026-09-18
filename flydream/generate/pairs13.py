@@ -7,7 +7,7 @@ frozen brain from Sintel and procedural videos.
 Videos: the augmented Sintel set (flips and the six lattice rotations of the
 189 clips) and `flydream.generate.stimuli` clips, all `frames + margin`
 long. States: the activity of the 14 ladder types (L1, L3, Mi1, Mi4, Tm5a,
-Tm9, T4a-d, T5a-d; 10,094 cells of model zero) from the same grey steady
+Tm9, T4a-d, T5a-d; 9,624 cells of model zero) from the same grey steady
 state the generator uses, stored float16 in shards on the Modal volume
 (`/runs/pairs13/shard_*.npz`) — about 0.9 MB per clip, which is why the
 models of 13A train where the shards are.
