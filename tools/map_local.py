@@ -68,7 +68,7 @@ def main(argv=None) -> int:
                 if not (ROOT / "data" / "decode" / run_name(m, sd, w, a.date) / "map.csv").exists()]
     print(f"{len(ms)} members x {len(ss)} splits x {len(ws)} windows = {len(jobs)} map jobs; "
           f"to do: {len(todo_sim)} simulations (~10 min each, {a.jobs} at once) and {len(todo_map)} maps "
-          f"(~25 min each, {a.jobs} at once) ≈ {(len(todo_sim) * 10 + len(todo_map) * 25) / a.jobs / 60:.1f} h")
+          f"(~25 min each, {a.jobs} at once) ~ {(len(todo_sim) * 10 + len(todo_map) * 25) / a.jobs / 60:.1f} h")
     if a.dry:
         return 0
     t0 = time.time()
