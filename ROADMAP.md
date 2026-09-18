@@ -15,15 +15,23 @@ word of the same day fixed the goal: the generative inverse model is the
 load-bearing deliverable, "что снится мухе" is the title, and the sleep
 chapter is a second stage after it.
 
-**Current approved step:** 4, the decodability map, in progress; its first
-figure was withdrawn by its own audit and is being redone with a lag sweep,
-several ensemble members and several splits (see item 4's state line). Next
-in the order: 3 (training on Modal), on the human's word. The transplant is
-verified stable on three members (v7, 2026-09-18: MaleCNS T4/T5 DSI 0.109
-against the raw copy's 0.020 and FlyVis's 0.391; direction and flash
-polarity at or above FlyVis); the remaining gap is attributed to ISS-0005
-and ISS-0002, which are step-1 export work and come before the priced run,
-so training does not pay to learn around a defect.
+**Change of course, 2026-09-18 night (the human: "да, меняй").** The human
+is not writing a paper; the deliverable is a working generator of images
+from internal states, first on FlyVis (trained, free), then on the MaleCNS
+model zero. Paper-grade rigour (ensembles, several splits, from-scratch
+controls, the 26-study validation, price calibration of training) is parked
+below; training on MaleCNS is optional, only from the transplanted weights,
+only within $0.50 per run, and only if the generator on model zero turns out
+visibly worse than on FlyVis. Order now: **4 (minimal map: one member, one
+split, windows 0 and 80 ms) → 8 (the generator: encoder inversion) → 8 on
+MaleCNS model zero → 7 (dreams, lite) → 3' (optional fine-tune)**.
+
+**Current approved step:** 8, the generator, starts now on FlyVis; item 4
+is closed at the minimal shape once the consecutive-lag sweep of member 000
+finishes (running locally). The transplant is verified stable on three
+members (v9: MaleCNS T4/T5 DSI 0.152 against FlyVis's 0.391; direction and
+flash polarity at or above FlyVis) and is the MaleCNS model for everything
+below until a fine-tune is bought.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -31,16 +39,10 @@ system and operations; `AGENTS.md` holds execution rules; `DECISIONS.md`
 preserves approved durable choices. This file alone owns current work, order
 and authorization.
 
-**Bounded engineering work approved in the current chat (2026-09-18):**
-prepare the training optimization benchmark (device-side activity statistics,
-ReLU before edge gathering, actual-iteration timing and a profiler), with
-offline equivalence checks. Implementation and 62 offline tests are ready;
-one paired T4 measurement was explicitly approved and started in this chat
-(app `ap-Fr0liJXeN4XNScXl9pn1zx`). No second worker is authorized.
-This does not authorize full training
-or change the scientific order above. Evidence and command:
-`reports/2026-09-18_training_optimization_bench.md`.
-Cross-agent handoff: `reports/2026-09-18_training_optimization_handoff.md`.
+The training-optimisation benchmark of the Codex session (device-side
+statistics, ReLU before the gather) is measured and closed: 1.17× on a T4,
+equivalent within CUDA noise (`reports/2026-09-18_training_optimization_bench.md`);
+`--variant stats_relu` is the setting any future training uses.
 
 ## Current state
 
@@ -115,9 +117,10 @@ Cross-agent handoff: `reports/2026-09-18_training_optimization_handoff.md`.
 
 ## Queue
 
-One item at a time; the human's word starts each. Order proposed 2026-09-18,
-preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
-(`DECISIONS.md`, the decoder stack on FlyVis first).
+One item at a time; the human's word starts each. Order after the change
+of course of 2026-09-18 night: **4 (minimal) → 8 → 8 on MaleCNS → 7 → 3'
+(optional) → 5 → 6**. Item bodies below keep their original text; the state
+lines say what of each still applies.
 
 4. **The decodability map.** For every cell type of the optic lobe, three
    decoders back to the 721-hexal rendered input: ridge, a hexagonal
@@ -220,11 +223,45 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    paper's material, framed as "stimuli compatible with internally generated
    states".
 
+   State 2026-09-18 (night): resequenced as "dreams, lite" right after item
+   8: input removed, noise or a slow drive fed in, the generator of item 8
+   run on the resulting states, each clip beside its noise-input control.
+   The full three-experiment protocol stays parked.
+
+8. **The generator: encoder inversion.** Given the state of one or several
+   cell types at a moment, find the stimulus (721 hexals, then a 64×64 or
+   128×128 image through the hex raster) that the encoder — the FlyVis
+   network, later the MaleCNS model zero — maps closest to that state:
+   gradient descent on the input through the differentiable network (Bauer
+   et al. 2026), initialised from the ridge decoder's guess, with a
+   smoothness prior; the ridge reconstruction is the baseline it must beat,
+   the time-shuffle control the floor. Run first on CPU on short clips (the
+   network's step is ~0.4 s per frame at batch 1 on this machine); moved to
+   a T4 only if that is ≥4× faster for the batch that matters. Deliverable:
+   the same ladder picture as item 4 with an "inversion" column per stage,
+   a clip, and the compatibility score per frame; then the same on the
+   MaleCNS model zero. Report: `reports/<date>_step8_generator.md`.
+
 ## Parked
 
 Kept, not cancelled: work the 2026-09-18 change of course moved off the path,
 with the reason, so a later reader can pick it up deliberately rather than
 rediscover it. Nothing here is refuted; it is out of the way.
+
+- **Paper-grade rigour (2026-09-18 night, the human: not a paper).** The
+  ensemble map (ten members × five splits × windows, `tools/map_local.py`,
+  `deploy/modal/decode_app.py`, `flydream.decode.ensemble`), per-type nulls,
+  the random-subset curves on every run, the four-window sweep on more than
+  one member, the from-scratch training control, validation against the 26
+  physiology studies, and the reference schedule of training (250k
+  iterations, ~$10-15 per member). All the code exists and is tested; the
+  measurements are stopped. Picked up only on the human's word.
+- **Training on MaleCNS as item 3.** Reduced to 3': an optional fine-tune
+  from the transplanted weights within $0.50 (about 1,200 iterations at batch
+  16 with `stats_relu` on a T4, `reports/2026-09-18_step3_training_options.md`
+  §5б), or longer on a cheaper provider (Vast.ai T4 ~$0.07/h) if the human
+  opens one. Bought only if the generator on model zero is visibly worse
+  than on FlyVis.
 
 - **The connectome as a computational substrate (an image generator or a
   language model made out of fly wiring).** Parked on the human's word

@@ -355,3 +355,28 @@ transplant with checkpoints and the plateau read off the validation loss
 (`reports/2026-09-18_step3_training_options.md`); the two-member reference
 schedule is withdrawn as a proposal. Supersedes the blanket "decode on Modal"
 line of the same day in `docs/OPERATIONS_MAP.md`.
+
+## 2026-09-18 — The deliverable is a working generator, not a paper; rigour is parked, training is optional
+
+Decision (the human, 2026-09-18, night; "да, меняй"): the human is an ML
+practitioner, not a scientist, and the goal is a generator of images from the
+model's internal states ("что снится мухе" as the title), not a publication.
+The order becomes: the map at its minimal shape (one member, one split, two
+windows) → the generator by encoder inversion on FlyVis → the same on the
+MaleCNS model zero → dreams, lite → an optional fine-tune from the
+transplanted weights within $0.50, only if model zero's generator is visibly
+worse. Ensembles, several splits, from-scratch controls, the 26-study
+validation and the reference training schedule are parked.
+
+Why: the day of 2026-09-18 went into price calibration (three smokes, packing,
+batch sweep, a benchmark), a four-window sweep and an ensemble map — all
+required by a paper-shaped contract and none of it moving the generator; the
+human: "мне кажется ты тратишь мои время и деньги".
+
+Consequences: `AGENTS.md` "Project" and "Primary principle" rewritten (one
+time-shuffle control per picture, no ensemble gates, references as a source
+of methods, not a standard); `ROADMAP.md` reordered with item 8 (the
+generator) as the current step and a "Parked" entry listing the rigour;
+local CPU is the default, Modal only for a GPU or a ≥4× gain, a training run
+within $0.50 and only from the transplant; the running ensemble map was
+stopped, the consecutive-lag sweep of member 000 finishes item 4.

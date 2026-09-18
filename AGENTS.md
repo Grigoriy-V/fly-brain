@@ -12,26 +12,31 @@ in `research_notes/`. The current system shape is `docs/PROJECT_MAP.md`;
 configuration, data locations and Modal operations are
 `docs/OPERATIONS_MAP.md`.
 
-The measure is the references (the human, 2026-09-18): FlyVis (Lappalainen et
-al., Nature 2024) for the model class and its validation, Shiu et al. (Nature
-2024) for whole-brain simulation, Bauer et al. (eLife 2026) for encoder
-inversion, Chen et al. (PLOS CB 2024) for layer-wise decodability, Horikawa &
-Kamitani (2013, 2017) for decoding spontaneous activity. What they measure and
-how they report it, this project measures and reports the same way.
+**The deliverable is a working generator, not a paper** (the human,
+2026-09-18, night: "я не учёный, моя цель не научная статья, я занимаюсь
+ML"). The references — FlyVis (Lappalainen et al., Nature 2024) for the model
+class, Bauer et al. (eLife 2026) for encoder inversion, Chen et al. (PLOS CB
+2024) for layer-wise decodability, Horikawa & Kamitani (2013, 2017) for
+decoding spontaneous activity — are where methods are borrowed from, not a
+standard the project must match number for number. Paper-grade rigour
+(ensembles, several splits, validation against the 26 physiology studies,
+from-scratch controls) is parked in `ROADMAP.md` under "Parked" and is picked
+up only if the human asks for it.
 
 ## Primary principle
 
-**Simplicity and speed apply to the implementation, never to the scientific
-claim.** Choose the smallest experiment that answers the question with a
-control, and the smallest code that runs it. Never simplify by dropping a
-control, by reporting a number without its baseline, or by describing a
-reconstruction as what the fly sees.
+**Simplicity and speed apply to the implementation and to the experiment
+plan; honesty applies to the claim.** Choose the smallest experiment that
+shows the thing working, and the smallest code that runs it. One model, one
+split, one window is enough for a result; do not build an ensemble, a sweep
+or a validation suite unless the step's question cannot be answered without
+it. Never describe a reconstruction as what the fly sees.
 
-**A result is a number beside its control.** Every decodability, every
-reconstruction and every "dream" is reported with a shuffled-connectivity,
-shuffled-time or random-subset control from the same run, and with the
-ensemble spread where an ensemble exists. A picture without its control is an
-illustration, not a result.
+**A picture comes with one control, not five.** A decodability number or a
+reconstruction is shown beside a time-shuffle control from the same run (is
+the decoder reading the frame or the scene?); a "dream" beside a
+noise-input control. That is the whole requirement. Ensemble spread, subset
+curves and per-type nulls are optional extras, never gates.
 
 **The connectome is a constraint, not a brain.** The model is called a
 connectome-constrained model. A decoded image is "the stimulus most compatible
@@ -57,11 +62,11 @@ Discussion, analysis and roadmap edits do not authorize implementation,
 downloads, priced work (a Modal GPU run, a large download) or publication;
 the human's explicit word does.
 
-Before a large step is built, research how the references do it, unless that
-research already exists in `reports/` or `research_notes/`: what the reference
-measures, how it is shaped, what it costs, and what of it this project takes;
-written as a report with options, then the human's word on the shape. The
-build cites the report and is checked against it before the step is done.
+Before a large step is built, check `reports/` and `research_notes/` for what
+is already known about how the references do it; a new research request is
+made only when the step cannot be designed without it, and it is small (one
+or two scouts). Price measurements (smokes, packing, batch sweeps) are not a
+step and are not repeated once a number exists in `reports/runs.jsonl`.
 
 Within an approved step, own the complete loop:
 
@@ -142,9 +147,12 @@ state what it does, the expected duration, the estimated price and the exact
 command. When the evidence could come from a saved run, a log or the human
 instead, ask for it rather than starting anything.
 
-A local run on the owner's machine (CPU, or a small GPU job under a few
-minutes) is routine. There is no local training: training, ensembles and
-inversion batches run on Modal.
+A local run on the owner's machine (32 cores, 102 GB RAM; CPU only) is
+routine and is the default for everything that fits in hours. Modal is used
+only when a job needs a GPU or is at least four times faster there than
+locally (DECISIONS 2026-09-18, night), and a training run must fit in
+**$0.50** (the human, the same night); training, when it happens at all,
+starts from the transplanted weights, never from scratch.
 
 ## Safety and evidence
 
