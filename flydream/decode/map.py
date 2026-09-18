@@ -196,11 +196,15 @@ def main(argv=None) -> int:
                    help="scene-split seed; default config.toml [decode] seed. A reported map sweeps [decode] splits")
     p.add_argument("--simulate-only", action="store_true",
                    help="build and cache the pairs of every type, fit nothing (the Modal simulate worker)")
+    p.add_argument("--no-subsets", action="store_true",
+                   help="skip the random-subset control (4 extra fits per type); an ensemble sweep reads it from one member")
     a = p.parse_args(argv)
     if a.lags is not None:
         s["lags"] = list(a.lags)
     if a.seed is not None:
         s["seed"] = int(a.seed)
+    if a.no_subsets:
+        s["subset_counts"] = []
 
     run = a.run or f"{time.strftime('%Y-%m-%d')}_decode_{a.stimuli}"
     outdir = ROOT / "data" / "decode" / run

@@ -55,7 +55,9 @@ def main(argv=None) -> int:
     p.add_argument("--seeds", default="")
     p.add_argument("--windows", default="", help="e.g. 0,0_2_4; default the first two of [decode] lag_windows")
     p.add_argument("--date", default=time.strftime("%Y-%m-%d"))
-    p.add_argument("--jobs", type=int, default=6)
+    p.add_argument("--jobs", type=int, default=8)
+    p.add_argument("--subsets", action="store_true",
+                   help="keep the random-subset control in every job (default off: 4 of 7 fits per type, read from one member instead)")
     p.add_argument("--dry", action="store_true")
     a = p.parse_args(argv)
     ms = [int(x) for x in a.members.split(",")] if a.members else list(s["members"])
@@ -83,7 +85,8 @@ def main(argv=None) -> int:
             print("a simulation failed; see its log.txt"); return 1
         maps = [ex.submit(_run, [PY, "-u", "-m", "flydream.decode.map", "--stimuli", "sintel",
                                  "--model", f"flow/0000/{m:03d}", "--run", run_name(m, sd, w, a.date),
-                                 "--pairs-from", pairs_run(m, a.date), "--lags", *map(str, w), "--seed", str(sd)],
+                                 "--pairs-from", pairs_run(m, a.date), "--lags", *map(str, w), "--seed", str(sd)]
+                          + ([] if a.subsets else ["--no-subsets"]),
                           run_name(m, sd, w, a.date)) for m, sd, w in todo_map]
         for f in maps:
             run, rc, dt = f.result()
