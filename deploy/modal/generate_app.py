@@ -40,7 +40,15 @@ CONNECTOME = "filters_R_w5wk50m500oc.json"
 STAGES = [["R1"], ["L1"], ["L3"], ["Mi1"], ["Mi4"], ["Tm5a"], ["Tm9"], ["T4a"], ["T5a"],
           ["T4a", "T4b", "T4c", "T4d", "T5a", "T5b", "T5c", "T5d"]]
 
-GEN = tomllib.loads(Path(__file__).resolve().parents[2].joinpath("config.toml").read_text(encoding="utf-8")).get("generate", {})
+def _generate_settings() -> dict:
+    """config.toml [generate]: the repository copy locally, the image copy on the worker."""
+    for c in (Path(__file__).resolve().parent.parent.parent / "config.toml", Path("/opt/flydream/config.toml")):
+        if c.exists():
+            return tomllib.loads(c.read_text(encoding="utf-8")).get("generate", {})
+    return {}
+
+
+GEN = _generate_settings()
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOL, create_if_missing=True)
