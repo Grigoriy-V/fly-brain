@@ -34,11 +34,11 @@ tests). The central brain is "(to come)". The deliverable is the generator
                     │ Network.stimulus_response  │ differentiable
                     ▼                           ▼
         ┌──────────────────────────┐   ┌────────────────────────┐
-        │ flydream.decode (built)  │   │ flydream.decode.invert │
-        │ pairs → ridge / hexconv  │   │ (to come): gradient    │
-        │ metrics, hexraster, map, │   │ descent on the input,  │
-        │ figures                  │   │ ensemble prior,        │
-        └─────────┬────────────────┘   │ compatibility score    │
+        │ flydream.decode (built)  │   │ flydream.generate      │
+        │ pairs → ridge / hexconv  │   │ (built): invert, the   │
+        │ metrics, hexraster, map, │   │ video that reproduces  │
+        │ figures, sweep, ensemble │   │ a stage's state; the   │
+        └─────────┬────────────────┘   │ T4 app; figures        │
                   │                    └───────────┬────────────┘
                   └──────────────┬─────────────────┘
                                  ▼
