@@ -129,11 +129,37 @@ def dreams(model: str = "malecns", sources: str = "eye_noise,flash,dark_after,ne
     return out
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=2, memory=12288, timeout=60 * MINUTES)
+def mix(model: str = "malecns", sample_a: int = 3, sample_b: int = 10, frames: int = 40, margin: int = 5,
+        steps: int = 150, lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "",
+        batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3) -> list[dict]:
+    """ROADMAP item 12: gain edits, interpolation and hybrids of two clips' states, one batch."""
+    import numpy as np
+
+    _prepare_root()
+    from flydream.generate.mix import run_mix
+
+    prefix = f"{time.strftime('%Y-%m-%d')}_{'malecns' if model.startswith('malecns') else 'flyvis'}_"
+    t0 = time.time()
+    records = run_mix(model, sample_a=sample_a, sample_b=sample_b, frames=frames, margin=margin, steps=steps, lr=lr,
+                      tv=tv, dt=dt, t_pre=t_pre, batch=batch, plateau_steps=plateau_steps, plateau_tol=plateau_tol,
+                      plateau_floor=plateau_floor, out_root=Path(GEN_ROOT) / "data" / "generate", tag_prefix=prefix)
+    runs_volume.commit()
+    out = []
+    for r in records:
+        buf = io.BytesIO()
+        np.savez_compressed(buf, **r["arrays"])
+        out.append({**{k: v for k, v in r.items() if k != "arrays"}, "npz_b64": base64.b64encode(buf.getvalue()).decode()})
+    print(f"mix: {len(out)} tasks in {time.time() - t0:.0f} s on {GPU}", flush=True)
+    return out
+
+
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
-         stages: str = "", dream_sources: str = "", seed: int = 0):
+         stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = ""):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
-    instead of the clip ladder."""
+    instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
     frames = GEN.get("frames", 40) if frames < 0 else frames
     margin = GEN.get("margin", 5) if margin < 0 else margin
@@ -143,6 +169,18 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
+    if mix_clips:
+        sa, sb = (int(x) for x in mix_clips.split(","))
+        print(f"mix on {GPU}: {model}, clips {sa} and {sb}, {frames} frames + margin {margin}, {steps} steps")
+        records = mix.remote(sample_a=sa, sample_b=sb, **common)
+        for r in records:
+            d = root / "data" / "generate" / r["tag"]
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "recovered.npz").write_bytes(base64.b64decode(r.pop("npz_b64")))
+            (d / "meta.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+            print(f"{r['tag']:<44} r_A {r['r_a']:+.2f}  r_B {r['r_b']:+.2f}  {r['note']}")
+        print(f"done in {time.time() - t0:.0f} s; draw with: python tools/fig_mix.py --prefix {records[0]['tag'].split('_mix_')[0]}")
+        return
     if dream_sources:
         print(f"dreams on {GPU}: {model}, sources {dream_sources}, {frames} frames + margin {margin}, {steps} steps")
         records = dreams.remote(sources=dream_sources, seed=seed, **common)

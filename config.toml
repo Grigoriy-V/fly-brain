@@ -145,6 +145,16 @@ dark_frames = 40
 # FlyVis (measured 2026-09-19); 0.05 is half of that.
 neuron_noise_sd = 0.05
 
+[generate.mix]
+# Manipulated states (ROADMAP item 12, flydream.generate.mix). Clip A and B of
+# the Sintel set (3 = the face, 10 = the forest, the pair of items 8-9).
+sample_a = 3
+sample_b = 10
+# The type whose state is interpolated between A and B, and the mixing points
+# (fraction of A).
+interp_type = "T4a"
+alphas = [0.0, 0.25, 0.5, 0.75, 1.0]
+
 [benchmark]
 # Engineering experiment only; does not change the reference training recipe.
 # 30 requested updates matches the previous smoke; the actual count is recorded.

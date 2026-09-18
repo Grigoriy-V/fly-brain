@@ -119,3 +119,28 @@ def test_dream_inputs_and_shuffle_and_noisy_simulation(tmp_path):
     sh = D.shuffled(quiet, cells, np.random.default_rng(1))
     assert torch.allclose(sh[:, :, 4:], quiet[:, :, 4:])
     assert torch.allclose(sh[:, :, :4].sort(-1).values, quiet[:, :, :4].sort(-1).values)
+
+
+def test_type_weights_normalise_each_type_to_its_variance():
+    import torch
+    from flydream.generate.mix import type_weights
+
+    index = {"a": np.arange(0, 4), "b": np.arange(4, 10)}
+    target = torch.zeros(1, 5, 10)
+    target[0, :, :4] = torch.arange(5.0)[:, None] * 2      # var over (time, cells) of a = 8
+    target[0, :, 4:] = torch.arange(5.0)[:, None]          # var of b = 2
+    cells, w = type_weights(index, ["a", "b"], target)
+    assert cells.tolist() == list(range(10))
+    # weight sums per type: 1/(k*var): a -> 1/(2*8), b -> 1/(2*2)
+    assert np.isclose(w[:4].sum(), 1 / 16, rtol=1e-3) and np.isclose(w[4:].sum(), 1 / 4, rtol=1e-3)
+    # the normalised error of a type is its MSE / var: equal errors in units of sd weigh the same
+    err = torch.ones(10)
+    assert np.isclose(float((err[:4] ** 2 * torch.as_tensor(w[:4])).sum()) * 8, float((err[4:] ** 2 * torch.as_tensor(w[4:])).sum()) * 2)
+
+
+def test_cell_weights_reach_the_batched_fit():
+    import torch
+    from flydream.generate.invert import task_weights
+
+    w = task_weights([np.array([1, 2])], 4, "cpu", weights=[np.array([0.25, 0.75], np.float32)])
+    assert w.tolist() == [[0.0, 0.25, 0.75, 0.0]]

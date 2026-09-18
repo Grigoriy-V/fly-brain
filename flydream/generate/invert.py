@@ -171,20 +171,25 @@ def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, st
     return video.detach().cpu(), trace
 
 
-def task_weights(cells: list[np.ndarray], n_nodes: int, device) -> torch.Tensor:
+def task_weights(cells: list[np.ndarray], n_nodes: int, device, weights: list[np.ndarray | None] | None = None
+                 ) -> torch.Tensor:
     """(B, n_nodes) weights: task b's cells at 1/len(cells_b), so the batched
     fit is each task's own mean squared error and the tasks stay independent
     (Adam is elementwise; the summed loss gives every video the gradient it
-    would get alone)."""
+    would get alone). `weights[b]`, when given, replaces the uniform 1/n with
+    one weight per cell of task b (item 12: a per-type normalisation)."""
     w = torch.zeros(len(cells), n_nodes, device=device)
     for b, c in enumerate(cells):
-        w[b, torch.as_tensor(c, dtype=torch.long, device=device)] = 1.0 / len(c)
+        idx = torch.as_tensor(c, dtype=torch.long, device=device)
+        wb = None if weights is None else weights[b]
+        w[b, idx] = 1.0 / len(c) if wb is None else torch.as_tensor(wb, dtype=torch.float32, device=device)
     return w
 
 
 def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: float, state, steps: int, lr: float,
                  tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3,
-                 log_every: int = 10, time_weight: torch.Tensor | None = None) -> tuple[torch.Tensor, np.ndarray, int]:
+                 log_every: int = 10, time_weight: torch.Tensor | None = None,
+                 cell_weights: list[np.ndarray | None] | None = None) -> tuple[torch.Tensor, np.ndarray, int]:
     """B independent inversions in one pass: `targets` (B, T, n_nodes), task b
     read on `cells[b]`. Returns the videos (B, T, H), the fit trace (steps, B)
     and the number of steps run. Stops early when every task's fit changed by
@@ -200,7 +205,7 @@ def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: flo
     opt = torch.optim.Adam([video], lr=lr)
     nb = torch.as_tensor(neighbour_index(H), dtype=torch.long, device=dev)
     valid = nb >= 0
-    w = task_weights(cells, targets.shape[2], dev)
+    w = task_weights(cells, targets.shape[2], dev, cell_weights)
     targets = targets.to(dev)
     # which frames the fit reads (B, T), normalised per task; all of them by
     # default; the "dark after a clip" dream reads only the dark ones
