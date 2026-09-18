@@ -242,6 +242,31 @@ lines say what of each still applies.
    a clip, and the compatibility score per frame; then the same on the
    MaleCNS model zero. Report: `reports/<date>_step8_generator.md`.
 
+   State 2026-09-19: done as the check "state → the clip that caused it"
+   on both brains (10 stages, r 0.92–1.00, clips 3 and 10, T4, ~$0.20;
+   figures `2026-09-19_*_generator_two_inputs.*`,
+   `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). The generator is a
+   video optimiser conditioned on a brain state (20 frames × 721 hexals at
+   once, grey start, 150 Adam steps, TV prior); its known defect is the
+   blurred last 2–3 frames of the window. The human (2026-09-19): this is
+   verification, not yet generation; generation is what follows.
+
+9. **Generation from states that no clip caused — the three levels the
+   human asked for (2026-09-19, "наконец-то мы говорим о том что я хотел").**
+   Level A, dreams-lite: input removed; the state comes from noise on the
+   input, a flash, a slow drift, or the dark after a clip (after-effect);
+   the item-8 generator turns it into a clip, beside a shuffled-state
+   control. Level B, manipulated states: mix two clips' states across
+   stages (a face in L3, a forest in T4/T5), amplify one type, interpolate
+   between two states; generate. Level C, a learned generator: a network
+   "state → video" trained on pairs the model produces without limit, for
+   one-pass generation from any state, with a generative prior for
+   resolution if wanted; checked against the inversion of A/B for what is
+   from the brain and what from the network. On MaleCNS; T4 minutes per
+   clip. Deliverables: one stacked clip per level with its control.
+   Fix on the way: fit with a few frames of margin past the window so the
+   end of the clip is constrained (item 8's blur).
+
 ## Parked
 
 Kept, not cancelled: work the 2026-09-18 change of course moved off the path,
