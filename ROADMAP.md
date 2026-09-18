@@ -19,21 +19,18 @@ below; training on MaleCNS is optional, only from the transplanted weights,
 only within $0.50 per run, and only if the generator on model zero turns out
 visibly worse than on FlyVis.
 
-**Order (2026-09-19):** item 9, generation, in this sequence — the
-end-of-clip blur fix (25 frames fitted, 20 shown) → level A, dreams-lite
-(four inputs: noise into the eye; a flash or slow drift; the dark after a
-clip; noise inside the neurons with a grey eye), each a stacked clip beside
-its shuffled-state control → level B, manipulated states → level C, a
-learned one-pass generator checked against inversion. All on MaleCNS model
+**Order (2026-09-19):** 9 (the end of the window constrained) → 11 (level
+A, dreams-lite: four sources of a state no clip caused, each a stacked clip
+beside its shuffled-state control) → 12 (level B, manipulated states) → 13
+(level C, a learned one-pass generator checked against inversion). All on MaleCNS model
 zero; a T4 for minutes per clip. **Later, not a priority:** a 64×64 /
 128×128 raster of the hexals; item 10 (dense export); 3' (fine-tune within
 $0.50) only if model zero's generator is visibly worse than FlyVis's.
 **Parked:** ensembles, sweeps, the 26-study validation, item 7's full
 protocol, items 5 and 6.
 
-**Current approved step:** 9 (the human, 2026-09-19: "наконец-то мы
-говорим о том что я хотел"; the start of the build waits for the human's
-word). Items 4 and 8 are closed at their minimal shape: the decoder ladders
+**Current approved step:** 9, then 11-13 in order (the human, 2026-09-19:
+"ну пусть так будет"; the start of each build waits for the human's word). Items 4 and 8 are closed at their minimal shape: the decoder ladders
 at 0 and 80 ms and the generator's "state → the clip that caused it" check
 on both brains. The transplant is verified stable on three members (v9:
 MaleCNS T4/T5 DSI 0.152 against FlyVis's 0.391; direction and flash
@@ -178,33 +175,45 @@ equivalent within CUDA noise (`reports/2026-09-18_training_optimization_bench.md
 ## Queue
 
 One item at a time; the human's word starts each. Order as of 2026-09-19:
-**9 (blur fix → A → B → C)**; later, not a priority: the hexal raster at
+**9 → 11 → 12 → 13**; later, not a priority: the hexal raster at
 64/128 px, 10, 3'; parked: 7 (full protocol), 5, 6, and item 3 as the
 reference schedule. Items 4 and 8 are closed at their minimal shape. Item
 bodies below keep their original text; the state lines say what of each
 still applies.
 
-9. **Generation from states that no clip caused — the three levels the
-   human asked for (2026-09-19, "наконец-то мы говорим о том что я хотел").**
-   Level A, dreams-lite: input removed; the state comes from noise on the
-   input, a flash, a slow drift, or the dark after a clip (after-effect);
-   the item-8 generator turns it into a clip, beside a shuffled-state
-   control. Fourth input of level A (the human, 2026-09-19): **internally
-   generated activity** — the eye sees nothing (grey), noise is injected
-   into the neurons' own dynamics (a noise term in the Euler step, all
-   types or one type at a time, amplitude a setting in `config.toml`), the
-   state that results goes through the generator; the picture is then from
-   the wiring, not from the input's statistics. Control the same: the
-   generator on the shuffled state. Level B, manipulated states: mix two clips' states across
-   stages (a face in L3, a forest in T4/T5), amplify one type, interpolate
-   between two states; generate. Level C, a learned generator: a network
-   "state → video" trained on pairs the model produces without limit, for
-   one-pass generation from any state, with a generative prior for
-   resolution if wanted; checked against the inversion of A/B for what is
-   from the brain and what from the network. On MaleCNS; T4 minutes per
-   clip. Deliverables: one stacked clip per level with its control.
-   Fix on the way: fit with a few frames of margin past the window so the
-   end of the clip is constrained (item 8's blur).
+9. **The end of the window is constrained.** The generator fits 25 frames
+   and shows the first 20, so the last shown frames have a future that the
+   recorded activity reflects; the item-8 defect (blurred frames 18-20)
+   should disappear. Change in `flydream.generate.invert` (buffer length
+   and the slice on save), one rerun of the MaleCNS ladder on a T4
+   (~10 min, ~$0.10). Deliverable: the two-input clip of 2026-09-19 redrawn
+   without the blur, first/middle/last frames checked before sending.
+
+11. **Level A, dreams-lite: generation from states that no clip caused**
+    (the human, 2026-09-19: "наконец-то мы говорим о том что я хотел").
+    Input removed; the state comes from one of four sources, each its own
+    clip beside a shuffled-state control (same numbers, permuted across
+    cells or time): (a) noise into the eye (white, or 1/f like natural
+    scenes — the choice is a setting and part of the result); (b) a flash or
+    a slow drift; (c) the dark after a clip, the after-effect; (d)
+    **internally generated activity** — the eye sees grey, noise is injected
+    into the neurons' own dynamics (a noise term in the Euler step, all
+    types or one type at a time, amplitude in `config.toml`), so the picture
+    is from the wiring, not from the input's statistics. The item-8
+    generator turns each state into a clip. MaleCNS model zero, a T4,
+    minutes per clip. Deliverable: one stacked clip per source, input row
+    and control row shown.
+
+12. **Level B, manipulated states.** Mix two clips' states across stages (a
+    face in L3, a forest in T4/T5), amplify one type, interpolate between
+    two states; generate with the item-8 generator; each clip beside the
+    unmanipulated states it was made from. MaleCNS, a T4.
+
+13. **Level C, a learned generator.** A network "state → video" trained on
+    pairs the model produces without limit, for one-pass generation from any
+    state, with a generative prior for resolution if wanted; every output
+    checked against the inversion of 11/12 for what is from the brain and
+    what from the network. Price and shape proposed before it is built.
 
 10. **A dense MaleCNS export: every type on all 721 columns** — recorded,
     **not a priority** (the human, 2026-09-19: "вернёмся к ней позже"; it
