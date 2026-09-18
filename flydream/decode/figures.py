@@ -160,7 +160,13 @@ def main(argv=None) -> int:
     p.add_argument("--frames", nargs="*", type=int, default=[8, 18, 28])
     p.add_argument("--pix-per-hex", type=int, default=4, help="4 gives a 125x125 raster")
     p.add_argument("--no-clip", action="store_true")
+    p.add_argument("--lags", nargs="*", type=int, default=None,
+                   help="decoder window in frames after the stimulus frame (default: config.toml [decode] lags)")
     a = p.parse_args(argv)
+    lags = tuple(a.lags) if a.lags is not None else tuple(s.get("lags", [0]))
+    # the lag-0 ladder keeps its name; any other window is named by it, so
+    # the two pictures of ISS-0004 stand side by side instead of overwriting
+    suffix = "" if lags == (0,) else "_lag_" + "_".join(str(x) for x in lags)
 
     rundir = ROOT / "data" / "decode" / a.run
     cache = rundir / "pairs.npz"
@@ -175,19 +181,21 @@ def main(argv=None) -> int:
                                        s.get("seed", 0))
     print(f"split: {len(train_i)} train / {len(test_i)} test samples")
     print("fitting the ladder:")
-    fits = fit_ladder(pairs, a.types, train_i, test_i, s, tuple(s.get("lags", [0])))
+    print(f"fitting the ladder at lags {list(lags)} (window {(max(lags) - min(lags)) * s.get('dt', 0.02) * 1000:.0f} ms):")
+    fits = fit_ladder(pairs, a.types, train_i, test_i, s, lags)
     if not fits:
         print("nothing fitted")
         return 1
 
     figdir = ROOT / "reports" / "figures"
-    png = ladder_figure(fits, a.frames, figdir / f"{a.run}_ladder.png",
+    window = f", decoder window {(max(lags) - min(lags)) * s.get('dt', 0.02) * 1000:.0f} ms" if suffix else ""
+    png = ladder_figure(fits, a.frames, figdir / f"{a.run}_ladder{suffix}.png",
                         pix_per_hex=a.pix_per_hex,
                         title=f"Reconstruction of the rendered stimulus, stage by stage  "
-                              f"({a.run}, 721 ommatidia at {a.pix_per_hex} px each)")
+                              f"({a.run}, 721 ommatidia at {a.pix_per_hex} px each{window})")
     print(f"\nwrote {png}")
     if not a.no_clip:
-        gif = ladder_animation(fits, figdir / f"{a.run}_ladder.gif", pix_per_hex=a.pix_per_hex)
+        gif = ladder_animation(fits, figdir / f"{a.run}_ladder{suffix}.gif", pix_per_hex=a.pix_per_hex)
         if gif:
             print(f"wrote {gif}")
     return 0
