@@ -155,6 +155,20 @@ sample_b = 10
 interp_type = "T4a"
 alphas = [0.0, 0.25, 0.5, 0.75, 1.0]
 
+[generate.pairs13]
+# The training pairs of 13A (flydream.generate.pairs13). Procedural clips per
+# class (9 classes); Sintel adds the 189 clips × 2 flips × 6 rotations.
+n_per_class = 800
+seed = 0
+# Held out whole: Sintel scenes (of 23) and stimulus classes (of 9), so the
+# test is about kinds of video the model never saw. Val is a fraction of the
+# rest, by clip.
+held_scenes = ["bamboo_2", "cave_4", "market_6", "temple_3"]
+held_classes = ["dots", "texture"]
+val_fraction = 0.1
+# Simulation batch on the T4 (32 clips × 45 frames × 45k cells fits).
+sim_batch = 32
+
 [benchmark]
 # Engineering experiment only; does not change the reference training recipe.
 # 30 requested updates matches the previous smoke; the actual count is recorded.

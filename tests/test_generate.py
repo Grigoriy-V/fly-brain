@@ -144,3 +144,14 @@ def test_cell_weights_reach_the_batched_fit():
 
     w = task_weights([np.array([1, 2])], 4, "cpu", weights=[np.array([0.25, 0.75], np.float32)])
     assert w.tolist() == [[0.0, 0.25, 0.75, 0.0]]
+
+
+def test_pairs13_split_holds_out_whole_scenes_and_classes():
+    from flydream.generate.pairs13 import split_indices
+
+    meta = [{"source": "sintel", "scene": s} for s in ["a", "a", "b", "c"]] + \
+           [{"source": "procedural", "class": c} for c in ["edge", "dots", "dots", "bar"]]
+    sp = split_indices(meta, held_scenes=["b"], held_classes=["dots"], val_fraction=0.25, seed=0)
+    assert sp["test"] == [2, 5, 6]
+    assert sorted(sp["train"] + sp["val"]) == [0, 1, 3, 4, 7] and len(sp["val"]) == 1
+    assert not (set(sp["train"]) & set(sp["val"]) & set(sp["test"]))
