@@ -22,16 +22,28 @@ model zero. Paper-grade rigour (ensembles, several splits, from-scratch
 controls, the 26-study validation, price calibration of training) is parked
 below; training on MaleCNS is optional, only from the transplanted weights,
 only within $0.50 per run, and only if the generator on model zero turns out
-visibly worse than on FlyVis. Order now: **4 (minimal map: one member, one
-split, windows 0 and 80 ms) → 8 (the generator: encoder inversion) → 8 on
-MaleCNS model zero → 7 (dreams, lite) → 3' (optional fine-tune)**.
+visibly worse than on FlyVis.
 
-**Current approved step:** 8, the generator, starts now on FlyVis; item 4
-is closed at the minimal shape once the consecutive-lag sweep of member 000
-finishes (running locally). The transplant is verified stable on three
-members (v9: MaleCNS T4/T5 DSI 0.152 against FlyVis's 0.391; direction and
-flash polarity at or above FlyVis) and is the MaleCNS model for everything
-below until a fine-tune is bought.
+**Order (2026-09-19):** item 9, generation, in this sequence — the
+end-of-clip blur fix (25 frames fitted, 20 shown) → level A, dreams-lite
+(four inputs: noise into the eye; a flash or slow drift; the dark after a
+clip; noise inside the neurons with a grey eye), each a stacked clip beside
+its shuffled-state control → level B, manipulated states → level C, a
+learned one-pass generator checked against inversion. All on MaleCNS model
+zero; a T4 for minutes per clip. **Later, not a priority:** a 64×64 /
+128×128 raster of the hexals; item 10 (dense export); 3' (fine-tune within
+$0.50) only if model zero's generator is visibly worse than FlyVis's.
+**Parked:** ensembles, sweeps, the 26-study validation, item 7's full
+protocol, items 5 and 6.
+
+**Current approved step:** 9 (the human, 2026-09-19: "наконец-то мы
+говорим о том что я хотел"; the start of the build waits for the human's
+word). Items 4 and 8 are closed at their minimal shape: the decoder ladders
+at 0 and 80 ms and the generator's "state → the clip that caused it" check
+on both brains. The transplant is verified stable on three members (v9:
+MaleCNS T4/T5 DSI 0.152 against FlyVis's 0.391; direction and flash
+polarity at or above FlyVis) and is the MaleCNS model for everything below
+until a fine-tune is bought.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -117,10 +129,12 @@ equivalent within CUDA noise (`reports/2026-09-18_training_optimization_bench.md
 
 ## Queue
 
-One item at a time; the human's word starts each. Order after the change
-of course of 2026-09-18 night: **4 (minimal) → 8 → 8 on MaleCNS → 7 → 3'
-(optional) → 5 → 6**. Item bodies below keep their original text; the state
-lines say what of each still applies.
+One item at a time; the human's word starts each. Order as of 2026-09-19:
+**9 (blur fix → A → B → C)**; later, not a priority: the hexal raster at
+64/128 px, 10, 3'; parked: 7 (full protocol), 5, 6, and item 3 as the
+reference schedule. Items 4 and 8 are closed at their minimal shape. Item
+bodies below keep their original text; the state lines say what of each
+still applies.
 
 4. **The decodability map.** For every cell type of the optic lobe, three
    decoders back to the 721-hexal rendered input: ridge, a hexagonal
@@ -149,14 +163,15 @@ lines say what of each still applies.
    a type's score at 0 ms and its gain to 160 ms), raw PixCorr peaks at 80
    ms for every stage but the lamina, so the map is reported at 80 ms with
    the 0 ms column beside it; the ladder regenerated and labelled with its
-   window (`figures --lags`). Running: ten members × five splits × the two
-   windows on Modal (`deploy/modal/decode_app.py`, the human allowed decode
-   jobs on Modal without a per-action gate; the pilot 2 × 2 × 2 started
-   22:20), joined by `flydream.decode.ensemble` into a median with its
-   10-90% interval per type. Remaining: a per-type null in place of the
-   floor; then the same on MaleCNS (after ISS-0003 is verified stable), then
-   inversion (rung three). Report: `reports/2026-09-18_step4_decoder_stack.md`
-   (§9 carries the correction, §10 the sweep).
+   window (`figures --lags`). **Closed 2026-09-19 at the minimal shape:**
+   the decoder ladders at 0 and 80 ms (consecutive lags, ISS-0006) on
+   FlyVis and on MaleCNS model zero, one member, one split
+   (`reports/figures/2026-09-19_decoder_ladders_flyvis_vs_malecns.gif`).
+   The ensemble map, the per-type null and the four-window sweep with
+   consecutive lags are parked (the sweep's [0..4] and [0..8] windows were
+   stopped mid-run and not repeated). Report:
+   `reports/2026-09-18_step4_decoder_stack.md` (§9 the correction, §10 the
+   aliased sweep).
 
 3. **Training on Modal.** The optic-flow task of Lappalainen et al. on
    Sintel, the same loss, schedule and augmentations, on the MaleCNS model;
