@@ -256,7 +256,13 @@ lines say what of each still applies.
    Level A, dreams-lite: input removed; the state comes from noise on the
    input, a flash, a slow drift, or the dark after a clip (after-effect);
    the item-8 generator turns it into a clip, beside a shuffled-state
-   control. Level B, manipulated states: mix two clips' states across
+   control. Fourth input of level A (the human, 2026-09-19): **internally
+   generated activity** — the eye sees nothing (grey), noise is injected
+   into the neurons' own dynamics (a noise term in the Euler step, all
+   types or one type at a time, amplitude a setting in `config.toml`), the
+   state that results goes through the generator; the picture is then from
+   the wiring, not from the input's statistics. Control the same: the
+   generator on the shuffled state. Level B, manipulated states: mix two clips' states across
    stages (a face in L3, a forest in T4/T5), amplify one type, interpolate
    between two states; generate. Level C, a learned generator: a network
    "state → video" trained on pairs the model produces without limit, for
