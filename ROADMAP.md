@@ -52,7 +52,7 @@ and authorization.
   in one model load; `deploy/modal/generate_app.py` runs it on a T4
   (10 stages in ~10 min, ~$0.10); `flydream/generate/figures.py` and the
   two-input figures of 2026-09-19 draw it. Known defect: the last 2-3
-  frames of the window are unconstrained and blur (item 9).
+  frames of the window are constrained by a fitted margin (item 9, done).
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for everything
   that fits in hours; Modal T4 (`flydream-train`, `flydream-decode`,
   `flydream-generate`) for GPU-bound jobs; `tools/modal_watch.py` to watch.
@@ -93,6 +93,13 @@ and authorization.
   stage, including T4/T5 alone, the clip that caused the state comes back
   (r 0.92-1.00) and a state from another clip gives that other clip; on a
   T4 in minutes. Figures `reports/figures/2026-09-19_*generator*`.
+- **9, the window's end constrained** (2026-09-19): the generator fits
+  `frames + margin` (config [generate]: 40 + 5) and shows `frames`; the
+  margin is the next chunk of the scene. The end-of-clip blur is gone
+  (last-frame r T5a 0.66 → 0.92, T4+T5 0.80 → 1.00), mean r unchanged
+  (0.93-1.00), whole 0.8 s clip. One T4 ladder, ≈ $0.17.
+  `reports/2026-09-19_step9_window_margin.md`,
+  `reports/figures/2026-09-19_malecns_generator_two_inputs_40f.gif`.
 - **3, training priced** (2026-09-18): T4 smoke, packing, batch sweep and
   the Codex session's optimisation benchmark; the reference schedule
   (~$10-15 per member) is over budget and was withdrawn; what remains is
@@ -101,18 +108,8 @@ and authorization.
 
 ## Queue: the dreams and visual-data branch
 
-One item at a time; the human's word starts each. Order: **9 → 10' → 11 →
-12 → 13**; then the paused items of this branch when the human says so.
-
-9. **The end of the window is constrained; clip length is a setting.** The
-   generator fits `frames + margin` and shows `frames` (`config.toml
-   [generate]`: frames 40 — the whole Sintel clip, 0.8 s — margin 5; the
-   human, 2026-09-19: longer clips are wanted, cost is linear in length), so the last shown frames have a future that the
-   recorded activity reflects; the item-8 defect (blurred frames 18-20)
-   should disappear. Change in `flydream.generate.invert` (buffer length
-   and the slice on save), one rerun of the MaleCNS ladder on a T4
-   (~10 min, ~$0.10). Deliverable: the two-input clip of 2026-09-19 redrawn
-   without the blur, first/middle/last frames checked before sending.
+One item at a time; the human's word starts each. Order: **10' → 11 → 12 →
+13**; then the paused items of this branch when the human says so.
 
 10'. **The generator uses the card to the full.** (The human, 2026-09-19,
     while the item-9 ladder ran one task at a time: "точно нужно сделать".)
