@@ -97,13 +97,16 @@ def figure(t: pd.DataFrame, runs_short: list[str], latest: str, path, title: str
         ax.set_yticks(y)
         ax.set_yticklabels(SUBTYPES, color=INK2, fontsize=9)
         ax.tick_params(colors=MUTED, labelsize=8.5)
-        ax.set_xlim(0, max(0.05, float(np.nanmax(d.dsi)) * 1.15))
+        ax.set_xlim(0, max(0.05, float(np.nanmax(t.dsi)) * 1.1))     # one scale for every member
         ax.set_title(f"member {m:03d}", color=INK, fontsize=9.5, loc="left")
         ax.set_xlabel("direction selectivity index", color=INK2, fontsize=8.5)
         ax.invert_yaxis()
-    axes[0].legend(frameon=False, fontsize=8, labelcolor=INK2, loc="lower right")
+    # the legend below the panels, never on the data
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, fontsize=8, labelcolor=INK2, loc="lower center",
+               ncol=len(labels), bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(title, color=INK, fontsize=10, x=0.01, ha="left")
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.tight_layout(rect=(0, 0.07, 1, 0.94))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=190, facecolor=SURFACE)
     plt.close(fig)
