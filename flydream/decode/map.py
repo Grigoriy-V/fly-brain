@@ -188,7 +188,13 @@ def main(argv=None) -> int:
     p.add_argument("--n-samples", type=int, default=None, help="cap the number of samples")
     p.add_argument("--run", default=None, help="run id; default <date>_decode_<stimuli>")
     p.add_argument("--cache", action="store_true", help="save/reuse the simulated pairs")
+    p.add_argument("--lags", nargs="*", type=int, default=None,
+                   help="decoder window as frame offsets, e.g. 0 2 4; default config.toml [decode] lags")
+    p.add_argument("--pairs-from", default=None,
+                   help="run id whose pairs.npz to reuse (the simulation is identical across lag windows)")
     a = p.parse_args(argv)
+    if a.lags is not None:
+        s["lags"] = list(a.lags)
 
     run = a.run or f"{time.strftime('%Y-%m-%d')}_decode_{a.stimuli}"
     outdir = ROOT / "data" / "decode" / run
@@ -213,9 +219,10 @@ def main(argv=None) -> int:
     print(f"stimuli: {a.stimuli}, {len(idx)} of {len(ds)} samples, dt={s['dt']}")
 
     cache = outdir / "pairs.npz"
-    if a.cache and cache.exists():
-        pairs = P.Pairs.load(cache)
-        print(f"pairs from cache: {pairs.n_samples} samples x {pairs.n_frames} frames")
+    source = (ROOT / "data" / "decode" / a.pairs_from / "pairs.npz") if a.pairs_from else cache
+    if (a.cache or a.pairs_from) and source.exists():
+        pairs = P.Pairs.load(source)
+        print(f"pairs from {source}: {pairs.n_samples} samples x {pairs.n_frames} frames")
     else:
         pairs = P.build(net, ds, dt=s["dt"], indices=idx, batch_size=s["batch_size"],
                         t_pre=t_pre, t_fade_in=t_fade_in,
