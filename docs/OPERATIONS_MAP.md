@@ -56,7 +56,16 @@ one place per fact.
 .venv\Scripts\python.exe -m flydream.decode.map --stimuli edges --run <id>      # ~4 min CPU, 65 types
 .venv\Scripts\python.exe -m flydream.decode.map --stimuli sintel --n-samples <n> --cache --run <id>
 .venv\Scripts\python.exe -m flydream.decode.map --model malecns --stimuli edges --run <id>
+.venv\Scripts\python.exe -m flydream.decode.map --stimuli sintel --pairs-from <run with pairs.npz> --lags 0 2 4 --run <id>   # one window of the lag sweep, no re-simulation
+.venv\Scripts\python.exe -m flydream.decode.figures --run <run with pairs.npz>            # the stage ladder, PNG + GIF
+.venv\Scripts\python.exe -m flydream.data.optic_lobe --min-weight 1 --edges-only         # the weight>=1 edge table the weak-pair exception reads
+.venv\Scripts\python.exe -m flydream.data.export                                          # writes filters_<side>_<tag>.json from config.toml [data]
+.venv\Scripts\python.exe -m flydream.model.init_state --member 0                          # the transplanted state for Modal --init
 ```
+
+A background run's log must be written unbuffered (`python -u`, and
+`grep --line-buffered` if piped): a buffered pipe shows nothing until it
+ends, which on 2026-09-18 looked like three hung runs that were fine.
 
 `--model` takes a flyvis NetworkView name (default `[decode] model`) or
 `malecns` for the model-zero export, so the same command produces the map on
