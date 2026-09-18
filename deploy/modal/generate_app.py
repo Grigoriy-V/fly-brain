@@ -75,7 +75,8 @@ def _prepare_root() -> None:
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
               cpu=2, memory=12288, timeout=60 * MINUTES)
 def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, margin: int = 5, steps: int = 150,
-           lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "") -> list[dict]:
+           lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "",
+           batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0) -> list[dict]:
     import numpy as np
 
     _prepare_root()          # before the import: flydream.model reads ROOT/config.toml on import
@@ -85,7 +86,8 @@ def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, marg
     prefix = f"{time.strftime('%Y-%m-%d')}_{'malecns' if model.startswith('malecns') else 'flyvis'}_"
     t0 = time.time()
     records = run_ladder(model, sample, st, frames=frames, margin=margin, steps=steps, lr=lr, tv=tv, dt=dt, t_pre=t_pre,
-                         out_root=Path(GEN_ROOT) / "data" / "generate", tag_prefix=prefix)
+                         out_root=Path(GEN_ROOT) / "data" / "generate", tag_prefix=prefix,
+                         batch=batch, plateau_steps=plateau_steps, plateau_tol=plateau_tol)
     runs_volume.commit()
     out = []
     for r in records:
@@ -107,7 +109,8 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
     t0 = time.time()
     records = ladder.remote(model=model, sample=sample, frames=frames, margin=margin, steps=steps,
                             lr=GEN.get("lr", 0.05), tv=GEN.get("tv", 0.02), dt=GEN.get("dt", 0.02),
-                            t_pre=GEN.get("t_pre", 1.0), stages=stages)
+                            t_pre=GEN.get("t_pre", 1.0), stages=stages, batch=GEN.get("batch", 0),
+                            plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0))
     tags = []
     for r in records:
         d = root / "data" / "generate" / r["tag"]
@@ -115,6 +118,9 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
         (d / "recovered.npz").write_bytes(base64.b64decode(r.pop("npz_b64")))
         (d / "meta.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
         tags.append(r["tag"])
-        print(f"{r['tag']:<40} {r['cells']:>6} cells  r {r['inversion']:+.3f}  control {r['control']:+.3f}  {r['seconds']} s")
+        print(f"{r['tag']:<40} {r['cells']:>6} cells  r {r['inversion']:+.3f}  control {r['control']:+.3f}  "
+              f"{r.get('steps_run', r['steps'])} steps  {r['seconds']} s")
+    if records and records[0].get("gpu_utilisation") is not None:
+        print(f"batch {records[0]['batch']}, GPU utilisation {records[0]['gpu_utilisation']:.0f}%")
     print(f"done in {time.time() - t0:.0f} s; draw with:\n  python -m flydream.generate.figures --tags {' '.join(tags)} "
           f"--out {tags[0].rsplit('_invert_', 1)[0]}_inversion_ladder --model {model}")

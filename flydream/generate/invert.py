@@ -171,13 +171,111 @@ def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, st
     return video.detach().cpu(), trace
 
 
+def task_weights(cells: list[np.ndarray], n_nodes: int, device) -> torch.Tensor:
+    """(B, n_nodes) weights: task b's cells at 1/len(cells_b), so the batched
+    fit is each task's own mean squared error and the tasks stay independent
+    (Adam is elementwise; the summed loss gives every video the gradient it
+    would get alone)."""
+    w = torch.zeros(len(cells), n_nodes, device=device)
+    for b, c in enumerate(cells):
+        w[b, torch.as_tensor(c, dtype=torch.long, device=device)] = 1.0 / len(c)
+    return w
+
+
+def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: float, state, steps: int, lr: float,
+                 tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, log_every: int = 10
+                 ) -> tuple[torch.Tensor, np.ndarray, int]:
+    """B independent inversions in one pass: `targets` (B, T, n_nodes), task b
+    read on `cells[b]`. Returns the videos (B, T, H), the fit trace (steps, B)
+    and the number of steps run. Stops early when every task's fit changed by
+    less than `plateau_tol` (relative) over the last `plateau_steps` steps
+    (ROADMAP item 10'; R1 was flat from step 50 of 150 on 2026-09-19)."""
+    B, T = targets.shape[:2]
+    dev = device_of(net)
+    H = net.stimulus.n_input_elements if hasattr(net.stimulus, "n_input_elements") else 721
+    video = torch.full((B, T, H), 0.5, device=dev).requires_grad_(True)
+    opt = torch.optim.Adam([video], lr=lr)
+    nb = torch.as_tensor(neighbour_index(H), dtype=torch.long, device=dev)
+    valid = nb >= 0
+    w = task_weights(cells, targets.shape[2], dev)
+    targets = targets.to(dev)
+    trace = []
+    t0 = time.time()
+    steps_run = 0
+    for step in range(steps):
+        opt.zero_grad(set_to_none=True)
+        act = simulate(net, video, dt, state)
+        fit = (((act - targets) ** 2) * w[:, None, :]).sum(-1).mean(1)          # (B,) each task's own MSE
+        v = video[..., nb.clamp(min=0)]
+        space = ((v - video[..., None]) ** 2 * valid).sum(-1).mean((1, 2)) / valid.float().mean().clamp(min=1e-6)
+        time_ = ((video[:, 1:] - video[:, :-1]) ** 2).mean((1, 2)) if T > 1 else video.new_zeros(B)
+        loss = (fit + tv * (space + time_)).sum()
+        loss.backward()
+        opt.step()
+        with torch.no_grad():
+            video.clamp_(0.0, 1.0)
+        f = fit.detach().cpu().numpy()
+        trace.append(f)
+        steps_run = step + 1
+        if step % log_every == 0 or step == steps - 1:
+            print(f"  step {step:4d}  fit mean {f.mean():.5f} max {f.max():.5f}  {time.time() - t0:.0f}s", flush=True)
+        if plateau_steps and step >= plateau_steps:
+            prev = trace[-1 - plateau_steps]
+            if np.all(np.abs(prev - f) <= plateau_tol * np.maximum(prev, 1e-12)):
+                print(f"  plateau at step {step}: every task within {plateau_tol:.0%} of {plateau_steps} steps ago", flush=True)
+                break
+    return video.detach().cpu(), np.stack(trace), steps_run
+
+
+class GpuSampler:
+    """Mean GPU utilisation over a run, from nvidia-smi every few seconds (a
+    number the report states beside the batch, AGENTS "Human gates")."""
+
+    def __init__(self, every: float = 2.0):
+        import shutil as _sh
+        import threading
+
+        self.samples, self.every, self._stop = [], every, threading.Event()
+        self._ok = torch.cuda.is_available() and _sh.which("nvidia-smi") is not None
+        self._t = threading.Thread(target=self._run, daemon=True) if self._ok else None
+
+    def _run(self):
+        import subprocess
+
+        while not self._stop.is_set():
+            try:
+                out = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                                     capture_output=True, text=True, timeout=5).stdout.strip().splitlines()[0]
+                self.samples.append(float(out))
+            except Exception:
+                pass
+            self._stop.wait(self.every)
+
+    def __enter__(self):
+        if self._t:
+            self._t.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        if self._t:
+            self._t.join(timeout=5)
+
+    @property
+    def mean(self) -> float | None:
+        return float(np.mean(self.samples)) if self.samples else None
+
+
 def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int, steps: int, lr: float, tv: float,
                dt: float, t_pre: float, margin: int = 0, control_sample: int | None = None,
-               out_root: Path | None = None, tag_prefix: str = "") -> list[dict]:
+               out_root: Path | None = None, tag_prefix: str = "", batch: int = 0, plateau_steps: int = 0,
+               plateau_tol: float = 0.0) -> list[dict]:
     """The inversion of one clip from each stage in turn, one network load.
     The optimiser fits `frames + margin` frames; the saved and scored videos
-    are the first `frames` (config [generate], ROADMAP item 9). Returns one
-    record per stage with the videos and scores; writes the same under
+    are the first `frames` (config [generate], ROADMAP item 9). Every stage's
+    inversion and its wrong-target control are one task; tasks run `batch`
+    at a time in one simulation (0 = all at once; ROADMAP item 10'). Returns
+    one record per stage with the videos and scores; writes the same under
     `out_root/<tag>/recovered.npz` + `meta.json` when `out_root` is given
     (the shape `flydream.generate.figures` reads)."""
     net = load_network(model)
@@ -188,30 +286,48 @@ def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int,
     other_np = clip_from_sintel(ctrl_i, frames, dt, margin)
     true = torch.as_tensor(true_np[None], device=dev)
     other = torch.as_tensor(other_np[None], device=dev)
-    state = net.steady_state(t_pre, dt, batch_size=1, value=0.5)
+    state1 = net.steady_state(t_pre, dt, batch_size=1, value=0.5)
     with torch.no_grad():
-        target, target_other = simulate(net, true, dt, state), simulate(net, other, dt, state)
+        target, target_other = simulate(net, true, dt, state1), simulate(net, other, dt, state1)
+    stages = [st for st in stages if not [t for t in st if t not in index] or print(f"skipping {st}: not in this model")]
+    # one task per (stage, which target): the inversion and its control side by side
+    tasks = [(st, which) for st in stages for which in ("inversion", "control")]
+    cells_of = {tuple(st): np.concatenate([index[t] for t in st]) for st in stages}
+    per_chunk = len(tasks) if batch <= 0 else batch
+    videos, traces, seconds, steps_done, util = {}, {}, {}, {}, []
+    with GpuSampler() as gpu:
+        for i in range(0, len(tasks), per_chunk):
+            chunk = tasks[i:i + per_chunk]
+            print(f"=== batch of {len(chunk)} tasks on {dev}: " + ", ".join(f"{'_'.join(st)}/{w[:3]}" for st, w in chunk), flush=True)
+            t0 = time.time()
+            tg = torch.cat([(target if w == "inversion" else target_other) for _, w in chunk])
+            state = net.steady_state(t_pre, dt, batch_size=len(chunk), value=0.5)
+            vid, tr, n = invert_batch(net, tg, [cells_of[tuple(st)] for st, _ in chunk], dt=dt, state=state, steps=steps,
+                                      lr=lr, tv=tv, plateau_steps=plateau_steps, plateau_tol=plateau_tol, log_every=25)
+            per_task = (time.time() - t0) / len(chunk)
+            for b, (st, w) in enumerate(chunk):
+                videos[(tuple(st), w)], traces[(tuple(st), w)] = vid[b].numpy()[:frames], tr[:, b]
+                seconds[(tuple(st), w)], steps_done[(tuple(st), w)] = per_task, n
+            del tg, vid
     records = []
-    for stage in stages:
-        missing = [t for t in stage if t not in index]
-        if missing:
-            print(f"skipping {stage}: not in this model: {missing}"); continue
-        cells = np.concatenate([index[t] for t in stage])
-        label = "T4T5" if len(stage) == 8 else "_".join(stage)
+    shown = true_np[:frames]
+    for st in stages:
+        k = tuple(st)
+        cells = cells_of[k]
+        label = "T4T5" if len(st) == 8 else "_".join(st)
         tag = f"{tag_prefix}invert_{label}_s{sample}"
-        print(f"=== {tag}: {len(cells)} cells on {dev}", flush=True)
-        t0 = time.time()
-        rec, trace = invert(net, target, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
-        ctrl, trace_c = invert(net, target_other, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
-        r, c, shown = rec[0].numpy()[:frames], ctrl[0].numpy()[:frames], true_np[:frames]
+        r, c = videos[(k, "inversion")], videos[(k, "control")]
+        trace, trace_c = traces[(k, "inversion")], traces[(k, "control")]
         s_rec, s_ctrl = pixcorr_per_frame(r, shown), pixcorr_per_frame(c, shown)
-        record = {"tag": tag, "model": model, "sample": sample, "control_sample": ctrl_i, "types": stage,
-                  "cells": int(len(cells)), "frames": frames, "margin": margin, "steps": steps, "lr": lr, "tv": tv, "dt": dt,
+        record = {"tag": tag, "model": model, "sample": sample, "control_sample": ctrl_i, "types": st,
+                  "cells": int(len(cells)), "frames": frames, "margin": margin, "steps": steps,
+                  "steps_run": int(steps_done[(k, "inversion")]), "lr": lr, "tv": tv, "dt": dt,
+                  "batch": per_chunk, "gpu_utilisation": gpu.mean,
                   "inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
-                  "fit_first": trace[0], "fit_final": trace[-1], "control_fit_final": trace_c[-1],
-                  "seconds": round(time.time() - t0, 1), "device": str(dev)}
-        print(f"    r = {record['inversion']:+.3f} (control {record['control']:+.3f}), fit {trace[0]:.4f} -> {trace[-1]:.4f}, "
-              f"{record['seconds']} s", flush=True)
+                  "fit_first": float(trace[0]), "fit_final": float(trace[-1]), "control_fit_final": float(trace_c[-1]),
+                  "seconds": round(seconds[(k, "inversion")] + seconds[(k, "control")], 1), "device": str(dev)}
+        print(f"{tag:<44} r = {record['inversion']:+.3f} (control {record['control']:+.3f}), "
+              f"fit {trace[0]:.4f} -> {trace[-1]:.4f} in {record['steps_run']} steps, {record['seconds']} s per stage", flush=True)
         arrays = {"true": shown, "recovered": r, "control": c, "s_rec": s_rec, "s_ctrl": s_ctrl,
                   "trace": np.asarray(trace), "trace_control": np.asarray(trace_c)}
         if out_root is not None:
@@ -220,6 +336,8 @@ def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int,
             np.savez_compressed(d / "recovered.npz", **arrays)
             (d / "meta.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
         records.append({**record, "arrays": arrays})
+    if gpu.mean is not None:
+        print(f"GPU utilisation over the ladder: {gpu.mean:.0f}% (batch {per_chunk})", flush=True)
     return records
 
 
