@@ -51,8 +51,8 @@ and authorization.
   stage's state (Adam, TV prior, grey start); `run_ladder` for all stages
   in one model load; `deploy/modal/generate_app.py` runs it on a T4
   (10 stages in ~10 min, ~$0.10); `flydream/generate/figures.py` and the
-  two-input figures of 2026-09-19 draw it. Known defect: the last 2-3
-  frames of the window are constrained by a fitted margin (item 9, done).
+  two-input figures of 2026-09-19 draw it; the window is `frames + margin`
+  (40 + 5), so the last shown frames are constrained (item 9, done).
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for everything
   that fits in hours; Modal T4 (`flydream-train`, `flydream-decode`,
   `flydream-generate`) for GPU-bound jobs; `tools/modal_watch.py` to watch.
