@@ -210,9 +210,124 @@ def pairs13(procedural: str = "pairs13/procedural_800_s0.npz", model: str = "mal
         "split_sizes": {k: len(v) for k, v in split.items()}}
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=4, memory=49152, timeout=120 * MINUTES)
+def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: int = 12, batch: int = 16,
+            lr: float = 2e-3, width: int = 32, depth: int = 3, rings: int = 1, taps: int = 5, frames: int = 40,
+            margin: int = 5, n_roundtrip: int = 8, inv_steps: int = 150, model: str = "malecns", seed: int = 0,
+            out: str = "train13") -> dict:
+    """ROADMAP 13A: per condition, the linear hex-temporal decoder and the
+    hex+temporal CNN trained on the pairs13 shards; r on val and test (by
+    source and class); the round trip through the frozen brain on
+    `n_roundtrip` test clips for both models and for the Adam inversion of the
+    same clips (per-type normalised loss, as item 12). Predictions of those
+    clips are saved for the figures."""
+    import numpy as np
+    import torch
+
+    _prepare_root()
+    from flydream.generate import learned as L
+    from flydream.generate.invert import invert_batch, load_network, simulate
+    from flydream.generate.mix import type_weights
+    from flydream.decode import pairs as P
+
+    torch.manual_seed(seed); np.random.seed(seed)
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    root = Path(RUNS) / run
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    columns = json.loads(Path(f"{DATA}/pairs13/columns.json").read_text(encoding="utf-8"))
+    split, meta = manifest["split"], manifest["meta"]
+    dt, t_pre = manifest["dt"], manifest["t_pre"]
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    net = load_network(model)
+    _, index = P.type_index(net.connectome)
+    cells_all = np.asarray(manifest["cells"]); type_of = np.asarray(manifest["type_of_cell"])
+    t0 = time.time()
+    results = {}
+
+    def by_group(r, ids):
+        g = {}
+        for v, i in zip(r, ids):
+            m = meta[int(i)]
+            g.setdefault(m["scene"] if m["source"] == "sintel" else m["class"], []).append(float(v))
+        return {k: [float(np.mean(v)), len(v)] for k, v in g.items()}
+
+    for cond in conditions.split(","):
+        types = L.CONDITIONS[cond]
+        print(f"=== condition {cond}: {types}", flush=True)
+        train = L.ShardSet(root, manifest, columns, types, split["train"])
+        val = L.ShardSet(root, manifest, columns, types, split["val"])
+        test = L.ShardSet(root, manifest, columns, types, split["test"])
+        print(f"  train {len(train.x)}, val {len(val.x)}, test {len(test.x)}, maps {train.x.shape[1:]}, {time.time() - t0:.0f} s", flush=True)
+        res = {"types": types, "n": {"train": len(train.x), "val": len(val.x), "test": len(test.x)}, "models": {}}
+        rt_ids = test.index[:: max(1, len(test.index) // n_roundtrip)][:n_roundtrip]
+        rt_pos = np.array([int(np.where(test.index == i)[0][0]) for i in rt_ids])
+        parts = []
+        for name in manifest["shards"]:
+            z = np.load(root / name)
+            keep = np.isin(z["index"], rt_ids)
+            if keep.any():
+                parts.append((z["index"][keep], z["states"][keep]))
+        order = np.concatenate([i for i, _ in parts]); st = np.concatenate([x for _, x in parts])
+        lookup = {int(i): k for k, i in enumerate(order)}
+        tg_states = st[[lookup[int(i)] for i in rt_ids]]
+        for kind in ("linear", "cnn"):
+            k = len(types)
+            mdl = L.LinearHexTemporal(k, rings, taps) if kind == "linear" else L.HexTemporalCNN(k, width, depth, rings, taps)
+            n_par = sum(q.numel() for q in mdl.parameters())
+            print(f"  {kind}: {n_par} parameters", flush=True)
+            fit = L.train_model(mdl, train, val, t_out=frames, epochs=epochs, batch=batch, lr=lr, device=dev,
+                                log=lambda s_: print(s_, flush=True))
+            ev_val = L.evaluate(mdl, val, fit["mean"], fit["std"], frames, dev)
+            ev_test = L.evaluate(mdl, test, fit["mean"], fit["std"], frames, dev)
+            pred_rt = ev_test["pred"][rt_pos]
+            rt = L.round_trip_error(net, pred_rt, tg_states, cells_all, type_of, types, dt, t_pre, margin)
+            torch.save({"state_dict": mdl.state_dict(), "mean": fit["mean"], "std": fit["std"], "kind": kind, "types": types,
+                        "rings": rings, "taps": taps, "width": width, "depth": depth}, outdir / f"{cond}_{kind}.pt")
+            np.savez_compressed(outdir / f"{cond}_{kind}_roundtrip.npz", ids=rt_ids, pred=pred_rt,
+                                true=test.y[rt_pos, :frames], r=ev_test["r"][rt_pos], rt_per_clip=rt["per_clip"])
+            res["models"][kind] = {"parameters": int(n_par), "history": fit["history"],
+                                   "val_r": float(ev_val["r"].mean()), "test_r": float(ev_test["r"].mean()),
+                                   "test_r_by_group": by_group(ev_test["r"], test.index),
+                                   "roundtrip_per_type": rt["per_type"], "roundtrip_per_clip": rt["per_clip"].tolist(),
+                                   "roundtrip_ids": rt_ids.tolist()}
+            print(f"  {kind}: val r {res['models'][kind]['val_r']:.3f}  test r {res['models'][kind]['test_r']:.3f}  "
+                  f"round trip {rt['per_clip'].mean():.4f}  {time.time() - t0:.0f} s", flush=True)
+            del mdl, ev_val, ev_test
+            torch.cuda.empty_cache()
+        vids_true = test.y[rt_pos]
+        with torch.no_grad():
+            state1 = net.steady_state(t_pre, dt, batch_size=1, value=0.5)
+            targets = torch.cat([simulate(net, torch.as_tensor(v[None].astype(np.float32), device=dev), dt, state1) for v in vids_true])
+        w_cells, w = type_weights(index, types, targets[:1])
+        state = net.steady_state(t_pre, dt, batch_size=len(rt_ids), value=0.5)
+        inv, tr, n_steps = invert_batch(net, targets, [w_cells] * len(rt_ids), dt=dt, state=state, steps=inv_steps, lr=0.05,
+                                        tv=0.02, plateau_steps=20, plateau_tol=0.01, log_every=50, cell_weights=[w] * len(rt_ids))
+        inv_np = inv.numpy()[:, :frames]
+        rt_inv = L.round_trip_error(net, inv_np, tg_states, cells_all, type_of, types, dt, t_pre, margin)
+        r_inv = L.pixcorr(inv_np, vids_true[:, :frames])
+        np.savez_compressed(outdir / f"{cond}_inversion_roundtrip.npz", ids=rt_ids, pred=inv_np, true=vids_true[:, :frames],
+                            r=r_inv, rt_per_clip=rt_inv["per_clip"])
+        res["inversion"] = {"test_r": float(r_inv.mean()), "roundtrip_per_type": rt_inv["per_type"],
+                            "roundtrip_per_clip": rt_inv["per_clip"].tolist(), "steps": int(n_steps)}
+        print(f"  inversion: r {r_inv.mean():.3f}  round trip {rt_inv['per_clip'].mean():.4f}", flush=True)
+        results[cond] = res
+        del train, val, test, targets
+        torch.cuda.empty_cache()
+    summary = {"run": run, "epochs": epochs, "batch": batch, "lr": lr, "width": width, "depth": depth, "rings": rings,
+               "taps": taps, "frames": frames, "margin": margin, "seconds": round(time.time() - t0, 1), "gpu": GPU,
+               "conditions": results}
+    (outdir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    runs_volume.commit()
+    print(f"train13 done in {time.time() - t0:.0f} s on {GPU}", flush=True)
+    return summary
+
+
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
-         stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = "", pairs13_run: bool = False):
+         stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = "", pairs13_run: bool = False,
+         train13_run: bool = False, epochs: int = 12):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -224,6 +339,20 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
+    if train13_run:
+        import numpy as np
+        print(f"train13 on {GPU}: {model}, {epochs} epochs")
+        r = train13.remote(model=model, epochs=epochs, frames=frames, margin=margin, seed=seed)
+        d = root / "data" / "train13"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        for cond, res in r["conditions"].items():
+            for kind, m in res["models"].items():
+                print(f"{cond:>6} {kind:<9} params {m['parameters']:>7}  val r {m['val_r']:+.3f}  test r {m['test_r']:+.3f}  "
+                      f"round trip {np.mean(m['roundtrip_per_clip']):.4f}")
+            print(f"{cond:>6} {'inversion':<9} r {res['inversion']['test_r']:+.3f}  round trip {np.mean(res['inversion']['roundtrip_per_clip']):.4f}")
+        print(f"done in {time.time() - t0:.0f} s")
+        return
     if pairs13_run:
         P13 = _generate_settings_all().get("pairs13", {})
         print(f"pairs13 on {GPU}: {model}, {frames + margin} frames, procedural {P13.get('n_per_class', 800)}/class")

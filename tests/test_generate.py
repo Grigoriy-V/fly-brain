@@ -155,3 +155,20 @@ def test_pairs13_split_holds_out_whole_scenes_and_classes():
     assert sp["test"] == [2, 5, 6]
     assert sorted(sp["train"] + sp["val"]) == [0, 1, 3, 4, 7] and len(sp["val"]) == 1
     assert not (set(sp["train"]) & set(sp["val"]) & set(sp["test"]))
+
+
+def test_learned_models_shapes_and_ring():
+    import torch
+    from flydream.generate import learned as L
+
+    r1 = L.ring_index(1)
+    assert r1.shape == (721, 7) and (r1[:, 0] == np.arange(721)).all()
+    r2 = L.ring_index(2)
+    assert r2.shape == (721, 19) and (r2[360] >= 0).all()          # the centre column has the full 2-ring
+    x = torch.rand(2, 9, 3, 721)
+    lin = L.LinearHexTemporal(3, rings=1, taps=5)
+    assert lin(x, 6).shape == (2, 6, 721)
+    cnn = L.HexTemporalCNN(3, width=8, depth=2, rings=1, taps=3)
+    assert cnn(x, 9).shape == (2, 9, 721)                          # taps past the end are edge-padded
+    n = sum(p.numel() for p in lin.parameters()); assert n == 3 * 7 * 5 + 1
+    p = np.random.default_rng(0).random((4, 5, 721)); assert np.allclose(L.pixcorr(p, p), 1.0)
