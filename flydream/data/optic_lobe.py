@@ -158,10 +158,15 @@ def main(argv=None) -> int:
         n["hex_source"] = np.where(tagged, "tagged", np.where(n["inf_hex1"].notna(), "inferred", "none"))
     print("hex_source:", n["hex_source"].value_counts().to_dict())
     OUT.mkdir(parents=True, exist_ok=True)
-    n[["bodyId", "type", "somaSide", "superclass", "hex1", "hex2", "hex_source", "n_tagged_partners"]].rename(
-        columns={"somaSide": "side"}).to_parquet(OUT / f"neurons_{side}.parquet", index=False)
+    if a.edges_only:
+        # the neuron table (sides, columns) stays the measured one; only a
+        # differently thresholded edge table is added beside it
+        print(f"--edges-only: neurons_{side}.parquet left as is")
+    else:
+        n[["bodyId", "type", "somaSide", "superclass", "hex1", "hex2", "hex_source", "n_tagged_partners"]].rename(
+            columns={"somaSide": "side"}).to_parquet(OUT / f"neurons_{side}.parquet", index=False)
     e.to_parquet(OUT / f"edges_{side}_w{min_weight}.parquet", index=False)
-    print("written", OUT)
+    print("written", OUT / f"edges_{side}_w{min_weight}.parquet", f"({len(e):,} rows)")
     return 0
 
 
