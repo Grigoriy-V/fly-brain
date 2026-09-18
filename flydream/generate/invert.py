@@ -1,0 +1,234 @@
+"""Encoder inversion: the video that drives the model's cells to a given state.
+
+    python -m flydream.generate.invert --run 2026-09-18_decode_sintel_flyvis --sample 3 \
+        --types T4a T4b T4c T4d T5a T5b T5c T5d --frames 20 --steps 150 --tag t4t5
+
+Given a recorded activity of a set of cell types over a clip, find the input
+video (frames x 721 hexals of luminance in [0, 1]) whose simulation through
+the network reproduces that activity (Bauer et al. 2026, gradient descent on
+the pixels; the recipe checked against flyvis 1.2.0 in
+`research_notes/decoder_stack/inversion.md`). The network's parameters are
+constants; the video is the only leaf. The loss is the mean squared error on
+the chosen cells plus a small total-variation prior over neighbouring hexals
+and over time. Start: flat grey (0.5), or `--init ridge` from a ridge
+decoder's guess when that run is given.
+
+Protocol. The target is not read from `pairs.npz` but re-simulated from the
+clip's true video with the same initial state the inversion uses (a 1 s grey
+steady state, no fade-in), so the only thing the optimiser has to explain is
+the video. Two numbers per run, both PixCorr per frame between the recovered
+and the true video: the inversion, and the **wrong-target control** (the same
+optimisation aimed at another clip's activity: what a video looks like when it
+explains the wrong state; its correlation with this clip is the floor).
+
+Runs on the owner's CPU: one Adam step over 20 frames at batch 1 is about
+2-4 s here, so 150 steps is under ten minutes per clip. Output under
+`data/generate/<tag>/`: `recovered.npz` (true, recovered, control videos and
+their per-frame scores) and `reports/figures/<tag>_inversion.png` (rows:
+frames; columns: true video, recovered, control) plus a GIF.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from flydream.model import ROOT, configure_flyvis_root
+
+configure_flyvis_root()
+import flyvis  # noqa: E402
+from flyvis.network.stimulus import Stimulus  # noqa: E402
+
+from flydream.decode import pairs as P  # noqa: E402
+from flydream.decode.hexraster import neighbour_index, to_raster  # noqa: E402
+
+
+def load_network(model: str):
+    net = flyvis.NetworkView(model).init_network(checkpoint="best")
+    net.eval()
+    for p in net.parameters():
+        p.requires_grad_(False)
+    return net
+
+
+def simulate(net, video: torch.Tensor, dt: float, state) -> torch.Tensor:
+    """(B, T, H) luminance -> (B, T, n_nodes) activity, differentiable in `video`."""
+    stim = Stimulus(net.connectome, video.shape[0], video.shape[1], init_buffer=False)
+    if hasattr(stim, "buffer"):
+        del stim.buffer
+    stim.add_input(video[:, :, None, :])
+    return net(stim(), dt, state=state)
+
+
+def tv_prior(video: torch.Tensor, nb: torch.Tensor) -> torch.Tensor:
+    """Mean squared difference to lattice neighbours and to the previous frame."""
+    valid = nb >= 0
+    v = video[..., nb.clamp(min=0)]                       # (B, T, H, 6)
+    space = ((v - video[..., None]) ** 2 * valid).sum(-1).mean() / valid.float().mean().clamp(min=1e-6)
+    time_ = ((video[:, 1:] - video[:, :-1]) ** 2).mean() if video.shape[1] > 1 else video.new_zeros(())
+    return space + time_
+
+
+def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, steps: int, lr: float,
+           tv: float, init: torch.Tensor | None, log_every: int = 10) -> tuple[torch.Tensor, list[float]]:
+    """Return the recovered video (B, T, H) and the loss trace."""
+    B, T = target.shape[:2]
+    H = net.stimulus.n_input_elements if hasattr(net.stimulus, "n_input_elements") else 721
+    video = (init.clone() if init is not None else torch.full((B, T, H), 0.5)).requires_grad_(True)
+    opt = torch.optim.Adam([video], lr=lr)
+    nb = torch.as_tensor(neighbour_index(H), dtype=torch.long)
+    idx = torch.as_tensor(cells, dtype=torch.long)
+    trace = []
+    t0 = time.time()
+    for step in range(steps):
+        opt.zero_grad(set_to_none=True)
+        act = simulate(net, video, dt, state)[:, :, idx]
+        fit = ((act - target[:, :, idx]) ** 2).mean()
+        loss = fit + tv * tv_prior(video, nb)
+        loss.backward()
+        opt.step()
+        with torch.no_grad():
+            video.clamp_(0.0, 1.0)
+        trace.append(float(fit))
+        if step % log_every == 0 or step == steps - 1:
+            print(f"  step {step:4d}  fit {float(fit):.5f}  loss {float(loss):.5f}  {time.time() - t0:.0f}s", flush=True)
+    return video.detach(), trace
+
+
+def pixcorr_per_frame(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    out = []
+    for x, y in zip(a, b):
+        sx, sy = x.std(), y.std()
+        out.append(float(np.corrcoef(x, y)[0, 1]) if sx > 1e-6 and sy > 1e-6 else 0.0)
+    return np.asarray(out)
+
+
+def figure(true: np.ndarray, rec: np.ndarray, ctrl: np.ndarray, scores: dict, frames: list[int], path: Path,
+           title: str, pix_per_hex: int = 4) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cols = [("stimulus\n(what the eye saw)", true), ("inversion\n(most compatible video)", rec),
+            ("wrong-target control", ctrl)]
+    fig, axes = plt.subplots(len(frames), len(cols), figsize=(2.3 * len(cols) + 0.4, 2.1 * len(frames) + 0.9),
+                             facecolor="#fcfcfb", squeeze=False)
+    for i, f in enumerate(frames):
+        for j, (name, vid) in enumerate(cols):
+            ax = axes[i, j]
+            ax.imshow(to_raster(vid[f], vid.shape[-1], pix_per_hex, fill=np.nan), cmap="gray", vmin=0, vmax=1,
+                      interpolation="nearest")
+            ax.set_xticks([]); ax.set_yticks([])
+            for sp in ax.spines.values():
+                sp.set_visible(False)
+            if i == 0:
+                r = scores.get(("inversion" if j == 1 else "control") if j else None)
+                ax.set_title(name + (f"\nr = {r:+.2f}" if r is not None else ""), fontsize=8.5, color="#0b0b0b")
+            if j == 0:
+                ax.set_ylabel(f"frame {f}", fontsize=8.5, color="#52514e")
+    fig.suptitle(title, fontsize=9.5, color="#0b0b0b", x=0.02, ha="left")
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=170, facecolor="#fcfcfb")
+    plt.close(fig)
+
+
+def animation(true: np.ndarray, rec: np.ndarray, ctrl: np.ndarray, path: Path, pix_per_hex: int = 4) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation, PillowWriter
+
+    vids = [true, rec, ctrl]
+    names = ["stimulus", "inversion", "wrong-target control"]
+    fig, axes = plt.subplots(1, 3, figsize=(7.2, 2.7), facecolor="#fcfcfb")
+    ims = []
+    for ax, v, n in zip(axes, vids, names):
+        ims.append(ax.imshow(to_raster(v[0], v.shape[-1], pix_per_hex, fill=np.nan), cmap="gray", vmin=0, vmax=1,
+                             interpolation="nearest"))
+        ax.set_title(n, fontsize=9, color="#0b0b0b"); ax.set_xticks([]); ax.set_yticks([])
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+    fig.tight_layout()
+
+    def update(f):
+        for im, v in zip(ims, vids):
+            im.set_data(to_raster(v[f], v.shape[-1], pix_per_hex, fill=np.nan))
+        return ims
+    FuncAnimation(fig, update, frames=len(true), blit=True).save(path, writer=PillowWriter(fps=10))
+    plt.close(fig)
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--run", required=True, help="a run under data/decode/ holding pairs.npz (the clips)")
+    p.add_argument("--model", default="flow/0000/000")
+    p.add_argument("--sample", type=int, default=3, help="clip index in pairs.npz")
+    p.add_argument("--control-sample", type=int, default=None, help="the wrong-target clip; default sample+7")
+    p.add_argument("--types", nargs="+", required=True)
+    p.add_argument("--frames", type=int, default=20)
+    p.add_argument("--steps", type=int, default=150)
+    p.add_argument("--lr", type=float, default=0.05)
+    p.add_argument("--tv", type=float, default=0.02)
+    p.add_argument("--dt", type=float, default=0.02)
+    p.add_argument("--t-pre", type=float, default=1.0)
+    p.add_argument("--tag", default=None)
+    p.add_argument("--show-frames", nargs="*", type=int, default=[2, 9, 17])
+    a = p.parse_args(argv)
+    tag = a.tag or f"{time.strftime('%Y-%m-%d')}_invert_{'_'.join(a.types[:2])}{'_etc' if len(a.types) > 2 else ''}_s{a.sample}"
+    out = ROOT / "data" / "generate" / tag
+    out.mkdir(parents=True, exist_ok=True)
+
+    pairs = P.Pairs.load(ROOT / "data" / "decode" / a.run / "pairs.npz")
+    ctrl_i = a.control_sample if a.control_sample is not None else (a.sample + 7) % pairs.n_samples
+    true = torch.as_tensor(pairs.stimulus[[a.sample], :a.frames], dtype=torch.float32)
+    other = torch.as_tensor(pairs.stimulus[[ctrl_i], :a.frames], dtype=torch.float32)
+    print(f"clip {a.sample} (control clip {ctrl_i}), {a.frames} frames, types {a.types}")
+
+    net = load_network(a.model)
+    types, index = P.type_index(net.connectome)
+    missing = [t for t in a.types if t not in index]
+    if missing:
+        print(f"not cell types of this model: {missing}"); return 1
+    cells = np.concatenate([index[t] for t in a.types])
+    print(f"{len(cells)} cells of {net.n_nodes}")
+    state = net.steady_state(a.t_pre, a.dt, batch_size=1, value=0.5)
+    with torch.no_grad():
+        target = simulate(net, true, a.dt, state)
+        target_other = simulate(net, other, a.dt, state)
+    print(f"targets simulated; activity of the chosen cells: mean {float(target[:, :, cells].mean()):.3f}, "
+          f"sd {float(target[:, :, cells].std()):.3f}")
+
+    print("inversion:")
+    rec, trace = invert(net, target, cells, dt=a.dt, state=state, steps=a.steps, lr=a.lr, tv=a.tv, init=None)
+    print("wrong-target control:")
+    ctrl, trace_c = invert(net, target_other, cells, dt=a.dt, state=state, steps=a.steps, lr=a.lr, tv=a.tv, init=None)
+
+    t, r, c = true[0].numpy(), rec[0].numpy(), ctrl[0].numpy()
+    s_rec, s_ctrl = pixcorr_per_frame(r, t), pixcorr_per_frame(c, t)
+    scores = {"inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
+              "inversion_per_frame": s_rec.tolist(), "control_per_frame": s_ctrl.tolist(),
+              "fit_final": trace[-1], "fit_first": trace[0], "control_fit_final": trace_c[-1]}
+    print(f"\nPixCorr recovered vs true: {scores['inversion']:+.3f} (per frame min {s_rec.min():+.2f}, max {s_rec.max():+.2f}); "
+          f"wrong-target control: {scores['control']:+.3f}; fit {trace[0]:.4f} -> {trace[-1]:.4f}")
+    np.savez_compressed(out / "recovered.npz", true=t, recovered=r, control=c, s_rec=s_rec, s_ctrl=s_ctrl,
+                        trace=np.asarray(trace), trace_control=np.asarray(trace_c))
+    (out / "meta.json").write_text(json.dumps({**vars(a), "tag": tag, "cells": int(len(cells)), "control_sample": ctrl_i,
+                                               **{k: v for k, v in scores.items() if not k.endswith("per_frame")}},
+                                              indent=1), encoding="utf-8")
+    figdir = ROOT / "reports" / "figures"
+    figure(t, r, c, scores, [f for f in a.show_frames if f < a.frames], figdir / f"{tag}_inversion.png",
+           f"Encoder inversion from {', '.join(a.types)} ({len(cells)} cells), {a.model}, clip {a.sample}: "
+           f"r = {scores['inversion']:+.2f} against control {scores['control']:+.2f}")
+    animation(t, r, c, figdir / f"{tag}_inversion.gif")
+    print(f"wrote {out}, reports/figures/{tag}_inversion.png and .gif")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
