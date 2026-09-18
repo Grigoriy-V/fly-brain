@@ -27,7 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
-| ISS-0005 | open | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am and the feedback pairs Tm2→L2 and Mi4→Tm2 (R1–R6→Am 1.2 against 36 synapses per cell, Am→T1 3.3 against 63); columnar motion pairs agree within 1.7× | roadmap 1, ISS-0003 |
+| ISS-0005 | mitigated (b fixed, a third-party) | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am (a: MaleCNS has 49 Lai fragments for ~750 Am, a reconstruction gap) and on the feedback pairs Tm2→L2 and Mi4→Tm2 (b: the min_weight cut, fixed by the weak-pair exception; v9 DSI 0.152 against v7's 0.109, all members stable) | roadmap 1, ISS-0003 |
 | ISS-0004 | open | the step-4 stage curve (R → L → Mi/Tm → T4/T5) is a decoder artefact: at a 60 ms window instead of lag 0, T5a's control-corrected score goes 0.057 → 0.625 and the order inverts; stage explains R² 0.317 of the map; read from the best of 50 members on one split | roadmap 4 |
 | ISS-0003 | mitigated | `transplant` copied FlyVis's `syn_strength` raw, though it is a gain divided by that connectome's own synapse count; on MaleCNS the copy underweighted T5's main drive and overweighted its inhibition, and step 2's DSI 0.020 was at least partly that (member 000 → 0.161 corrected) | roadmap 2, 3; DECISIONS 2026-09-18 |
 | ISS-0002 | open, third-party input | the right CT1 (bodyId 10157, "Roughly traced") has 56,517 outgoing rows in the weights table but only 8 to typed right-lobe neurons, so every CT1 pathway FlyVis carries (CT1 → T4/T5, 14–40 synapses per column) is absent from the export | roadmap 1, 2 |

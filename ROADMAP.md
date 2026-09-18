@@ -156,9 +156,11 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    (minutes, under a dollar: the per-iteration price), `smoke_packed` at
    N = 2, 4, 8 (the packing factor), two members for the reference schedule
    (one from the transplant, one from scratch), then an ensemble sized by the
-   human as `ceil(N / pack)` cards. Before the first gate: v9 (model zero on
-   the refined export) must be stable; the local CPU timing is recorded
-   (17.2 s/iter under load).
+   human as `ceil(N / pack)` cards. Pre-conditions met 2026-09-18 evening:
+   v9 (model zero on the refined export) is stable on three members (DSI
+   0.200 / 0.191 / 0.065, flash 0.93); the T4 smoke measured 0.434 s/iter,
+   i.e. 30 h and about $18 per member alone on a card; the packing factor
+   is being measured (`smoke_packed` 2 / 4 / 8).
 
 5. **Both eyes, every column, the missing biophysics.** Extend to ~880
    columns per eye and the left eye; add, one at a time and each validated
