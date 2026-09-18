@@ -1,7 +1,7 @@
 """Encoder inversion: the video that drives the model's cells to a given state.
 
     python -m flydream.generate.invert --run 2026-09-18_decode_sintel_flyvis --sample 3 \
-        --types T4a T4b T4c T4d T5a T5b T5c T5d --frames 20 --steps 150 --tag t4t5
+        --types T4a T4b T4c T4d T5a T5b T5c T5d --tag t4t5
 
 Given a recorded activity of a set of cell types over a clip, find the input
 video (frames x 721 hexals of luminance in [0, 1]) whose simulation through
@@ -21,8 +21,12 @@ and the true video: the inversion, and the **wrong-target control** (the same
 optimisation aimed at another clip's activity: what a video looks like when it
 explains the wrong state; its correlation with this clip is the floor).
 
-Runs on the owner's CPU: one Adam step over 20 frames at batch 1 is about
-2-4 s here, so 150 steps is under ten minutes per clip. Output under
+The window is `frames + margin` (config [generate]: 40 + 5 at dt 0.02): the
+activity at a frame depends on the frames after it, so the last frames of a
+window with no future were unconstrained and blurred (ROADMAP item 9); the
+margin is fitted and dropped on save. Runs on the owner's CPU: one Adam step
+over 20 frames at batch 1 is about 2-4 s here (a T4: under 0.1 s), and cost
+is linear in the window. Output under
 `data/generate/<tag>/`: `recovered.npz` (true, recovered, control videos and
 their per-frame scores) and `reports/figures/<tag>_inversion.png` (rows:
 frames; columns: true video, recovered, control) plus a GIF.
@@ -74,16 +78,51 @@ def device_of(net) -> torch.device:
     return next(net.parameters()).device
 
 
-def clip_from_sintel(sample: int, frames: int, dt: float) -> np.ndarray:
-    """The luminance video (frames, 721) of one AugmentedSintel clip, the same
-    dataset and index the decoder map uses, so no pairs file is needed."""
+def settings() -> dict:
+    """`config.toml [generate]`: frames, margin, steps, lr, tv, dt, t_pre."""
+    import tomllib
+
+    return tomllib.loads((ROOT / "config.toml").read_text(encoding="utf-8")).get("generate", {})
+
+
+def _lum(item) -> np.ndarray:
+    lum = item["lum"]
+    lum = lum.detach().cpu().numpy() if torch.is_tensor(lum) else np.asarray(lum)   # on a GPU worker it is a cuda tensor
+    return lum.astype(np.float32).reshape(lum.shape[0], -1)
+
+
+def extend_clip(clip: np.ndarray, following: np.ndarray | None, margin: int) -> tuple[np.ndarray, str]:
+    """`clip` plus `margin` frames of future: the start of `following` when
+    given, else the last frame held. Returns the video and where the margin
+    came from ("next", "held", "none")."""
+    if margin <= 0:
+        return clip, "none"
+    if following is not None and len(following) >= margin:
+        return np.concatenate([clip, following[:margin]]), "next"
+    return np.concatenate([clip, np.repeat(clip[-1:], margin, axis=0)]), "held"
+
+
+def clip_from_sintel(sample: int, frames: int, dt: float, margin: int = 0) -> np.ndarray:
+    """The luminance video (frames + margin, 721) of one AugmentedSintel clip,
+    the same dataset and index the decoder map uses, so no pairs file is
+    needed. The margin (config [generate]) is the next temporal chunk of the
+    same scene and vertical split, which in this set is the next sample
+    (checked 2026-09-19: last frame of clip 3 to first of clip 4, r = 0.97);
+    when the next sample is another scene the last frame is held."""
     from flydream.decode.map import stimulus_set
 
     ds, _, _, _ = stimulus_set("sintel", dt)
-    lum = ds[int(sample)]["lum"]
-    lum = lum.detach().cpu().numpy() if torch.is_tensor(lum) else np.asarray(lum)   # on a GPU worker it is a cuda tensor
-    lum = lum.astype(np.float32)
-    return lum.reshape(lum.shape[0], -1)[:frames]
+    sample = int(sample)
+    clip = _lum(ds[sample])[:frames]
+    if margin <= 0:
+        return clip
+    following = None
+    df = getattr(ds, "arg_df", None)
+    if df is not None and sample + 1 < len(df) and df.iloc[sample]["name"] == df.iloc[sample + 1]["name"]:
+        following = _lum(ds[sample + 1])
+    video, source = extend_clip(clip, following, margin)
+    print(f"  clip {sample}: {frames} frames + margin {margin} ({source})", flush=True)
+    return video
 
 
 def simulate(net, video: torch.Tensor, dt: float, state) -> torch.Tensor:
@@ -133,18 +172,20 @@ def invert(net, target: torch.Tensor, cells: np.ndarray, *, dt: float, state, st
 
 
 def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int, steps: int, lr: float, tv: float,
-               dt: float, t_pre: float, control_sample: int | None = None, out_root: Path | None = None,
-               tag_prefix: str = "") -> list[dict]:
+               dt: float, t_pre: float, margin: int = 0, control_sample: int | None = None,
+               out_root: Path | None = None, tag_prefix: str = "") -> list[dict]:
     """The inversion of one clip from each stage in turn, one network load.
-    Returns one record per stage with the videos and scores; writes the same
-    under `out_root/<tag>/recovered.npz` + `meta.json` when `out_root` is given
+    The optimiser fits `frames + margin` frames; the saved and scored videos
+    are the first `frames` (config [generate], ROADMAP item 9). Returns one
+    record per stage with the videos and scores; writes the same under
+    `out_root/<tag>/recovered.npz` + `meta.json` when `out_root` is given
     (the shape `flydream.generate.figures` reads)."""
     net = load_network(model)
     dev = device_of(net)
     types, index = P.type_index(net.connectome)
-    true_np = clip_from_sintel(sample, frames, dt)
+    true_np = clip_from_sintel(sample, frames, dt, margin)
     ctrl_i = control_sample if control_sample is not None else sample + 7
-    other_np = clip_from_sintel(ctrl_i, frames, dt)
+    other_np = clip_from_sintel(ctrl_i, frames, dt, margin)
     true = torch.as_tensor(true_np[None], device=dev)
     other = torch.as_tensor(other_np[None], device=dev)
     state = net.steady_state(t_pre, dt, batch_size=1, value=0.5)
@@ -162,16 +203,16 @@ def run_ladder(model: str, sample: int, stages: list[list[str]], *, frames: int,
         t0 = time.time()
         rec, trace = invert(net, target, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
         ctrl, trace_c = invert(net, target_other, cells, dt=dt, state=state, steps=steps, lr=lr, tv=tv, init=None, log_every=50)
-        r, c = rec[0].numpy(), ctrl[0].numpy()
-        s_rec, s_ctrl = pixcorr_per_frame(r, true_np), pixcorr_per_frame(c, true_np)
+        r, c, shown = rec[0].numpy()[:frames], ctrl[0].numpy()[:frames], true_np[:frames]
+        s_rec, s_ctrl = pixcorr_per_frame(r, shown), pixcorr_per_frame(c, shown)
         record = {"tag": tag, "model": model, "sample": sample, "control_sample": ctrl_i, "types": stage,
-                  "cells": int(len(cells)), "frames": frames, "steps": steps, "lr": lr, "tv": tv, "dt": dt,
+                  "cells": int(len(cells)), "frames": frames, "margin": margin, "steps": steps, "lr": lr, "tv": tv, "dt": dt,
                   "inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
                   "fit_first": trace[0], "fit_final": trace[-1], "control_fit_final": trace_c[-1],
                   "seconds": round(time.time() - t0, 1), "device": str(dev)}
         print(f"    r = {record['inversion']:+.3f} (control {record['control']:+.3f}), fit {trace[0]:.4f} -> {trace[-1]:.4f}, "
               f"{record['seconds']} s", flush=True)
-        arrays = {"true": true_np, "recovered": r, "control": c, "s_rec": s_rec, "s_ctrl": s_ctrl,
+        arrays = {"true": shown, "recovered": r, "control": c, "s_rec": s_rec, "s_ctrl": s_ctrl,
                   "trace": np.asarray(trace), "trace_control": np.asarray(trace_c)}
         if out_root is not None:
             d = out_root / tag
@@ -247,20 +288,23 @@ def animation(true: np.ndarray, rec: np.ndarray, ctrl: np.ndarray, path: Path, p
 
 
 def main(argv=None) -> int:
+    g = settings()
     p = argparse.ArgumentParser()
     p.add_argument("--run", required=True, help="a run under data/decode/ holding pairs.npz (the clips)")
     p.add_argument("--model", default="flow/0000/000")
     p.add_argument("--sample", type=int, default=3, help="clip index in pairs.npz")
     p.add_argument("--control-sample", type=int, default=None, help="the wrong-target clip; default sample+7")
     p.add_argument("--types", nargs="+", required=True)
-    p.add_argument("--frames", type=int, default=20)
-    p.add_argument("--steps", type=int, default=150)
-    p.add_argument("--lr", type=float, default=0.05)
-    p.add_argument("--tv", type=float, default=0.02)
-    p.add_argument("--dt", type=float, default=0.02)
-    p.add_argument("--t-pre", type=float, default=1.0)
+    p.add_argument("--frames", type=int, default=g.get("frames", 40), help="frames shown and scored")
+    p.add_argument("--margin", type=int, default=g.get("margin", 5),
+                   help="extra frames fitted after the last shown one, dropped on save (config [generate])")
+    p.add_argument("--steps", type=int, default=g.get("steps", 150))
+    p.add_argument("--lr", type=float, default=g.get("lr", 0.05))
+    p.add_argument("--tv", type=float, default=g.get("tv", 0.02))
+    p.add_argument("--dt", type=float, default=g.get("dt", 0.02))
+    p.add_argument("--t-pre", type=float, default=g.get("t_pre", 1.0))
     p.add_argument("--tag", default=None)
-    p.add_argument("--show-frames", nargs="*", type=int, default=[2, 9, 17])
+    p.add_argument("--show-frames", nargs="*", type=int, default=[4, 19, 35])
     p.add_argument("--from-dataset", action="store_true",
                    help="take the clip from AugmentedSintel instead of pairs.npz (no pairs file needed)")
     a = p.parse_args(argv)
@@ -272,14 +316,15 @@ def main(argv=None) -> int:
     dev = device_of(net)
     if a.from_dataset:
         ctrl_i = a.control_sample if a.control_sample is not None else a.sample + 7
-        true = torch.as_tensor(clip_from_sintel(a.sample, a.frames, a.dt)[None], device=dev)
-        other = torch.as_tensor(clip_from_sintel(ctrl_i, a.frames, a.dt)[None], device=dev)
+        true = torch.as_tensor(clip_from_sintel(a.sample, a.frames, a.dt, a.margin)[None], device=dev)
+        other = torch.as_tensor(clip_from_sintel(ctrl_i, a.frames, a.dt, a.margin)[None], device=dev)
     else:
         pairs = P.Pairs.load(ROOT / "data" / "decode" / a.run / "pairs.npz")
         ctrl_i = a.control_sample if a.control_sample is not None else (a.sample + 7) % pairs.n_samples
-        true = torch.as_tensor(pairs.stimulus[[a.sample], :a.frames], dtype=torch.float32, device=dev)
-        other = torch.as_tensor(pairs.stimulus[[ctrl_i], :a.frames], dtype=torch.float32, device=dev)
-    print(f"clip {a.sample} (control clip {ctrl_i}), {a.frames} frames, types {a.types}, device {dev}")
+        # pairs.npz holds the clip alone: the margin is the last frame held
+        true = torch.as_tensor(extend_clip(pairs.stimulus[a.sample, :a.frames].astype(np.float32), None, a.margin)[0][None], device=dev)
+        other = torch.as_tensor(extend_clip(pairs.stimulus[ctrl_i, :a.frames].astype(np.float32), None, a.margin)[0][None], device=dev)
+    print(f"clip {a.sample} (control clip {ctrl_i}), {a.frames} frames + margin {a.margin}, types {a.types}, device {dev}")
 
     types, index = P.type_index(net.connectome)
     missing = [t for t in a.types if t not in index]
@@ -299,7 +344,7 @@ def main(argv=None) -> int:
     print("wrong-target control:")
     ctrl, trace_c = invert(net, target_other, cells, dt=a.dt, state=state, steps=a.steps, lr=a.lr, tv=a.tv, init=None)
 
-    t, r, c = true[0].cpu().numpy(), rec[0].numpy(), ctrl[0].numpy()
+    t, r, c = true[0, :a.frames].cpu().numpy(), rec[0, :a.frames].numpy(), ctrl[0, :a.frames].numpy()
     s_rec, s_ctrl = pixcorr_per_frame(r, t), pixcorr_per_frame(c, t)
     scores = {"inversion": float(np.mean(s_rec)), "control": float(np.mean(s_ctrl)),
               "inversion_per_frame": s_rec.tolist(), "control_per_frame": s_ctrl.tolist(),

@@ -12,6 +12,10 @@ Nothing large moves. On the owner's CPU one Adam step over 20 frames took
 2-5 s under load (a ladder of eight stages: an hour); on a T4 the same is
 well under 0.1 s (minutes, ~$0.05). The GPU is used because the job is one
 where it is more than 4× faster (DECISIONS 2026-09-18, night).
+
+Window: `frames + margin` from `config.toml [generate]` (40 + 5 since ROADMAP
+item 9, 2026-09-19); the 20-frame ladders of 2026-09-18 had no margin. Pass
+--frames/--margin to override; -1 means the config value.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import json
 import os
 import shutil
 import time
+import tomllib
 from pathlib import Path
 
 import modal
@@ -34,6 +39,8 @@ GPU = os.environ.get("FLYDREAM_GPU", "T4")
 CONNECTOME = "filters_R_w5wk50m500oc.json"
 STAGES = [["R1"], ["L1"], ["L3"], ["Mi1"], ["Mi4"], ["Tm5a"], ["Tm9"], ["T4a"], ["T5a"],
           ["T4a", "T4b", "T4c", "T4d", "T5a", "T5b", "T5c", "T5d"]]
+
+GEN = tomllib.loads(Path(__file__).resolve().parents[2].joinpath("config.toml").read_text(encoding="utf-8")).get("generate", {})
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOL, create_if_missing=True)
@@ -59,8 +66,8 @@ def _prepare_root() -> None:
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
               cpu=2, memory=12288, timeout=60 * MINUTES)
-def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 20, steps: int = 150,
-           lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, stages: str = "") -> list[dict]:
+def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, margin: int = 5, steps: int = 150,
+           lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "") -> list[dict]:
     import numpy as np
 
     _prepare_root()          # before the import: flydream.model reads ROOT/config.toml on import
@@ -69,7 +76,7 @@ def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 20, step
     st = [s.split("+") for s in stages.split(",")] if stages else STAGES
     prefix = f"{time.strftime('%Y-%m-%d')}_{'malecns' if model.startswith('malecns') else 'flyvis'}_"
     t0 = time.time()
-    records = run_ladder(model, sample, st, frames=frames, steps=steps, lr=lr, tv=tv, dt=dt, t_pre=1.0,
+    records = run_ladder(model, sample, st, frames=frames, margin=margin, steps=steps, lr=lr, tv=tv, dt=dt, t_pre=t_pre,
                          out_root=Path(GEN_ROOT) / "data" / "generate", tag_prefix=prefix)
     runs_volume.commit()
     out = []
@@ -82,10 +89,17 @@ def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 20, step
 
 
 @app.local_entrypoint()
-def main(model: str = "flow/0000/000", sample: int = 3, frames: int = 20, steps: int = 150, stages: str = ""):
+def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
+         stages: str = ""):
     root = Path(__file__).resolve().parents[2]
+    frames = GEN.get("frames", 40) if frames < 0 else frames
+    margin = GEN.get("margin", 5) if margin < 0 else margin
+    steps = GEN.get("steps", 150) if steps < 0 else steps
+    print(f"ladder on {GPU}: {model}, clip {sample}, {frames} frames + margin {margin}, {steps} steps")
     t0 = time.time()
-    records = ladder.remote(model=model, sample=sample, frames=frames, steps=steps, stages=stages)
+    records = ladder.remote(model=model, sample=sample, frames=frames, margin=margin, steps=steps,
+                            lr=GEN.get("lr", 0.05), tv=GEN.get("tv", 0.02), dt=GEN.get("dt", 0.02),
+                            t_pre=GEN.get("t_pre", 1.0), stages=stages)
     tags = []
     for r in records:
         d = root / "data" / "generate" / r["tag"]

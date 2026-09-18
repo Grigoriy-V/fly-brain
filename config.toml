@@ -94,6 +94,24 @@ identification_candidates = 20
 subset_counts = [10, 30, 90, 270]
 batch_size = 4
 
+[generate]
+# The encoder inversion (flydream.generate.invert). A clip of the Sintel set is
+# 19 source frames at 24 fps resampled to 40 model frames at dt = 0.02 (0.8 s
+# of the fly's time); `frames` is how many of them are shown and scored. The
+# optimiser fits `frames + margin` and the last `margin` frames are dropped on
+# save: a frame's activity depends on what comes after it (membrane time
+# constants, T4/T5 delays), so without a future the last 2-3 frames of the
+# window were unconstrained and blurred (item 8 defect, ROADMAP item 9). The
+# margin's video is the next chunk of the same scene when the Sintel set has
+# one, else the last frame held. Cost is linear in frames + margin.
+frames = 40
+margin = 5
+steps = 150
+lr = 0.05
+tv = 0.02
+dt = 0.02
+t_pre = 1.0
+
 [benchmark]
 # Engineering experiment only; does not change the reference training recipe.
 # 30 requested updates matches the previous smoke; the actual count is recorded.
