@@ -148,12 +148,17 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    saved, and the export was changed so the reference task can run on it
    (inputs tile every column; outputs restricted to the 18 columnar types,
    `output_units_columnar_only`; weak-pair exception with a 500-synapse
-   floor). Not yet started: the Modal account is chosen (the second one,
-   profile `grigoriy98smile`, the human 2026-09-18). Gates in order: `smoke`
-   (minutes, the per-iteration price), two members (one from the
-   transplant, one from scratch), then an ensemble sized by the human.
-   Before the first gate: v9 (model zero on the refined export) must be
-   stable, and the local CPU timing is recorded.
+   floor). The Modal account is the second one (profile `grigoriy98smile`);
+   the GPU is T4, L4 the alternative, nothing above (the human,
+   2026-09-18); the export, the init state and Sintel are on the Volume
+   `flydream-data` (uploads approved the same day). The app packs N members
+   per card (`smoke_packed`, `train_packed`). Gates in order: `smoke` on T4
+   (minutes, under a dollar: the per-iteration price), `smoke_packed` at
+   N = 2, 4, 8 (the packing factor), two members for the reference schedule
+   (one from the transplant, one from scratch), then an ensemble sized by the
+   human as `ceil(N / pack)` cards. Before the first gate: v9 (model zero on
+   the refined export) must be stable; the local CPU timing is recorded
+   (17.2 s/iter under load).
 
 5. **Both eyes, every column, the missing biophysics.** Extend to ~880
    columns per eye and the left eye; add, one at a time and each validated

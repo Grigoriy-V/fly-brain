@@ -28,6 +28,7 @@ says what replaced it.
 | 2026-09-18 | The generative inverse model is the deliverable; the sleep chapter is a second stage; the substrate spark is parked | standing |
 | 2026-09-18 | A transplanted gain preserves total input per target cell, is capped, and a capped pair is an export defect | standing |
 | 2026-09-18 | A decodability number is reported over a lag sweep, several ensemble members and several splits, against a per-type null | standing |
+| 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
 
 ---
 
@@ -288,6 +289,29 @@ Consequences: `config.toml [decode]` gains `lags` as a list to sweep,
 `members` and `splits`; the ladder figure is regenerated from the sweep and
 labelled with its window; the first figure of 2026-09-18 is kept in
 `reports/figures/` with its caveat and is not cited.
+
+## 2026-09-18 — Training runs on T4, packed several members per card; every changed result ships with a picture
+
+Decision (the human, 2026-09-18, in words): "берём T4, L4 держим как
+альтернативу, выше нельзя"; "надо подумать как нагрузить карту максимально
+эффективно, параллельные запуски"; uploads to Modal Volumes approved
+("можешь грузить всё на модал"); and the standing rule "после каждого
+значимого шага, когда есть изменения, я хочу видеть визуальные данные".
+
+Why: the model is small (31,526 nodes, 1.4M edges, about a gigabyte of graph
+per iteration) and sequential over 40 time steps, so a single member leaves a
+card mostly idle and a bigger card buys little; the cost that matters is
+dollars per member-iteration, which packing lowers and which `smoke_packed`
+measures at N = 1, 2, 4, 8 rather than assumes. The picture rule: the
+project's product is images and clips, and the human judges by them.
+
+Consequences: `FLYDREAM_GPU` defaults to `T4`; `deploy/modal/train_app.py`
+runs N members as N processes in one container after a warm-up that builds
+the shared caches; the ensemble is scheduled as `ceil(N / pack)` cards; every
+step that changes a result ends with a figure or clip sent to the human in
+the same turn (`flydream.decode.figures`, `flydream.decode.sweep`, a
+loss-and-validation figure for training); priced calls still need the
+human's yes per action with the price stated.
 
 ## 2026-09-18 — The project agent delegates on Opus and Sonnet, never Fable, within stated limits
 
