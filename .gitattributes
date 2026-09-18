@@ -1,0 +1,7 @@
+# Keep LF in the repository; Windows checkouts stay LF too, so diffs are not line-ending churn.
+* text=auto eol=lf
+*.png binary
+*.gif binary
+*.feather binary
+*.parquet binary
+*.npz binary
