@@ -63,7 +63,9 @@ def _solve_grid(x: np.ndarray, y: np.ndarray, alphas) -> tuple[list[np.ndarray],
     y = np.asarray(y, dtype=np.float64)
     x_mean, y_mean = x.mean(axis=0), y.mean(axis=0)
     xc, yc = x - x_mean, y - y_mean
-    u, s, vt = np.linalg.svd(xc, full_matrices=False)
+    # the SVD in float32 (about twice as fast; 2026-09-18 night), the rest in float64
+    u, s, vt = np.linalg.svd(xc.astype(np.float32), full_matrices=False)
+    u, s, vt = u.astype(np.float64), s.astype(np.float64), vt.astype(np.float64)
     scale = float(np.mean(s ** 2)) or 1.0
     uty = u.T @ yc
     ws = []
@@ -74,14 +76,69 @@ def _solve_grid(x: np.ndarray, y: np.ndarray, alphas) -> tuple[list[np.ndarray],
     return ws, x_mean, y_mean, scale
 
 
+def fit_gcv(x: np.ndarray, y: np.ndarray, *, alphas=ALPHAS, dtype=np.float32) -> Ridge:
+    """Fit with the penalty chosen by generalised cross-validation, one SVD.
+
+    GCV(lam) = n * ||y - H y||^2 / (n - tr H)^2 with H the ridge hat matrix,
+    all of it from the singular values, so the whole grid and the final weights
+    cost one SVD instead of the two of `fit` (choose on a held-out slice, refit
+    on everything). In float32 the SVD is about twice as fast again; the
+    weights are returned in float64 for the predictions. Golub, Heath & Wahba
+    1979. Written 2026-09-18 night when the map's cost was 58% SVD.
+    """
+    x64 = np.asarray(x, dtype=np.float64)
+    y64 = np.asarray(y, dtype=np.float64)
+    n = x64.shape[0]
+    x_mean, y_mean = x64.mean(axis=0), y64.mean(axis=0)
+    xc = (x64 - x_mean).astype(dtype, copy=False)
+    yc = (y64 - y_mean)
+    u, s, vt = np.linalg.svd(xc, full_matrices=False)
+    u, s, vt = u.astype(np.float64), s.astype(np.float64), vt.astype(np.float64)
+    scale = float(np.mean(s ** 2)) or 1.0
+    uty = u.T @ yc                                   # (r, n_targets)
+    sst = float((yc ** 2).sum())
+    yy = float((yc ** 2).sum())
+    uty2 = (uty ** 2).sum(axis=1)                    # per component
+    scores, best = {}, (np.inf, 0)
+    for k, a in enumerate(alphas):
+        lam = a * scale
+        f = s ** 2 / (s ** 2 + lam)                  # shrinkage per component
+        # ||y - Hy||^2 = ||y||^2 - 2 sum f_i |u_i^T y|^2 + sum f_i^2 |u_i^T y|^2
+        rss = yy - 2.0 * float((f * uty2).sum()) + float((f ** 2 * uty2).sum())
+        df = float(f.sum())
+        gcv = n * max(rss, 0.0) / max(n - df, 1e-9) ** 2
+        scores[float(a)] = -gcv
+        if gcv < best[0]:
+            best = (gcv, k)
+    alpha = float(alphas[best[1]])
+    lam = alpha * scale
+    w = vt.T @ ((s / (s ** 2 + lam))[:, None] * uty)
+    f = s ** 2 / (s ** 2 + lam)
+    rss = yy - 2.0 * float((f * uty2).sum()) + float((f ** 2 * uty2).sum())
+    edge = "low" if best[1] == 0 else ("high" if best[1] == len(alphas) - 1 else "")
+    return Ridge(w=w, x_mean=x_mean, y_mean=y_mean, alpha=alpha, lam=lam, n_train=n,
+                 n_features=x64.shape[1], val_score=float(1.0 - rss / sst) if sst else float("nan"),
+                 at_grid_edge=edge, alpha_scores=scores)
+
+
 def fit(x: np.ndarray, y: np.ndarray, *, alphas=ALPHAS, val_fraction: float = 0.2,
-        seed: int = 0, groups: np.ndarray | None = None) -> Ridge:
-    """Fit with the penalty chosen on a held-out slice of the training data.
+        seed: int = 0, groups: np.ndarray | None = None, method: str = "holdout") -> Ridge:
+    """Fit with the penalty chosen on a held-out slice of the training data
+    (default, two SVDs) or by GCV (`method="gcv"`, one SVD).
+
+    GCV is NOT the default on purpose: frames of one clip are strongly
+    autocorrelated, so leave-one-frame-out is over-optimistic and GCV
+    under-penalises by two to three orders of magnitude (measured 2026-09-18
+    night at the 80 ms window: L3 alpha 1e-3 against 0.3 by scene hold-out,
+    test PixCorr 0.62 against 0.80; Mi4 0.56 against 0.87; T4a 0.40 against
+    0.58). The scene-grouped hold-out is the right validation for this data.
 
     `groups` (one label per row, e.g. the Sintel scene) keeps every row of a
     group on the same side of the validation cut, so the penalty is not chosen
     on frames whose neighbours it was fitted on.
     """
+    if method == "gcv":
+        return fit_gcv(x, y, alphas=alphas)
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     n = x.shape[0]

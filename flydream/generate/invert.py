@@ -80,7 +80,9 @@ def clip_from_sintel(sample: int, frames: int, dt: float) -> np.ndarray:
     from flydream.decode.map import stimulus_set
 
     ds, _, _, _ = stimulus_set("sintel", dt)
-    lum = np.asarray(ds[int(sample)]["lum"], dtype=np.float32)
+    lum = ds[int(sample)]["lum"]
+    lum = lum.detach().cpu().numpy() if torch.is_tensor(lum) else np.asarray(lum)   # on a GPU worker it is a cuda tensor
+    lum = lum.astype(np.float32)
     return lum.reshape(lum.shape[0], -1)[:frames]
 
 

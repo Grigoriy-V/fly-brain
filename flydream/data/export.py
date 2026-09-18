@@ -11,6 +11,7 @@ axes of MaleCNS are aligned to FlyVis's (u, v) by `flydream.data.orientation`
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 import tomllib
@@ -21,7 +22,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+# FLYDREAM_ROOT points a Modal worker at its Volume root (see flydream.model)
+ROOT = pathlib.Path(os.environ.get("FLYDREAM_ROOT") or pathlib.Path(__file__).resolve().parents[2])
 DATA = ROOT / "data"
 BRIDGE = DATA / "bridge/types.csv"
 NT = DATA / "malecns/body-neurotransmitters-male-cns-v1.0.feather"
