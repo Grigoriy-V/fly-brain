@@ -164,27 +164,28 @@ def smoke_batch(connectome: str = CONNECTOME, batches: str = "4,8,16,32", n_iter
     reached in a fraction of the iterations. The optimisation is then a
     different one (larger batch, fewer steps) and must be validated, not
     assumed; this only prices it."""
-    from flydream.train.member import train_member
-
-    import torch
-
+    # One fresh process per batch size. Two solvers in one process share
+    # something sized to the first batch (the run of 2026-09-18 died with
+    # "size of tensor a (32) must match b (16) at dimension 0" from batch 32
+    # on), and a subprocess also makes an OOM at a large batch a recorded
+    # result instead of the end of the container.
+    rec_dir = f"{RESULTS}/packed/9996"
+    os.makedirs(rec_dir, exist_ok=True)
     out = []
     for i, b in enumerate(int(x) for x in batches.split(",")):
-        try:
-            r = train_member(f"{DATA}/ol/{connectome}", f"9996/{i:03d}", n_iters, RESULTS, batch_size=b, dt=dt,
-                             delete_if_exists=True)
+        rec = f"{rec_dir}/batch_{b}.json"
+        cmd = _member_cmd(connectome, f"9996/{i:03d}", n_iters, b, dt, None, False, rec) + ["--delete-if-exists"]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode == 0 and os.path.exists(rec):
+            r = json.load(open(rec))
             r["samples_per_s"] = round(b / max(r["s_per_iter"], 1e-9), 1)
-            r["peak_mem_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2) if torch.cuda.is_available() else None
-        except RuntimeError as e:                     # an OOM at a large batch is a result, not a crash
-            r = {"batch_size": b, "error": str(e)[:300], "s_per_iter": None, "samples_per_s": None, "train_s": None,
-                 "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        else:
+            tail = (p.stdout + p.stderr)[-1500:]
+            err = "OOM" if "out of memory" in tail.lower() else tail[-300:]
+            r = {"batch_size": b, "error": err, "s_per_iter": None, "samples_per_s": None, "train_s": None}
         r["gpu_spec"] = GPU
         print(json.dumps({k: r.get(k) for k in ("batch_size", "s_per_iter", "samples_per_s", "train_s", "peak_mem_gb", "gpu", "error")}), flush=True)
         out.append(r)
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
     runs_volume.commit()
     return out
 

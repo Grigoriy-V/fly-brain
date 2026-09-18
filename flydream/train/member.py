@@ -69,6 +69,7 @@ def train_member(connectome_path: str, run: str, n_iters: int, results_root: str
         "run": run, "connectome": os.path.basename(connectome_path), "n_iters": n_iters,
         "batch_size": batch_size, "dt": dt, "device": device,
         "gpu": torch.cuda.get_device_name(0) if device == "cuda" else None,
+        "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2) if device == "cuda" else None,
         "n_nodes": int(solver.network.n_nodes), "n_edges": int(solver.network.n_edges),
         "build_s": round(built, 1), "train_s": round(trained, 1),
         "s_per_iter": round(trained / max(1, n_iters), 4), "init": loaded,
