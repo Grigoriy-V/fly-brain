@@ -83,11 +83,11 @@ def _member_cmd(connectome: str, run: str, n_iters: int, batch_size: int, dt: fl
 
 
 def _run_one(connectome: str, run: str, n_iters: int, batch_size: int, dt: float,
-             init: str | None, resume: bool) -> dict:
+             init: str | None, resume: bool, variant: str = "baseline") -> dict:
     from flydream.train.member import train_member
 
     out = train_member(f"{DATA}/ol/{connectome}", run, n_iters, RESULTS, batch_size=batch_size, dt=dt,
-                       init_path=f"{DATA}/init/{init}" if init else None, resume=resume)
+                       init_path=f"{DATA}/init/{init}" if init else None, resume=resume, variant=variant)
     out["gpu_spec"] = GPU
     runs_volume.commit()
     print(json.dumps(out), flush=True)
@@ -191,11 +191,16 @@ def smoke_batch(connectome: str = CONNECTOME, batches: str = "4,8,16,32", n_iter
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=4, memory=16384, timeout=24 * 60 * MINUTES)
+              cpu=1, memory=8192, timeout=24 * 60 * MINUTES)
 def train(connectome: str = CONNECTOME, run: str = "0100/000", n_iters: int = 250_000, batch_size: int = 4,
-          dt: float = 0.02, init: str | None = None, resume: bool = False) -> dict:
-    """One member, the reference's full schedule by default, alone on its card."""
-    return _run_one(connectome, run, n_iters, batch_size, dt, init, resume)
+          dt: float = 0.02, init: str | None = None, resume: bool = False, variant: str = "baseline") -> dict:
+    """One member alone on its card. The container is the smallest that runs the
+    solver (1 core, 8 GB: the Sintel set is cached in RAM, the graph on the
+    card), because the container is billed beside the GPU (the human,
+    2026-09-18 night: a training run must fit in $0.50). `--variant
+    stats_relu` applies the two measured source-level changes (1.17×,
+    `reports/2026-09-18_training_optimization_bench.md`)."""
+    return _run_one(connectome, run, n_iters, batch_size, dt, init, resume, variant)
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
