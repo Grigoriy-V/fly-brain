@@ -187,6 +187,15 @@ locally (DECISIONS 2026-09-18, night), and a training run must fit in
 **$0.50** (the human, the same night); training, when it happens at all,
 starts from the transplanted weights, never from scratch.
 
+**When a GPU is used, it is used to the full** (the human, 2026-09-19: "всегда
+надо попытаться использовать карту на все 100%"). A job that runs one
+sample at a time on a card is not finished: independent tasks (stages,
+controls, clips, members) are batched into one pass until the card is
+saturated or memory is full, and a run's report states the batch and the
+utilisation it reached. If memory is the limit and there is still headroom
+in speed, an L4 is allowed for that job (the human, the same day); nothing
+above it.
+
 ## Safety and evidence
 
 - Never add a `Co-Authored-By` trailer or tool-attribution line to a commit.

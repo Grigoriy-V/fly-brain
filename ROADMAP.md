@@ -101,8 +101,8 @@ and authorization.
 
 ## Queue: the dreams and visual-data branch
 
-One item at a time; the human's word starts each. Order: **9 → 11 → 12 →
-13**; then the paused items of this branch when the human says so.
+One item at a time; the human's word starts each. Order: **9 → 10' → 11 →
+12 → 13**; then the paused items of this branch when the human says so.
 
 9. **The end of the window is constrained; clip length is a setting.** The
    generator fits `frames + margin` and shows `frames` (`config.toml
@@ -113,6 +113,18 @@ One item at a time; the human's word starts each. Order: **9 → 11 → 12 →
    and the slice on save), one rerun of the MaleCNS ladder on a T4
    (~10 min, ~$0.10). Deliverable: the two-input clip of 2026-09-19 redrawn
    without the blur, first/middle/last frames checked before sending.
+
+10'. **The generator uses the card to the full.** (The human, 2026-09-19,
+    while the item-9 ladder ran one task at a time: "точно нужно сделать".)
+    All tasks of a ladder — every stage's inversion and its wrong-target
+    control, 20 videos — are optimised in one batch through one simulation,
+    the loss masked per task to its cells; a stop on plateau (the fit
+    changes by less than a setting over 20 steps; R1 was flat from step 50
+    of 150) in `config.toml [generate]`. Expected 4-8× on a T4 (batch 16
+    saturated it in training); if memory is the limit with speed headroom
+    left, an L4 (AGENTS "Human gates"). Measured before/after: seconds per
+    ladder and the card's utilisation, in the item-9 report. The pictures
+    must not change (same r within 0.01).
 
 11. **Level A, dreams-lite: generation from states that no clip caused**
     (the human, 2026-09-19: "наконец-то мы говорим о том что я хотел").
