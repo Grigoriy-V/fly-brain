@@ -47,6 +47,7 @@ def load(prefix: str, source: str, stages: list[str], data: Path):
         cols.append({"label": s if s != "T4T5" else "T4+T5", "rec": z["recovered"], "ctrl": z["control"],
                      "true": z["true"], "read": z["read"], "ref": z["ref"] if "ref" in z else None,
                      "r": m["inversion"], "r_ctrl": m["control"],
+                     "rt": m.get("inversion_time"), "rt_ctrl": m.get("control_time"),
                      "c": m["contrast_inversion"], "c_ctrl": m["contrast_control"]})
     return cols, meta
 
@@ -88,8 +89,12 @@ def main(argv=None) -> int:
         if source == "dark_after" and cols[0]["ref"] is not None:
             lead.append(("последний кадр клипа\n(для сравнения)", cols[0]["ref"]))
         picture = meta["inversion"] is not None
+        temporal = source == "flash"          # a uniform input: the score is over time, not over the eye
 
         def score(c, key):
+            if temporal:
+                v = c["rt"] if key == "rec" else c["rt_ctrl"]
+                return f"r(t) = {v:+.2f}" if v is not None else "r(t) n/a"
             if picture:
                 return f"r = {c['r'] if key == 'rec' else c['r_ctrl']:+.2f}"
             return f"контраст {c['c'] if key == 'rec' else c['c_ctrl']:.3f}"
@@ -99,7 +104,7 @@ def main(argv=None) -> int:
         W = len(lead) + len(cols)
         title = (f"Сны-лайт, мозг MaleCNS (модель нуль): состояние стадии -> генератор -> видео. {n} кадров по "
                  f"{dt * 1000:.0f} мс = {n * dt:.1f} с мухи, показано в {1 / (a.fps * dt):.0f}x медленнее. "
-                 f"Число под колонкой: {'r к ' + meta['score_against'].replace('input frame', 'входу').replace('last clip frame', 'последнему кадру клипа') if picture else 'контраст выхода (sd по глазу)'}")
+                 f"Число под колонкой: {'r(t) — корреляция средней яркости по кадрам со входом' if temporal else ('r к ' + meta['score_against'].replace('input frame', 'входу').replace('last clip frame', 'последнему кадру клипа') if picture else 'контраст выхода (sd по глазу)')}")
 
         for kind in ("png", "gif"):
             fig, ax = plt.subplots(2, W, figsize=(1.55 * W + 0.4, 5.0), facecolor=SURFACE)

@@ -105,6 +105,16 @@ and authorization.
   optimisation), 66 % utilisation, videos identical to batch 1; a plateau
   stop with a floor. A ladder of one clip ≈ $0.05. §"Item 10'" of
   `reports/2026-09-19_step9_window_margin.md`.
+- **11, dreams-lite** (2026-09-19): the generator on states no clip
+  caused — noise into the eye, a flash, the dark after a clip, noise inside
+  the neurons — from every stage beside a shuffled-state control, one
+  batch per source on a T4 (≈ $0.15). Eye noise comes back (r 0.91-1.00,
+  Tm5a 0.53, T5a 0.31; control ≈ 0); the flash by its timing without
+  texture; a faint after-image for a few dark frames from L3 onward;
+  internal noise as quiet ripple. The shuffled state is explained by
+  diagonal stripes from Mi4/Tm9/T4a — the wiring's own texture.
+  `reports/2026-09-19_step11_dreams_lite.md`,
+  `reports/figures/2026-09-19_malecns_dream_*.gif`.
 - **3, training priced** (2026-09-18): T4 smoke, packing, batch sweep and
   the Codex session's optimisation benchmark; the reference schedule
   (~$10-15 per member) is over budget and was withdrawn; what remains is
@@ -113,22 +123,7 @@ and authorization.
 
 ## Queue: the dreams and visual-data branch
 
-One item at a time; the human's word starts each. Order: **11 → 12 → 13**; then the paused items of this branch when the human says so.
-
-11. **Level A, dreams-lite: generation from states that no clip caused**
-    (the human, 2026-09-19: "наконец-то мы говорим о том что я хотел").
-    Input removed; the state comes from one of four sources, each its own
-    clip beside a shuffled-state control (same numbers, permuted across
-    cells or time): (a) noise into the eye (white, or 1/f like natural
-    scenes — the choice is a setting and part of the result); (b) a flash or
-    a slow drift; (c) the dark after a clip, the after-effect; (d)
-    **internally generated activity** — the eye sees grey, noise is injected
-    into the neurons' own dynamics (a noise term in the Euler step, all
-    types or one type at a time, amplitude in `config.toml`), so the picture
-    is from the wiring, not from the input's statistics. The item-8
-    generator turns each state into a clip. MaleCNS model zero, a T4,
-    minutes per clip. Deliverable: one stacked clip per source, input row
-    and control row shown.
+One item at a time; the human's word starts each. Order: **12 → 13**; then the paused items of this branch when the human says so.
 
 12. **Level B, manipulated states.** Mix two clips' states across stages (a
     face in L3, a forest in T4/T5), amplify one type, interpolate between

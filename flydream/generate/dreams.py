@@ -120,6 +120,15 @@ def contrast(video: np.ndarray) -> float:
     return float(video.std(1).mean())
 
 
+def temporal_corr(a: np.ndarray, b: np.ndarray) -> float | None:
+    """Correlation over frames of the mean luminance: the score for a
+    spatially uniform input (the flash), where per-frame PixCorr is undefined."""
+    x, y = a.mean(1), b.mean(1)
+    if x.std() < 1e-6 or y.std() < 1e-6:
+        return None
+    return float(np.corrcoef(x, y)[0, 1])
+
+
 def run_dreams(model: str, source: str, stages: list[list[str]], *, frames: int, margin: int, steps: int, lr: float,
                tv: float, dt: float, t_pre: float, batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0,
                plateau_floor: float = 1e-3, seed: int = 0, out_root: Path | None = None, tag_prefix: str = "",
@@ -183,6 +192,8 @@ def run_dreams(model: str, source: str, stages: list[list[str]], *, frames: int,
                   "inversion": float(np.mean(s_rec)) if has_picture else None,
                   "control": float(np.mean(s_ctrl)) if has_picture else None,
                   "score_against": "last clip frame" if source == "dark_after" else "input frame",
+                  "inversion_time": temporal_corr(r[read], ref) if has_picture else None,
+                  "control_time": temporal_corr(c[read], ref) if has_picture else None,
                   "contrast_input": contrast(inp[read]), "contrast_inversion": contrast(r[read]),
                   "contrast_control": contrast(c[read]),
                   "fit_first": float(traces[(k, "inversion")][0]), "fit_final": float(traces[(k, "inversion")][-1]),
