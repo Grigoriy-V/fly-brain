@@ -125,10 +125,24 @@ and authorization.
 
 One item at a time; the human's word starts each. Order: **12 → 13**; then the paused items of this branch when the human says so.
 
-12. **Level B, manipulated states.** Mix two clips' states across stages (a
-    face in L3, a forest in T4/T5), amplify one type, interpolate between
-    two states; generate with the item-8 generator; each clip beside the
-    unmanipulated states it was made from. MaleCNS, a T4.
+12. **Level B, manipulated states** (the human's note
+    `docs/ideas/mixed_brain_state_video_generation.md`, 2026-09-19, agreed
+    in chat). The target state is assembled from several sources and the
+    loss is **normalised per type** (1 / (cells × variance) so T4/T5 at sd
+    0.4 cannot drown L3 at 0.04). Three scenarios in one batch on a T4
+    (≈ $0.10), each column scored by r to clip A *and* r to clip B so the
+    winner is visible, each beside its unmanipulated state:
+    (C) **gain edits** of one clip's state — T4a × 0.5, × 2, T5 × 0,
+    Mi4 × 1.5, with × 1 as the control that must give back the clip;
+    (A) **interpolation** of one type's state between clips 3 and 10 at
+    five points, beside the state the averaged video causes (is the mix
+    linear?); (B) **hybrid** — L1/L3 from clip 3 with T4/T5 from clip 10,
+    and the reverse (appearance from one clip, motion from the other?
+    T4/T5 alone give the clip back with r 0.93-1.00, so a contest between
+    the clips is expected, not a clean transfer). A three-source hybrid
+    (the note's D) waits for B's answer. A hybrid is a counterfactual set
+    of constraints, not a perception: the video most compatible with
+    conditions no input produces together.
 
 13. **Level C, a learned generator.** A network "state → video" trained on
     pairs the model produces without limit, for one-pass generation from any
