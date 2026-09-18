@@ -100,8 +100,11 @@ def _run_packed(connectome: str, runs: list[str], n_iters: int, batch_size: int,
     rec_dir = f"{RESULTS}/packed/{runs[0].split('/')[0]}"
     os.makedirs(rec_dir, exist_ok=True)
     t0 = time.time()
-    warm = subprocess.run(_member_cmd(connectome, "9998/000", warmup_iters, batch_size, dt, None, False, None),
-                          capture_output=True, text=True)
+    # the warm-up dir is reused across calls, so it must be allowed to overwrite:
+    # the second smoke_packed of 2026-09-18 died here because flyvis refuses an
+    # existing NetworkDir unless told to delete it
+    warm = subprocess.run(_member_cmd(connectome, "9998/000", warmup_iters, batch_size, dt, None, False, None)
+                          + ["--delete-if-exists"], capture_output=True, text=True)
     if warm.returncode != 0:
         raise RuntimeError(f"warm-up failed:\n{warm.stdout[-3000:]}\n{warm.stderr[-3000:]}")
     warm_s = time.time() - t0
@@ -148,6 +151,31 @@ def smoke_packed(connectome: str = CONNECTOME, members: int = 4, n_iters: int = 
     """N members at once on one card, a few iterations each: the packing measurement."""
     runs = [f"9997/{m:03d}" for m in range(members)]
     return _run_packed(connectome, runs, n_iters, batch_size, dt, init)
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=4, memory=16384, timeout=60 * MINUTES)
+def smoke_batch(connectome: str = CONNECTOME, batches: str = "4,8,16,32", n_iters: int = 30,
+                dt: float = 0.02) -> list:
+    """One member at several batch sizes, a few iterations each: does an
+    iteration cost the same at batch 32 as at batch 4? If the per-step kernels
+    are latency-bound (the hypothesis), samples per second scale almost
+    linearly with the batch and the reference's sample budget (250k x 4) is
+    reached in a fraction of the iterations. The optimisation is then a
+    different one (larger batch, fewer steps) and must be validated, not
+    assumed; this only prices it."""
+    from flydream.train.member import train_member
+
+    out = []
+    for i, b in enumerate(int(x) for x in batches.split(",")):
+        r = train_member(f"{DATA}/ol/{connectome}", f"9996/{i:03d}", n_iters, RESULTS, batch_size=b, dt=dt,
+                         delete_if_exists=True)
+        r["samples_per_s"] = round(b / max(r["s_per_iter"], 1e-9), 1)
+        r["gpu_spec"] = GPU
+        print(json.dumps({k: r[k] for k in ("batch_size", "s_per_iter", "samples_per_s", "train_s", "gpu")}), flush=True)
+        out.append(r)
+    runs_volume.commit()
+    return out
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
