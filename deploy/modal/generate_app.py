@@ -77,7 +77,7 @@ def _prepare_root() -> None:
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=2, memory=12288, timeout=60 * MINUTES)
+              cpu=1, memory=3072, timeout=60 * MINUTES)
 def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, margin: int = 5, steps: int = 150,
            lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "",
            batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3) -> list[dict]:
@@ -103,7 +103,7 @@ def ladder(model: str = "flow/0000/000", sample: int = 3, frames: int = 40, marg
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=2, memory=12288, timeout=60 * MINUTES)
+              cpu=1, memory=3072, timeout=60 * MINUTES)
 def dreams(model: str = "malecns", sources: str = "eye_noise,flash,dark_after,neuron_noise", frames: int = 40,
            margin: int = 5, steps: int = 150, lr: float = 0.05, tv: float = 0.02, dt: float = 0.02,
            t_pre: float = 1.0, stages: str = "", batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0,
@@ -134,7 +134,7 @@ def dreams(model: str = "malecns", sources: str = "eye_noise,flash,dark_after,ne
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=2, memory=12288, timeout=60 * MINUTES)
+              cpu=1, memory=3072, timeout=60 * MINUTES)
 def mix(model: str = "malecns", sample_a: int = 3, sample_b: int = 10, frames: int = 40, margin: int = 5,
         steps: int = 150, lr: float = 0.05, tv: float = 0.02, dt: float = 0.02, t_pre: float = 1.0, stages: str = "",
         batch: int = 0, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3) -> list[dict]:
@@ -159,7 +159,7 @@ def mix(model: str = "malecns", sample_a: int = 3, sample_b: int = 10, frames: i
     return out
 
 
-@app.function(image=image, volumes={DATA: data_volume}, cpu=8, memory=24576, timeout=120 * MINUTES)
+@app.function(image=image, volumes={DATA: data_volume}, cpu=2, memory=6144, timeout=120 * MINUTES)
 def pairs13_videos(procedural: str = "pairs13/procedural_800_s0.npz", frames: int = 45, dt: float = 0.02,
                    out: str = "pairs13/videos.npz") -> dict:
     """ROADMAP 13A data, the CPU half: render the augmented Sintel clips (flyvis
@@ -187,7 +187,7 @@ def pairs13_videos(procedural: str = "pairs13/procedural_800_s0.npz", frames: in
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=4, memory=24576, timeout=120 * MINUTES)
+              cpu=1, memory=4096, timeout=120 * MINUTES)
 def pairs13(videos_file: str = "pairs13/videos.npz", model: str = "malecns", frames: int = 45,
             dt: float = 0.02, t_pre: float = 1.0, sim_batch: int = 32, shard: int = 512, seed: int = 0,
             held_scenes: str = "", held_classes: str = "", val_fraction: float = 0.1, out: str = "pairs13") -> dict:
@@ -237,7 +237,7 @@ def pairs13(videos_file: str = "pairs13/videos.npz", model: str = "malecns", fra
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
-              cpu=4, memory=49152, timeout=120 * MINUTES)
+              cpu=2, memory=12288, timeout=120 * MINUTES)
 def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: int = 12, batch: int = 16,
             lr: float = 2e-3, width: int = 32, depth: int = 3, rings: int = 1, taps: int = 5, frames: int = 40,
             margin: int = 5, n_roundtrip: int = 8, inv_steps: int = 150, model: str = "malecns", seed: int = 0,

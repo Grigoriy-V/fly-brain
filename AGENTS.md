@@ -199,7 +199,13 @@ augmentation and any other CPU step run on a CPU container or locally,
 and the GPU function starts from their finished output on the volume; the
 card's utilisation is sampled and stated in the report of every GPU run.
 (2026-09-19: fifteen minutes of a T4 spent rendering Sintel on the worker's
-CPU — the human: "такие вещи должны быть на CPU-воркере".)
+CPU — the human: "такие вещи должны быть на CPU-воркере".) **A function asks
+for the minimum CPU and memory it needs**, never a comfortable margin: on
+Modal a core is ≈ $0.19/h and a GB ≈ $0.024/h against ≈ $0.59/h for the
+T4, so cpu=4 + 48 GB beside a T4 costs more than the card (the human,
+2026-09-19: "всегда надо использовать необходимый минимум, а не самое
+дорогое"). The report of a run states its cpu/memory request with its
+GPU.
 
 ## Safety and evidence
 
