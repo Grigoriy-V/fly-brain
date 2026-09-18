@@ -188,7 +188,10 @@ def filters_tag(s: dict) -> str:
     d = s.get("data", {})
     mw = int(d.get("min_weight", 5))
     loss = float(d.get("weak_pair_loss", 1.0))
-    return f"w{mw}" + (f"wk{int(round(loss * 100))}" if loss < 1.0 else "")
+    floor = int(d.get("weak_pair_min_syn", 0))
+    oc = bool(d.get("output_units_columnar_only", False))
+    return (f"w{mw}" + (f"wk{int(round(loss * 100))}" + (f"m{floor}" if floor else "") if loss < 1.0 else "")
+            + ("oc" if oc else ""))
 
 
 def filters_path(s: dict | None = None) -> pathlib.Path:
@@ -201,7 +204,7 @@ def filters_path(s: dict | None = None) -> pathlib.Path:
 
 
 def keep_weak_pairs(edges_cut: pd.DataFrame, edges_all: pd.DataFrame, neurons: pd.DataFrame,
-                    node_of: dict, loss: float) -> tuple[pd.DataFrame, list]:
+                    node_of: dict, loss: float, min_syn: float = 0.0) -> tuple[pd.DataFrame, list]:
     """Give back every row of weight >= 1 to the type pairs that the row cut guts.
 
     The cut exists for scattered single contacts at 42% postsynaptic completion.
@@ -220,7 +223,12 @@ def keep_weak_pairs(edges_cut: pd.DataFrame, edges_all: pd.DataFrame, neurons: p
 
     cut, full = pair_mass(edges_cut), pair_mass(edges_all)
     frac = (cut.reindex(full.index).fillna(0.0) / full).astype(float)
-    weak = frac[frac < 1.0 - loss].index
+    # Two conditions, both needed. Losing most of itself to the cut says the
+    # pair is made of weak contacts; a total above `min_syn` says there are
+    # enough of them to be a pathway rather than scatter. Without the second
+    # condition the first caught 2,118 of 2,396 pairs on the right lobe
+    # (2026-09-18), most of them a handful of synapses.
+    weak = frac[(frac < 1.0 - loss) & (full >= min_syn)].index
     weak_set = set(weak.tolist())
     src_t, tar_t = edges_all["body_pre"].map(typ), edges_all["body_post"].map(typ)
     in_weak = pd.Series(list(zip(src_t, tar_t)), index=edges_all.index).isin(weak_set)
@@ -250,9 +258,10 @@ def main() -> int:
             return 1
         edges_all = pd.read_parquet(all_path)
         n_before = len(edges)
-        edges, weak_listing = keep_weak_pairs(edges, edges_all, neurons, node_of, loss)
-        print(f"weak-pair exception (loss > {loss}): {len(weak_listing)} type pairs keep rows >= 1; "
-              f"edges {n_before:,} -> {len(edges):,}")
+        floor = float(s.get("data", {}).get("weak_pair_min_syn", 0))
+        edges, weak_listing = keep_weak_pairs(edges, edges_all, neurons, node_of, loss, floor)
+        print(f"weak-pair exception (loss > {loss}, total >= {floor:.0f}): {len(weak_listing)} type pairs "
+              f"keep rows >= 1; edges {n_before:,} -> {len(edges):,}")
         for w in weak_listing[:15]:
             print(f"  {w['src']:>8} -> {w['tar']:<8} kept {w['kept_fraction_at_cut']:.2f} of {w['synapses_all']:.0f} synapses")
         if len(weak_listing) > 15:
@@ -364,6 +373,16 @@ def main() -> int:
            "weak_pairs": weak_listing,
            "input_units": [r for r in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"] if r in node_names],
            "output_units": [n for n in fv_json["output_units"] if n in node_names]}
+    if bool(s.get("data", {}).get("output_units_columnar_only", False)):
+        # FlyVis's flow decoder stacks the output types into one (types, columns)
+        # map and needs one cell per column in each; a density-strided type
+        # cannot be read by it. It stays in the network, only not as an output.
+        pattern = {nd["name"]: nd["pattern"][1] for nd in nodes}
+        dropped = [o for o in out["output_units"] if pattern.get(o) != [1, 1]]
+        out["output_units"] = [o for o in out["output_units"] if pattern.get(o) == [1, 1]]
+        out["output_units_dropped_strided"] = dropped
+        print(f"output_units restricted to columnar types: {len(out['output_units'])} kept, "
+              f"{len(dropped)} strided dropped: {dropped}")
     target = filters_path(s)
     json.dump(out, open(target, "w"))
     print(f"written {target.name}: {len(nodes)} nodes, {len(edges_out)} type-pair edges")

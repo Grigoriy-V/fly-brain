@@ -24,6 +24,17 @@ normalisation = "src"
 # pathway, not noise. Pairs given the exception are listed by export.py and in
 # the filters file's "weak_pairs" field. Set to 1.0 to disable.
 weak_pair_loss = 0.5
+# ...and only if the pair's total at weight >= 1 is at least this many synapses.
+# Without it the loss criterion alone caught 2,118 of 2,396 pairs (median 88
+# synapses). 500 is about the 80th percentile of those pairs' totals on the
+# right lobe (p75 385, p90 1,882); 471 pairs qualify, 232 of them pairs FlyVis
+# carries. Derived 2026-09-18 from data/ol/filters_R_w5wk50.json["weak_pairs"].
+weak_pair_min_syn = 500
+# The FlyVis optic-flow decoder stacks every output type's cells into one
+# (types, 721) map, so all output types must have one cell per column. Types
+# the density stride thins (Tm5a [3,1], TmY15 [3,3], ...) cannot be outputs of
+# that decoder; true drops them from output_units (they stay in the network).
+output_units_columnar_only = true
 
 [flyvis]
 version = "1.2.0"
