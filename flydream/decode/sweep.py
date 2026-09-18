@@ -115,13 +115,16 @@ def figure(summary: pd.DataFrame, path, title: str) -> None:
                     fontsize=8.5, color=INK2, va="center",
                     arrowprops=dict(arrowstyle="-", color=GRID, lw=1) if abs(yy - y) > 1e-9 else None)
     ax.set_xlabel("decoder window after the stimulus frame, ms", color=INK2, fontsize=9)
-    ax.set_ylabel("frame component of PixCorr (real minus time shuffle), median per stage", color=INK2, fontsize=8.5)
+    ax.set_ylabel("frame component of PixCorr, median per stage", color=INK2, fontsize=8.5)
     ax.tick_params(colors=MUTED, labelsize=8.5)
     ax.set_xticks(sorted(summary.window_ms.unique()))
     ax.set_title(title, color=INK, fontsize=10, loc="left")
-    ax.legend(frameon=False, fontsize=8.5, labelcolor=INK2, loc="upper left")
+    # the legend below the plot, never on the lines
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, frameon=False, fontsize=8.5, labelcolor=INK2, loc="lower center",
+               ncol=len(labels), bbox_to_anchor=(0.5, 0.0))
     ax.margins(x=0.18)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=190, facecolor=SURFACE)
     plt.close(fig)
