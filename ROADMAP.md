@@ -133,11 +133,52 @@ and authorization.
 
 One item at a time; the human's word starts each. Order: **13**; then the paused items of this branch when the human says so.
 
-13. **Level C, a learned generator.** A network "state → video" trained on
-    pairs the model produces without limit, for one-pass generation from any
-    state, with a generative prior for resolution if wanted; every output
-    checked against the inversion of 11/12 for what is from the brain and
-    what from the network. Price and shape proposed before it is built.
+13. **Level C, a learned generator — in two layers** (the human and a
+    second agent's review, 2026-09-19; the goal stays the human's: "видео
+    ген модель, которая работает от состояния мозга, а не от шума + клип
+    енкодеров"). A small deterministic network trained on reachable pairs
+    is an *amortised inversion*, not a dreamer: outside the reachable set
+    a pretty output proves nothing, so the state's contribution is
+    measured before any prior is added.
+
+    **13A, amortised inversion (deterministic).**
+    - *Pairs* the frozen brain makes: video → state, video is the truth by
+      construction. Videos: Sintel with flyvis's geometric augmentations
+      **plus procedural stimuli** (moving edges, bars, gratings, dots,
+      optic flow, noise, flashes, drifting textures, mixtures) — the
+      count is unbounded, the diversity is the stimulus distribution, and
+      20k rotated Sintel clips are still 23 scenes. 10-20k clips of 40 + 5
+      frames, one T4 pass (≈ $0.3); split by scene and by stimulus class,
+      whole classes held out.
+    - *Three input conditions, one architecture:* `early` (L1 + L3), `deep`
+      (T4a-d + T5a-d) — **the one that matters for the project** — and
+      `all` (the ladder's 14 types) as the upper bound.
+    - *Three models on the same data:* a **linear hex-temporal decoder**
+      with shared weights (type × neighbouring columns × temporal taps →
+      luminance at the column; not a flattened ridge), a small nonlinear
+      hex + temporal CNN (T4, ≈ $0.3-0.5, the three conditions in one
+      batch), and the item-8 Adam inversion as the ceiling. Answers
+      whether a nonlinear learned inverse is needed at all.
+    - *Scores.* Held-out clips: r to the video. States with no video (11,
+      12): **the round trip** `state → generator → video → frozen brain →
+      state′` and its compatibility error beside the *same* error of the
+      Adam inversion (the best reachable answer); agreement with the
+      inversion; stability across models and seeds; the shuffled-state
+      control; how much the output depends on the state rather than the
+      learned prior. The inversion's residual is kept as the signal
+      "no input explains this state" and is never hidden by a picture.
+    - *Deliverable:* per state, columns inversion / linear / CNN × the
+      three conditions, r where a video exists and the round-trip error
+      under every column.
+
+    **13B, the generative decoder** (only after 13A shows a measured
+    dependence on the state in `deep`): `state → a distribution of
+    compatible videos` — one state is compatible with many inputs — via a
+    small latent (a conditional VAE or a flow), `state + z → video`; every
+    sample goes round the trip and reports distance(state′, target). The
+    latent is the "parameters, not a copy" the human asked for; edited
+    states (item 12) are inputs like any other. Perceptual quality is not
+    a score here; the round trip is.
 
 **Paused in this branch (the human, 2026-09-19: "не сейчас"):**
 
