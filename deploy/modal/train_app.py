@@ -211,3 +211,17 @@ def train_packed(connectome: str = CONNECTOME, ensemble: str = "0100", members: 
 def main(connectome: str = CONNECTOME, n_iters: int = 50):
     """`modal run deploy/modal/train_app.py` is the single-member smoke."""
     print(smoke.remote(connectome=connectome, n_iters=n_iters))
+
+
+@app.function(image=image.add_local_file("config.toml", "/opt/flydream-config.toml"),
+              gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume},
+              cpu=4, memory=16384, timeout=30 * MINUTES)
+def benchmark(connectome: str = CONNECTOME):
+    """Four variants x two repeats + a separate profile. Priced: explicit gate."""
+    from flydream.train.benchmark import execute
+    try:
+        return execute("/opt/flydream-config.toml", f"{DATA}/ol/{connectome}",
+                       f"{RUNS}/benchmarks")
+    finally:
+        # Preserve diagnostics on failure as well as on success.
+        runs_volume.commit()

@@ -31,6 +31,17 @@ system and operations; `AGENTS.md` holds execution rules; `DECISIONS.md`
 preserves approved durable choices. This file alone owns current work, order
 and authorization.
 
+**Bounded engineering work approved in the current chat (2026-09-18):**
+prepare the training optimization benchmark (device-side activity statistics,
+ReLU before edge gathering, actual-iteration timing and a profiler), with
+offline equivalence checks. Implementation and 62 offline tests are ready;
+one paired T4 measurement was explicitly approved and started in this chat
+(app `ap-Fr0liJXeN4XNScXl9pn1zx`). No second worker is authorized.
+This does not authorize full training
+or change the scientific order above. Evidence and command:
+`reports/2026-09-18_training_optimization_bench.md`.
+Cross-agent handoff: `reports/2026-09-18_training_optimization_handoff.md`.
+
 ## Current state
 
 - **Data:** the three MaleCNS v1.0 core Feather files and the FlyVis 1.2.0

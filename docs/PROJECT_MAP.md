@@ -109,6 +109,15 @@ builds them removes the mark.
 
 ## Boundaries
 
+Engineering benchmark (2026-09-18, opt-in; GPU measurement pending):
+`flydream/train/optimizations.py` binds reversible per-instance adapters for
+device-side diagnostic reductions and node-wise ReLU before edge gathering.
+`flydream/train/benchmark.py` compares four variants in separate processes,
+with two paired repeats and a separate profiler run. `train/member.py` records
+actual optimizer-iteration deltas. Default training remains `baseline`.
+The implementation and synthetic numerical evidence are in
+`reports/2026-09-18_training_optimization_bench.md`; no GPU speed claim yet.
+
 - The repository holds code, settings, manifests, reports, figures and
   notes; data, activity tensors, cached pairs and checkpoints live under
   `data/` (ignored) and on Modal Volumes, reproducible from the manifest

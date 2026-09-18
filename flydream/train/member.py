@@ -21,6 +21,8 @@ import json
 import os
 import sys
 import time
+from contextlib import nullcontext
+from pathlib import Path
 
 
 def compose(connectome_path: str, run: str, n_iters: int, batch_size: int, dt: float,
@@ -58,11 +60,26 @@ def _fit_diagnostic_loaders(task, batch_size: int) -> None:
 
 def train_member(connectome_path: str, run: str, n_iters: int, results_root: str, *,
                  batch_size: int = 4, dt: float = 0.02, init_path: str | None = None,
-                 resume: bool = False, delete_if_exists: bool = False) -> dict:
+                 resume: bool = False, delete_if_exists: bool = False,
+                 variant: str = "baseline", seed: int | None = None,
+                 evidence_dir: str | None = None, profile: bool = False,
+                 profile_wait: int = 2, profile_warmup: int = 1, profile_active: int = 3) -> dict:
     """Build, optionally initialise, train; return what happened and how long it took."""
     import torch
     from datamate import set_root_context
     from flyvis.solver import MultiTaskSolver
+    from flydream.train.optimizations import optimized_solver
+
+    if seed is not None:
+        import random
+        import numpy as np
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    if profile and evidence_dir is None:
+        raise ValueError("Profiling requires an evidence directory")
 
     os.makedirs(results_root, exist_ok=True)
     t0 = time.time()
@@ -71,6 +88,8 @@ def train_member(connectome_path: str, run: str, n_iters: int, results_root: str
         solver = MultiTaskSolver(config=config, delete_if_exists=delete_if_exists)
     built = time.time() - t0
     _fit_diagnostic_loaders(solver.task, batch_size)
+    if len(solver.task.train_data) == 0:
+        raise ValueError("Batch size leaves zero training batches with drop_last=True")
     loaded = None
     if resume:
         solver.recover(network=True, decoder=True, optimizer=True, penalty=True,
@@ -81,9 +100,50 @@ def train_member(connectome_path: str, run: str, n_iters: int, results_root: str
         missing, unexpected = solver.network.load_state_dict(state, strict=False)
         loaded = {"init": os.path.basename(init_path), "missing": len(missing), "unexpected": len(unexpected)}
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    t1 = time.time()
-    solver.train(False)
-    trained = time.time() - t1
+    evidence = Path(evidence_dir) if evidence_dir else None
+    if evidence:
+        evidence.mkdir(parents=True, exist_ok=False)
+
+    def state():
+        return {"network": {k: v.detach().cpu().clone() for k, v in solver.network.state_dict().items()},
+                "decoder": {name: {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
+                            for name, head in solver.decoder.items()}}
+
+    if evidence:
+        torch.save(state(), evidence / "initial.pt")
+    before = int(solver.iteration)
+    profiler = None
+    if profile:
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if device == "cuda":
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        def trace(p):
+            p.export_chrome_trace(str(evidence / "trace.json"))
+            (evidence / "operators.txt").write_text(p.key_averages().table(
+                sort_by="self_cuda_time_total" if device == "cuda" else "self_cpu_time_total",
+                row_limit=50), encoding="utf-8")
+        profiler = torch.profiler.profile(activities=activities,
+            schedule=torch.profiler.schedule(wait=profile_wait, warmup=profile_warmup,
+                                            active=profile_active, repeat=1),
+            on_trace_ready=trace, record_shapes=True, profile_memory=True)
+    if device == "cuda":
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+    with optimized_solver(solver, variant, profiler) as source_hash:
+        with profiler if profiler is not None else nullcontext():
+            t1 = time.perf_counter()
+            solver.train(False)
+            if device == "cuda":
+                torch.cuda.synchronize()
+            trained = time.perf_counter() - t1
+    after = int(solver.iteration)
+    completed = after - before
+    if completed <= 0:
+        raise ValueError("No optimizer iterations completed; timing would be invalid")
+    if evidence:
+        torch.save(state(), evidence / "final.pt")
+        losses = [float(x) for x in solver.dir.loss[:]]
+        (evidence / "losses.json").write_text(json.dumps(losses), encoding="utf-8")
     out = {
         "run": run, "connectome": os.path.basename(connectome_path), "n_iters": n_iters,
         "batch_size": batch_size, "dt": dt, "device": device,
@@ -91,7 +151,12 @@ def train_member(connectome_path: str, run: str, n_iters: int, results_root: str
         "peak_mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2) if device == "cuda" else None,
         "n_nodes": int(solver.network.n_nodes), "n_edges": int(solver.network.n_edges),
         "build_s": round(built, 1), "train_s": round(trained, 1),
-        "s_per_iter": round(trained / max(1, n_iters), 4), "init": loaded,
+        "iteration_start": before, "iteration_end": after, "completed_iters": completed,
+        "s_per_iter": round(trained / completed, 6), "init": loaded,
+        "samples_per_s": round(completed * batch_size / trained, 4),
+        "variant": variant, "seed": seed, "profiled": profile,
+        "flyvis_train_source_sha256": source_hash,
+        "timing_scope": "solver.train including steady states, logging and checkpoints; excludes build",
         "dir": str(solver.dir.path), "pid": os.getpid(),
     }
     return out
@@ -109,12 +174,22 @@ def main(argv=None) -> int:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--delete-if-exists", action="store_true")
     p.add_argument("--out", default=None, help="write the result json here")
+    p.add_argument("--variant", choices=("baseline", "stats", "relu", "stats_relu"), default="baseline")
+    p.add_argument("--seed", type=int)
+    p.add_argument("--evidence-dir")
+    p.add_argument("--profile", action="store_true")
+    p.add_argument("--profile-wait", type=int, default=2)
+    p.add_argument("--profile-warmup", type=int, default=1)
+    p.add_argument("--profile-active", type=int, default=3)
     a = p.parse_args(argv)
     if sys.platform == "win32":
         from flydream.model import patch_datamate_for_windows
         patch_datamate_for_windows()
     out = train_member(a.connectome, a.run, a.n_iters, a.results_root, batch_size=a.batch_size, dt=a.dt,
-                       init_path=a.init, resume=a.resume, delete_if_exists=a.delete_if_exists)
+                       init_path=a.init, resume=a.resume, delete_if_exists=a.delete_if_exists,
+                       variant=a.variant, seed=a.seed, evidence_dir=a.evidence_dir, profile=a.profile,
+                       profile_wait=a.profile_wait, profile_warmup=a.profile_warmup,
+                       profile_active=a.profile_active)
     print(json.dumps(out), flush=True)
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:

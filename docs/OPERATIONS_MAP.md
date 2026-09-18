@@ -148,6 +148,25 @@ in the network and is dropped from the outputs.
 
 ## Runs and evidence
 
+Training optimization benchmark (opt-in, prepared 2026-09-18; **not run on GPU**):
+
+```powershell
+.venv\Scripts\python.exe -m flydream.train.benchmark  # print local plan only
+# The following starts ONE priced worker and requires separate permission:
+$env:FLYDREAM_GPU = 'T4'
+$env:PYTHONIOENCODING = 'utf-8'
+.venv\Scripts\python.exe -m modal run --profile grigoriy98smile deploy/modal/train_app.py::benchmark
+```
+
+`config.toml [benchmark]`: four variants, two repeats in reverse order,
+30 requested iterations each at batch 16, one additional baseline profile,
+plus an unscored cache warm-up. The worker snapshots config/code/export hashes
+and uses a new `flydream-runs:/benchmarks/<UTC timestamp and hash>/` directory.
+It saves paired initial/final states, loss traces, actual counts, timings,
+comparison JSON and the Chrome profiler trace. Failed jobs preserve diagnostics;
+no existing experiment is overwritten. Estimates and remaining gate:
+`reports/2026-09-18_training_optimization_bench.md`.
+
 - Run id: `<date>_<experiment>_<config hash>`; the config is saved beside the
   outputs on the Volume and copied into the report.
 - `reports/runs.jsonl`: one line per measured outcome, written only by
