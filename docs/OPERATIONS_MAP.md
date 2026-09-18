@@ -61,7 +61,23 @@ one place per fact.
 .venv\Scripts\python.exe -m flydream.data.optic_lobe --min-weight 1 --edges-only         # the weight>=1 edge table the weak-pair exception reads
 .venv\Scripts\python.exe -m flydream.data.export                                          # writes filters_<side>_<tag>.json from config.toml [data]
 .venv\Scripts\python.exe -m flydream.model.init_state --member 0                          # the transplanted state for Modal --init
+.venv\Scripts\python.exe -m flydream.decode.figures --run <run> --lags 0 2 4              # the ladder at an 80 ms window, named by it
+.venv\Scripts\python.exe -m flydream.decode.map ... --seed 3                              # one scene split; a reported map sweeps [decode] splits
+.venv\Scripts\python.exe -m flydream.decode.ensemble --glob "2026-09-18_decode_sintel_m*_s*_lag_*" --tag <tag>   # median + 10-90% over members x splits
+.venv\Scripts\python.exe -m modal run deploy/modal/decode_app.py --dry                    # the map on Modal: plan and price, no worker
+.venv\Scripts\python.exe -m modal run deploy/modal/decode_app.py --members 0,5 --seeds 0,1 --windows 0,0_2_4
+.venv\Scripts\python.exe -m modal volume get flydream-runs /decode/data/decode/<run> data/decode/<run>   # read a Modal map back
+.venv\Scripts\python.exe tools\modal_watch.py [--wait <app-id> | --logs <app-id> | --volume /benchmarks]
 ```
+
+**Decode on Modal** (`deploy/modal/decode_app.py`, App `flydream-decode`): `simulate`
+(T4, one FlyVis member over Sintel, caches `pairs.npz`, 2-3 min measured) and
+`map_window` (8 CPU cores, no GPU, one (member, split, window), all types with
+both controls). The worker's project root is `flydream-runs:/decode` (`FLYDREAM_ROOT`,
+a copy of `config.toml` beside `data/decode/`), so run directories have the same
+shape as local ones and `flydream.decode.sweep` / `ensemble` read them unchanged.
+The pretrained ensemble lives on `flydream-data:/flyvis/results/flow/0000` (6 MB);
+flyvis's Sintel rendering cache under `flydream-data:/flyvis/renderings`.
 
 A background run's log must be written unbuffered (`python -u`, and
 `grep --line-buffered` if piped): a buffered pipe shows nothing until it

@@ -139,13 +139,21 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    audit: its stage curve inverts under a 60 ms window (ISS-0004). What the
    map does show, and what survives, is that at lag 0 the frame component
    separates sustained from transient cell types with no overlap, i.e. it
-   reads temporal-filter identity. Remaining for this item, in order: the lag
-   sweep with matched controls on the cached pairs; ten members and five
-   splits with per-type intervals; a per-type null in place of the floor;
-   the figure regenerated and labelled with its window; then the same on
-   MaleCNS (after ISS-0003 is verified stable), then inversion (rung three).
-   Report: `reports/2026-09-18_step4_decoder_stack.md` (§9 carries the
-   correction).
+   reads temporal-filter identity. Done since (night of 2026-09-18): the lag
+   sweep with matched controls on the cached pairs, four windows 0 / 20 /
+   80 / 160 ms (`flydream.decode.sweep`, report §10, ISS-0004): the frame
+   component's order by stage depends on the window (Spearman −0.83 between
+   a type's score at 0 ms and its gain to 160 ms), raw PixCorr peaks at 80
+   ms for every stage but the lamina, so the map is reported at 80 ms with
+   the 0 ms column beside it; the ladder regenerated and labelled with its
+   window (`figures --lags`). Running: ten members × five splits × the two
+   windows on Modal (`deploy/modal/decode_app.py`, the human allowed decode
+   jobs on Modal without a per-action gate; the pilot 2 × 2 × 2 started
+   22:20), joined by `flydream.decode.ensemble` into a median with its
+   10-90% interval per type. Remaining: a per-type null in place of the
+   floor; then the same on MaleCNS (after ISS-0003 is verified stable), then
+   inversion (rung three). Report: `reports/2026-09-18_step4_decoder_stack.md`
+   (§9 carries the correction, §10 the sweep).
 
 3. **Training on Modal.** The optic-flow task of Lappalainen et al. on
    Sintel, the same loss, schedule and augmentations, on the MaleCNS model;
@@ -170,8 +178,21 @@ preliminary; 4 moved ahead of 3 on the human's word 2026-09-18
    human as `ceil(N / pack)` cards. Pre-conditions met 2026-09-18 evening:
    v9 (model zero on the refined export) is stable on three members (DSI
    0.200 / 0.191 / 0.065, flash 0.93); the T4 smoke measured 0.434 s/iter,
-   i.e. 30 h and about $18 per member alone on a card; the packing factor
-   is being measured (`smoke_packed` 2 / 4 / 8).
+   i.e. 30 h and about $18 per member alone on a card. Measured since (night
+   of 2026-09-18, `reports/2026-09-18_step3_training_options.md` §4-5a):
+   packing two members per card gains only 1.2-1.5× and is dominated by a
+   larger batch; throughput saturates at batch 16 (14 samples/s, ~$12 per
+   member for the reference's 10^6 samples), batch 64 and above cannot run
+   (fewer than 64 training clips); two source-level changes to flyvis's
+   step (activity statistics on the device, ReLU before the gather;
+   `flydream/train/optimizations.py`, benchmark of the Codex session) give
+   1.17× and are equivalent within CUDA's own noise, so a member at batch 16
+   with `--variant stats_relu` costs ~$10 of GPU (~$15 with the container).
+   The research report `reports/Обучение коннектомных сетей и ускорение.md`
+   ranks the remaining levers (plateau stop, fp16, kernel fusion) with their
+   scientific risk. **Next gate:** two members for the reference schedule
+   (one from the transplant, one from scratch), batch 16, `stats_relu`,
+   ~$30 for the pair; the human's word is pending.
 
 5. **Both eyes, every column, the missing biophysics.** Extend to ~880
    columns per eye and the left eye; add, one at a time and each validated
