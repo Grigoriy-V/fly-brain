@@ -1,0 +1,193 @@
+# Issues
+
+Observed defects, one entry per defect. This file is not a plan and
+authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
+`reports/`, the entry links to it.
+
+## Rules
+
+- A defect is observed behaviour, not a suspicion: a wrong number, a broken
+  export, a model that fails a validation it passed, a mapping row that
+  contradicts its source. A missing capability belongs in the roadmap; a
+  false claim of one belongs here.
+- New entry: next free number, never reused; put it at the top of **Open**
+  and a row at the top of the catalog.
+- Status names the defect, not the effort: `open`, `mitigated` (harm reduced,
+  defect still there), `fixed` (verified by a rerun), `won't fix`. A closed
+  entry stays, shortened, under **Closed**; a defect that comes back moves up
+  to **Open** with a "seen again" line and keeps its full body.
+- `Cause` stays "unknown" until proven. One defect per entry. `Costs` says
+  what it does to a result or a reader; there is no severity word.
+- A defect in a third-party input (a dataset table, a community mapping, a
+  reference implementation) is recorded here with its source named; it is
+  not fixed upstream by this project.
+- Fields: Status, Seen, Costs, Reproduce, Cause, Evidence, Related.
+
+## Catalog
+
+| Id | Status | Defect | Related |
+|---|---|---|---|
+| ISS-0005 | open | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am and the feedback pairs Tm2→L2 and Mi4→Tm2 (R1–R6→Am 1.2 against 36 synapses per cell, Am→T1 3.3 against 63); columnar motion pairs agree within 1.7× | roadmap 1, ISS-0003 |
+| ISS-0004 | open | the step-4 stage curve (R → L → Mi/Tm → T4/T5) is a decoder artefact: at a 60 ms window instead of lag 0, T5a's control-corrected score goes 0.057 → 0.625 and the order inverts; stage explains R² 0.317 of the map; read from the best of 50 members on one split | roadmap 4 |
+| ISS-0003 | mitigated | `transplant` copied FlyVis's `syn_strength` raw, though it is a gain divided by that connectome's own synapse count; on MaleCNS the copy underweighted T5's main drive and overweighted its inhibition, and step 2's DSI 0.020 was at least partly that (member 000 → 0.161 corrected) | roadmap 2, 3; DECISIONS 2026-09-18 |
+| ISS-0002 | open, third-party input | the right CT1 (bodyId 10157, "Roughly traced") has 56,517 outgoing rows in the weights table but only 8 to typed right-lobe neurons, so every CT1 pathway FlyVis carries (CT1 → T4/T5, 14–40 synapses per column) is absent from the export | roadmap 1, 2 |
+| ISS-0001 | open, third-party input | MaleCNS's column tag on Tm4 disagrees with the column holding most of its synapses in 47% of right-lobe Tm4 cells; every other tagged type agrees ≥99.3% | roadmap 1 |
+
+---
+
+## Open
+
+### ISS-0005 — the export's lamina and feedback pairs carry ~30× less total input than FlyVis
+
+- **Status:** open. Seen 2026-09-18 while diagnosing why the corrected
+  transplant (ISS-0003) sent two of three members to infinity.
+- **Seen:** total synapses a target cell receives from a source type,
+  FlyVis against `data/ol/filters_R.json`: R1–R6→Am 36 against 1.2, Am→T1
+  63 against 3.3, Tm2→L2 7.3 against 0.3, Mi4→Tm2 5.4 against 0.4, Am→L3
+  14 against 1.6. Columnar motion pairs agree: Mi1→T4a 64 against 60,
+  L2→Tm2 123 against 128, Tm9→T5a 47 against 28. 63 of 395 matched pairs
+  differ more than fivefold by this statistic.
+- **Costs:** a transplant that preserves total input (ISS-0003) multiplies
+  these pairs' gains by up to 34 and the network runs away; a transplant
+  that does not leaves them thirty times too weak. Either way model zero's
+  lamina is not FlyVis's lamina, and every result read through Am, T1 or
+  the Tm2/L2 feedback is suspect.
+- **Reproduce:** `zero.total_n_syn` on both networks; the comparison is
+  printed by the diagnostic in `reports/2026-09-18_step4_decoder_stack.md`
+  §9 (correction).
+- **Cause:** unknown. Candidates, in order of suspicion: MaleCNS has no
+  lamina column ROIs and R1–R6 have no column tags (step 1), so lamina
+  offsets come from the partner-median fallback and the wide-field Am is
+  the type that fallback fits worst; `min_weight` 5 removes the many weak
+  R→Am contacts that FlyVis's averaged filters keep as fractional values;
+  or MaleCNS's lamina reconstruction is genuinely sparser (postsynaptic
+  completion 42%). To be separated by re-exporting at `min_weight` 1 for
+  these pairs and by a cartridge-based column assignment (roadmap, Not
+  started).
+- **Evidence:** `data/runs/2026-09-18_step2_zero_R_v6_rescaled/*.json`
+  (the `capped_pairs` list once v7 lands), `reports/runs.jsonl`
+  (`step2.transplant`).
+- **Related:** ISS-0003, ISS-0002 (CT1 is the same class of defect on a
+  single cell), roadmap 1 and 5.
+
+### ISS-0004 — the step-4 stage curve is a decoder artefact
+
+- **Status:** open; the figure is withdrawn from the report and the map is
+  being redone. Seen 2026-09-18 by the adversarial audit (six auditors and
+  a judge, `research_notes/audit_2026-09-18/`), confirmed by the project
+  agent on the same `pairs.npz`.
+- **Seen:** with the decoder's window changed from lag 0 to lags (0, 2, 4)
+  at dt 0.02 s, i.e. 60 ms, and the time-shuffle control refit at the same
+  window, the control-corrected PixCorr goes T5a 0.057 → 0.625, T5d 0.111 →
+  0.534, TmY15 0.054 → 0.417, T4a 0.141 → 0.345, while L1 0.336 → 0.300 and
+  R1 0.579 → 0.358. The four types at the bottom of the curve end above L1.
+  Across 11 types, corr(lag-0 score, gain from the window) = −0.909. The
+  frame component at lag 0 separates the published sustained class (L3,
+  Mi4, Mi9, Tm9: 0.596 ± 0.048) from the transient class (L1, L2, L4, Mi1,
+  Tm1–4: 0.390 ± 0.093) with no overlap across three stages: the map read
+  temporal-filter identity, not stage. Stage explains R² = 0.317 of the map
+  (Chen et al. 2024, the cited benchmark, R > 0.9); 50% of the variance is
+  within stage; hop distance from the photoreceptors alone explains 0.367.
+- **Costs:** the advertised first figure (ROADMAP item 4, "the curve R → L
+  → Mi/Tm → T4/T5") does not exist in that form; the ladder picture sent on
+  2026-09-18 is a true picture of what a per-frame linear decoder recovers
+  and a false one of what each stage carries.
+- **Reproduce:** `config.toml [decode] lags = [0, 2, 4]`, rerun
+  `flydream.decode.map --stimuli sintel --cache` on the cached pairs.
+- **Cause:** `lags = [0]` was chosen to match FlyVis's own per-frame head
+  and never swept; cells with slow membranes carry the frame's luminance
+  in their present voltage, transient cells carry it in their recent
+  voltage, and a lag-0 decoder can read only the first. Three further
+  defects compound it, each verified by the project agent: the map is read
+  from `flow/0000/000`, which is the best of the 50 members by validation
+  loss (Spearman(id, loss) = 1.000; member ids are a ranking); the
+  sample-shuffle "floor" of 0.117 is the PixCorr of the training-mean
+  image, the same for every type (SD 0.003), so it is not a per-type null;
+  and seed 0 is the minimum of six scene splits for both Mi1 (0.414 against
+  a mean of 0.605) and T5a (0.188 against 0.492).
+- **Evidence:** `data/decode/2026-09-18_decode_sintel_flyvis/map.csv`,
+  `by_stage.csv`; the audit's own refits in `research_notes/audit_2026-09-18/`.
+- **Related:** roadmap 4; `reports/2026-09-18_step4_decoder_stack.md` §9.
+
+### ISS-0003 — the transplant copied a connectome-relative gain across connectomes
+
+- **Status:** mitigated (the basis is corrected and capped; verification of
+  stability on three members is the v7 run). Seen 2026-09-18 by the audit,
+  verified in flyvis's source and by measurement by the project agent.
+- **Seen:** `flyvis/network/initialization.py:501` sets `syn_strength =
+  scale / <n_syn>` for the pair in that connectome and `dynamics.py:165`
+  forms `weight = sign * n_syn * syn_strength`; `zero.transplant` copied
+  the value by type-pair key. On the raw copy, by total input per target
+  cell, Tm9→T5a–d (T5's main excitatory drive) came out 1.5–1.7× too weak
+  and TmY15→T4/T5 (inhibitory) about 2× too strong. Rerun with the gain
+  rescaled: member 000's T4/T5 DSI 0.020 → 0.161 (FlyVis 0.547) with
+  preferred-direction error 7.0° against FlyVis's own 11.5°; members 001
+  and 002 diverged, because the first rescale used the mean per edge, which
+  reached 34× on the pairs of ISS-0005.
+- **Costs:** step 2's headline (DSI 0.020 against 0.391) was at least partly
+  this function and not MaleCNS; it is the number DECISIONS cites for
+  putting item 4 before item 3, and the recorded reason is corrected there.
+- **Reproduce:** `python -m flydream.model.zero --models 0 --no-rescale`
+  against the default.
+- **Cause:** known: the parameter's definition was not read before it was
+  copied. Fixed basis: `syn_strength * total_src / total_dst` over
+  `zero.total_n_syn`, bounded by `config.toml [model] rescale_cap`.
+- **Evidence:** `reports/runs.jsonl` (`step2.transplant`),
+  `data/runs/2026-09-18_step2_zero_R_v6_rescaled/`, the v7 run.
+- **Related:** ISS-0005, ISS-0002; DECISIONS 2026-09-18 (the order of 4
+  and 3, corrected); roadmap 2, 3.
+
+### ISS-0002 — the right CT1's partners are not typed optic-lobe neurons
+
+- **Status:** open; a property of MaleCNS v1.0 as released (status "Roughly
+  traced"), not of this code. Seen 2026-09-18 on roadmap 2.
+- **Seen:** `connectome-weights` rows with `body_pre = 10157` (CT1, right,
+  the only CT1 body on that side): 56,517 rows at any weight, of which 8
+  reach a typed right-lobe neuron (LT33 284 synapses, OLVC3 13 at weight
+  ≥5); no row reaches a T4, T5, Tm9 or Mi1, which in FlyVis receive 7–40
+  CT1 synapses per column. The CT1 has a column ROI (31, 24) like any
+  columnar cell.
+- **Costs:** the export has no CT1 edges, so model zero lacks the CT1
+  inhibitory compartments FlyVis has in every column (CT1(M10) onto T4,
+  CT1(Lo1) onto T5); the missing input is one candidate for the weak T4/T5
+  selectivity seen in the transplant.
+- **Reproduce:** the diagnostic in `reports/2026-09-18_step2_model_zero.md`
+  §3 (filter `body_pre == 10157` in the weights table and join to
+  `data/ol/neurons_R.parquet`).
+- **Cause:** unknown. Plausible: the giant CT1 is split into many untyped
+  fragments in v1.0 and the typed body holds only part of the arbor; or its
+  postsynaptic partners in the medulla/lobula are the unproofread fragments
+  (postsynaptic completion 42%). neuPrint `fetch_adjacencies` on 10157
+  would show the partner bodies' status.
+- **Evidence:** `reports/2026-09-18_step2_model_zero.md`.
+- **Related:** roadmap 1 export, roadmap 2; the neuron count 1 per side in
+  `data/bridge/types.csv`.
+
+### ISS-0001 — Tm4's column tag is not the column of its synapses
+
+- **Status:** open; a property of the MaleCNS v1.0 annotation, not of this
+  code. Seen 2026-09-18 on roadmap 1.
+- **Seen:** right optic lobe, 833 Tm4 cells with `assignedOlHex1/2`: the
+  column ROI (`ME_R_col_*`) holding most of the cell's synapses equals the
+  tag in 52.9% of cells; the partner-median inference agrees with the tag in
+  36.3%. For the other 14 tagged types both methods agree with the tag in
+  ≥99.3% (C2 99.5%, Tm20 99.4%, Tm9 99.3%, the rest ≥99.8%).
+- **Costs:** whichever column is used, Tm4's offsets to its partners are
+  shifted by about one column relative to the other types; a filter
+  `Tm4 -> X` or `X -> Tm4` carries that shift. Tm4 is an input to T5 and to
+  several Tm/TmY types.
+- **Reproduce:** `python -m flydream.data.optic_lobe` with
+  `data/ol/roi_columns.parquet` present; the "roi exact by type" line.
+- **Cause:** unknown. The tag was likely assigned by a different anchor
+  (Tm4's lobula terminal, or the column of its main input) than the medulla
+  synapse mass; the MaleCNS release notes do not say how the 15 types were
+  tagged.
+- **Evidence:** `reports/2026-09-18_step1_data.md` §3; `data/ol/neurons_R.parquet`.
+- **Related:** roadmap 1; the choice of ROI columns in `DECISIONS.md`
+  (none yet; a step-2 question).
+
+---
+
+## Closed
+
+Shortened to what a later reader needs; the linked report has the rest.

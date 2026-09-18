@@ -1,0 +1,16 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(.git/**)",
+      "Bash(rm -rf:*)",
+      "Bash(modal run:*)",
+      "Bash(modal deploy:*)"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "source": "Synthetic miniature connectome for offline tests. Not biology: four cell types on a small hexagonal lattice, one ON pathway and one lateral offset, in the shape ConnectomeFromAvgFilters reads. Used so tests can build a Network and simulate without any downloaded data.",
+  "nodes": [
+    {"name": "R1", "pattern": ["stride", [1, 1]], "activation": "relu", "bias": 3.5, "bias_fixed": false, "time_constant": null, "time_constant_fixed": false},
+    {"name": "L1", "pattern": ["stride", [1, 1]], "activation": "relu", "bias": 0.5, "bias_fixed": false, "time_constant": null, "time_constant_fixed": false},
+    {"name": "Mi1", "pattern": ["stride", [1, 1]], "activation": "relu", "bias": 0.5, "bias_fixed": false, "time_constant": null, "time_constant_fixed": false},
+    {"name": "Wide", "pattern": ["stride", [2, 2]], "activation": "relu", "bias": 0.5, "bias_fixed": false, "time_constant": null, "time_constant_fixed": false},
+    {"name": "T4a", "pattern": ["stride", [1, 1]], "activation": "relu", "bias": 0.5, "bias_fixed": false, "time_constant": null, "time_constant_fixed": false}
+  ],
+  "edges": [
+    {"src": "R1", "tar": "L1", "alpha": -1, "alpha_fixed": true, "offsets": [[[0, 0], 40.0]], "time_constant": null, "time_constant_fixed": false, "lambda_mult": 1.0, "edge_type": "chem"},
+    {"src": "L1", "tar": "Mi1", "alpha": -1, "alpha_fixed": true, "offsets": [[[0, 0], 20.0]], "time_constant": null, "time_constant_fixed": false, "lambda_mult": 1.0, "edge_type": "chem"},
+    {"src": "Mi1", "tar": "T4a", "alpha": 1, "alpha_fixed": true, "offsets": [[[0, 0], 12.0], [[1, 0], 6.0], [[-1, 0], 3.0]], "time_constant": null, "time_constant_fixed": false, "lambda_mult": 1.0, "edge_type": "chem"},
+    {"src": "Wide", "tar": "T4a", "alpha": -1, "alpha_fixed": true, "offsets": [[[0, 0], 4.0]], "time_constant": null, "time_constant_fixed": false, "lambda_mult": 1.0, "edge_type": "chem"},
+    {"src": "Mi1", "tar": "Wide", "alpha": 1, "alpha_fixed": true, "offsets": [[[0, 0], 5.0]], "time_constant": null, "time_constant_fixed": false, "lambda_mult": 1.0, "edge_type": "chem"}
+  ],
+  "receptors": [],
+  "input_units": ["R1"],
+  "output_units": ["T4a"]
+}

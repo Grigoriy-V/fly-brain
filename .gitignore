@@ -1,0 +1,31 @@
+# Python and local environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Credentials and local configuration
+.env
+.env.*
+.claude/settings.local.json
+
+# Data, weights, activity, checkpoints: reproducible from data/manifest.json
+/data/
+*.feather
+*.parquet
+*.npz
+*.npy
+*.safetensors
+*.pt
+*.ckpt
+
+# Run outputs kept on Modal Volumes; reports keep the numbers
+/runs/
+/outputs/
+/logs/
+
+# Local agent/runtime state
+.codex/sessions/

@@ -1,0 +1,74 @@
+# Every non-secret setting. Secrets live in .env.
+
+[data]
+# MaleCNS connection weight below which an edge is not used. The community
+# default (fly-afterlife, flybench) and the noise floor for 42% postsynaptic
+# completion; the weight tables are already cut at synapse confidence 0.5.
+min_weight = 5
+# Which optic lobe the first exports are built from. "R" is the lobe that was
+# the standalone optic-lobe:v1.1 release (Nern et al. 2025).
+side = "R"
+# FlyVis lattice radius in columns (721 columns at 15).
+extent = 15
+# A (source type, target type, offset) filter entry below this many synapses per
+# source cell is dropped from the FlyVis-shaped export; FlyVis's own filters are
+# integer counts (minimum 1) and it fills the convex hull of the offsets it is given.
+min_filter_syn = 0.25
+# How a (source, target, offset) synapse total becomes a per-cell filter value:
+# "src" per source cell, "tar" per target cell, "pair" per existing cell pair (see export.py).
+normalisation = "src"
+
+[flyvis]
+version = "1.2.0"
+ensemble = "flow/0000"
+root_dir = "data/flyvis"
+
+[model]
+# The transplant of FlyVis's per-type-pair gains onto the MaleCNS export
+# rescales each gain by the ratio of the pair's total input per target cell
+# between the two connectomes (see zero.transplant). This bounds the factor to
+# [1/cap, cap]: a pair beyond it is a thirtyfold difference in wiring, i.e. an
+# export defect to fix at the source, and multiplying a gain by thirty sent two
+# of three members to infinity on 2026-09-18. Capped pairs are listed in the
+# run's json. At 3.0, 114 of the 395 matched pairs of the right-lobe export hit
+# it (2026-09-18, v7): that count is the size of ISS-0005, not a tuning target.
+rescale_cap = 3.0
+
+[decode]
+# Which model the decoder reads. A flyvis NetworkView name, or "malecns" for the
+# model zero export. The first numbers of the map come from the pretrained FlyVis
+# ensemble because its activity is validated against 26 studies, so a decoder
+# that scores nothing there is broken rather than reading a silent model
+# (DECISIONS 2026-09-18). NOTE: the ensemble's member ids are a ranking by
+# validation loss (Spearman(id, loss) = 1.000, measured 2026-09-18), so
+# "flow/0000/000" is the single best of 50, not an arbitrary member. A reported
+# number is read over `members`, never from this one alone (ISSUES ISS-0004).
+model = "flow/0000/000"
+# Members to sweep for a reported map; 10 spread over the ranking.
+members = [0, 5, 11, 16, 22, 27, 33, 38, 44, 49]
+# Scene splits (seeds) to average over; seed 0 alone was the worst of six.
+splits = [0, 1, 2, 3, 4]
+# The timestep the pretrained flow ensemble was trained at.
+dt = 0.02
+# Offsets in frames added to the stimulus frame when selecting activity. [0] is
+# the per-frame decoder, the shape of flyvis's own decoder head. It is NOT a
+# neutral choice: at lag 0 the map ranks cell types by how sustained their
+# membrane is, not by stage (ISSUES ISS-0004: T5a 0.057 -> 0.625 at a 60 ms
+# window). A reported number is a sweep over `lag_windows`; `lags` is the
+# single window a quick run uses.
+lags = [0]
+lag_windows = [[0], [0, 1], [0, 2, 4], [0, 2, 4, 6, 8]]
+# Whole groups (a Sintel scene, a stimulus condition) held out for the test set,
+# and a second slice of the training groups used to choose the ridge penalty.
+test_fraction = 0.2
+val_fraction = 0.2
+seed = 0
+# Pixels per hexal in the raster SSIM reads; win_size must span three hexals or
+# the window sits inside one flat Voronoi cell and SSIM saturates.
+pix_per_hex = 3
+ssim_win = 9
+# Frames the identification test chooses between; chance is its reciprocal.
+identification_candidates = 20
+# Cell counts for the quality-against-count control.
+subset_counts = [10, 30, 90, 270]
+batch_size = 4
