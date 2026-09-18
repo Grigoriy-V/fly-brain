@@ -256,3 +256,26 @@ def test_the_axial_map_is_the_shape_the_reference_decoder_stores():
     out = H.to_axial(np.arange(721, dtype=np.float32))
     assert out.shape == (31, 31)
     assert np.isfinite(out).sum() == 721
+
+def test_batched_ssim_matches_skimage():
+    from skimage.metrics import structural_similarity
+    rng = np.random.default_rng(3)
+    a = rng.random((5, 721)); b = a + 0.1 * rng.standard_normal((5, 721))
+    x = H.to_raster(a, 721, 3, fill=0.0).astype(np.float64)
+    y = H.to_raster(b, 721, 3, fill=0.0).astype(np.float64)
+    ours = M.ssim_batch(x, y, 1.0, 9)
+    ref = np.array([structural_similarity(x[i], y[i], data_range=1.0, win_size=9) for i in range(5)])
+    assert np.allclose(ours, ref, atol=1e-6)
+
+
+def test_ridge_gcv_recovers_a_linear_map_with_one_svd():
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal((400, 30))
+    w = rng.standard_normal((30, 5))
+    y = x @ w + 0.05 * rng.standard_normal((400, 5))
+    model = R.fit(x[:300], y[:300], method="gcv")
+    pred = model.predict(x[300:])
+    assert M.pixel_correlation(pred, y[300:]) > 0.99
+    assert model.at_grid_edge == ""
+    hold = R.fit(x[:300], y[:300], method="holdout")
+    assert abs(M.pixel_correlation(hold.predict(x[300:]), y[300:]) - M.pixel_correlation(pred, y[300:])) < 0.01

@@ -68,18 +68,34 @@ def hex_ssim(pred: np.ndarray, targ: np.ndarray, pix_per_hex: int = 3,
     `data_range` defaults to the target's own range, since a rendered hexal
     stimulus is a contrast around mid-grey and not a 0..1 image.
     """
-    from skimage.metrics import structural_similarity
-
     p, t = _flat(pred), _flat(targ)
     n_hex = t.shape[-1]
     if data_range is None:
         data_range = float(np.nanmax(t) - np.nanmin(t)) or 1.0
-    out = []
-    for i in range(t.shape[0]):
-        pi = to_raster(p[i], n_hex, pix_per_hex, fill=0.0)
-        ti = to_raster(t[i], n_hex, pix_per_hex, fill=0.0)
-        out.append(structural_similarity(ti, pi, data_range=data_range, win_size=win_size))
-    return float(np.mean(out))
+    # all frames at once: (F, H, W) rasters through uniform filters, the same
+    # formula as skimage.metrics.structural_similarity with its defaults
+    # (uniform window, sample covariance, K1 0.01, K2 0.03, crop of the border)
+    # checked equal to 1e-6 in tests/test_decode.py; 1,800 skimage calls per
+    # cell type were 17% of a map's time (2026-09-18 night)
+    pi = to_raster(p, n_hex, pix_per_hex, fill=0.0).astype(np.float64)
+    ti = to_raster(t, n_hex, pix_per_hex, fill=0.0).astype(np.float64)
+    return float(np.mean(ssim_batch(ti, pi, data_range, win_size)))
+
+
+def ssim_batch(x: np.ndarray, y: np.ndarray, data_range: float, win_size: int = 7) -> np.ndarray:
+    """SSIM per frame of two (F, H, W) stacks; skimage's default formula."""
+    from scipy.ndimage import uniform_filter
+
+    size = (1, win_size, win_size)
+    np_ = win_size ** 2
+    cov_norm = np_ / (np_ - 1)
+    ux, uy = uniform_filter(x, size), uniform_filter(y, size)
+    uxx, uyy, uxy = uniform_filter(x * x, size), uniform_filter(y * y, size), uniform_filter(x * y, size)
+    vx, vy, vxy = cov_norm * (uxx - ux * ux), cov_norm * (uyy - uy * uy), cov_norm * (uxy - ux * uy)
+    c1, c2 = (0.01 * data_range) ** 2, (0.03 * data_range) ** 2
+    s = ((2 * ux * uy + c1) * (2 * vxy + c2)) / ((ux ** 2 + uy ** 2 + c1) * (vx + vy + c2))
+    pad = (win_size - 1) // 2
+    return s[:, pad:-pad, pad:-pad].mean(axis=(1, 2)) if pad else s.mean(axis=(1, 2))
 
 
 def identification(pred: np.ndarray, targ: np.ndarray, n_candidates: int = 20,
