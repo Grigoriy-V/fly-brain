@@ -63,7 +63,8 @@ The human reads pictures, not logs (the human, 2026-09-19: "дай мне
   row with its own input shown ("вход B: клип 10, лес"), never a footer
   labelled "control".
 - **Clips (gif) by default;** a still frame only when the clip cannot show
-  the point. A comparison of two brains or two methods is one stacked clip
+  the point. A clip states its real duration and its slow-down: 20 frames
+  at 20 ms are 0.4 s of the fly's time, shown at ~5× slower. A comparison of two brains or two methods is one stacked clip
   with a label per row and the stage names in the header, not two files.
 - **Look at every clip before sending it:** view its first, middle and last
   frames and one column end to end; check that the clip ends where the clip
