@@ -171,21 +171,53 @@ def build(files: list[Path], root: Path, out: Path, *, videos: int, per_video: i
     return manifest
 
 
-def pack(out: Path, log=print) -> dict:
+def pack(out: Path, *, procedural: Path | None = None, fraction: float = 0.0, frames: int = 45,
+         seed: int = 0, log=print) -> dict:
     """The shards plus the manifest as one `videos.npz` in the shape
     `pairs13` reads: `videos` (n, frames, 721) float16 and `meta`, one JSON
-    string per clip. That is what goes to the Modal volume."""
+    string per clip. That is what goes to the Modal volume.
+
+    `procedural` mixes 13A's stimuli back in as a **minority** (the human,
+    2026-09-20: ordinary video mostly, procedural only a small part for
+    motion-space coverage). They are appended here, at the video level, rather
+    than merged later as states: one pass through the brain, one per-type
+    scale, one split, and the manifest keeps them marked as their own source.
+    `fraction` is the share of the *final* set, sampled evenly over the
+    stimulus classes."""
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     vids = [np.load(out / sh["file"])["videos"] for sh in manifest["shards"]]
     videos = np.concatenate(vids).astype(np.float16)
     if len(videos) != manifest["n"]:
         raise SystemExit(f"{len(videos)} clips in the shards, {manifest['n']} in the manifest")
-    meta = [json.dumps({"source": "video", "label": m["label"], "path": m["path"], "n_rot": m["n_rot"],
-                        "view": m["view"], "window": m["window"]}) for m in manifest["meta"]]
-    np.savez(out / "videos.npz", videos=videos, meta=np.array(meta))
+    meta = [{"source": "video", "label": m["label"], "path": m["path"], "n_rot": m["n_rot"],
+             "view": m["view"], "window": m["window"]} for m in manifest["meta"]]
+    n_video = len(videos)
+    n_proc = 0
+    if procedural is not None and fraction > 0:
+        z = np.load(procedural)
+        params = [json.loads(str(x)) for x in z["params"]]
+        classes = sorted({p["class"] for p in params})
+        want = int(round(fraction / (1 - fraction) * n_video))
+        rng = np.random.default_rng(seed)
+        pick = []
+        for c in classes:                                            # evenly over the classes, not by file order
+            ids = [i for i, p in enumerate(params) if p["class"] == c]
+            k = min(len(ids), int(np.ceil(want / len(classes))))
+            pick += list(rng.choice(ids, k, replace=False))
+        pick = np.sort(np.array(pick[:want]))
+        pv = z["videos"][pick][:, :frames].astype(np.float16)
+        if pv.shape[1] < frames:
+            pv = np.concatenate([pv, np.repeat(pv[:, -1:], frames - pv.shape[1], 1)], 1)
+        videos = np.concatenate([videos, pv])
+        meta += [{"source": "procedural", "class": params[int(i)]["class"], "params": params[int(i)]} for i in pick]
+        n_proc = len(pick)
+        log(f"mixed in {n_proc} procedural clips over {len(classes)} classes "
+            f"({n_proc / len(videos):.0%} of the final set)")
+    np.savez(out / "videos.npz", videos=videos, meta=np.array([json.dumps(m) for m in meta]))
     size = (out / "videos.npz").stat().st_size / 1e9
     log(f"packed {videos.shape} into {out / 'videos.npz'} ({size:.2f} GB)")
-    return {"n": len(videos), "shape": list(videos.shape), "gigabytes": round(size, 3)}
+    return {"n": len(videos), "n_video": n_video, "n_procedural": n_proc, "shape": list(videos.shape),
+            "gigabytes": round(size, 3)}
 
 
 def main(argv=None) -> int:
@@ -205,6 +237,8 @@ def main(argv=None) -> int:
     p.add_argument("--probe", type=int, default=0)
     p.add_argument("--band", default="")
     p.add_argument("--pack", action="store_true")
+    p.add_argument("--procedural", default="")
+    p.add_argument("--procedural-fraction", type=float, default=0.2)
     p.add_argument("--workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
@@ -221,14 +255,16 @@ def main(argv=None) -> int:
         print(f"windows {r['windows']}, pass rate in the Sintel band {r['pass_rate_sintel_band']:.1%}, {r['seconds']} s")
         return 0
     if a.pack:
-        pack(Path(a.out))
+        pack(Path(a.out), procedural=Path(a.procedural) if a.procedural else None,
+             fraction=a.procedural_fraction, frames=a.frames, seed=a.seed)
         return 0
     band = json.loads(a.band) if a.band else SINTEL_BAND
     out = Path(a.out)
     build(files, src, out, videos=a.videos, per_video=a.per_video, frames=a.frames, dt=a.dt,
           raw_frames=a.raw_frames, splits=a.splits, band=band, rotations=a.rotations, shard=a.shard,
           workers=a.workers or (os.cpu_count() or 8) // 2, seed=a.seed)
-    pack(out)
+    pack(out, procedural=Path(a.procedural) if a.procedural else None,
+         fraction=a.procedural_fraction, frames=a.frames, seed=a.seed)
     return 0
 
 

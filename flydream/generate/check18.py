@@ -90,7 +90,7 @@ def run(model: str, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *, n:
     cmeta = [json.loads(str(x)) for x in cz["meta"]]
     pick = rng.choice(len(cz["videos"]), min(n, len(cz["videos"])), replace=False)
     corpus_v = np.asarray(cz["videos"][np.sort(pick)], np.float32)
-    labels = [cmeta[int(i)]["label"] for i in np.sort(pick)]
+    labels = [cmeta[int(i)].get("label") or cmeta[int(i)].get("class", "?") for i in np.sort(pick)]
     sin_idx = rng.choice(189, n_sintel, replace=False)
     sintel_v = np.stack([clip_from_sintel(int(i), frames, dt, margin) for i in sin_idx])
     log(f"corpus {corpus_v.shape} ({len(set(labels))} labels), sintel {sintel_v.shape}")
