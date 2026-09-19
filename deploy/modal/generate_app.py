@@ -460,11 +460,11 @@ def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train"
     if limit:
         idx = idx[:limit]
     v = torch.as_tensor(z["videos"][idx][:, :40], device=device)
-    m = torch.as_tensor(z["maps"][idx], device=device)
+    m = torch.as_tensor(z["maps"][idx][:, :40], device=device)
     return v, m, z["index"][idx], {"mean": z["mean"], "std": z["std"]}
 
 
-@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=8192, timeout=30 * MINUTES)
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
 def bench13b(steps: int = 200, batch: int = 32, kinds: str = "hexresnet,sit", width_hex: int = 64, depth_hex: int = 6,
              width_sit: int = 128, depth_sit: int = 4, compile_model: bool = False, limit: int = 2048) -> dict:
     """13B step (b): each backbone for `steps` steps on the training maps
@@ -491,11 +491,11 @@ def bench13b(steps: int = 200, batch: int = 32, kinds: str = "hexresnet,sit", wi
             out[f"{kind}{'_compiled' if comp else ''}"] = r
             print(json.dumps(r), flush=True)
             torch.cuda.empty_cache()
-    out["_"] = {"gpu": GPU, "cpu": 1, "memory_mb": 8192, "seconds": round(time.time() - t0, 1), "torch": torch.__version__}
+    out["_"] = {"gpu": GPU, "cpu": 1, "memory_mb": 12288, "seconds": round(time.time() - t0, 1), "torch": torch.__version__}
     return out
 
 
-@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=8192, timeout=90 * MINUTES)
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
 def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: float = 3e-4, width: int = 64, depth: int = 6,
              heads: int = 4, compile_model: bool = False, seed: int = 0, out: str = "gen13b") -> dict:
     """13B step (c): the generator trained with the optimised loop
@@ -522,7 +522,7 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
             "parameters": int(n_par), "seed": seed, "mean": stats["mean"].tolist(), "std": stats["std"].tolist()}
     G.save(outdir / f"{kind}.pt", model, r["ema"], meta)
     summary = {**meta, "history": r["history"], "seconds": r["seconds"], "seconds_worker": round(time.time() - t0, 1),
-               "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 8192}
+               "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 12288}
     (outdir / f"{kind}_train.json").write_text(json.dumps(summary), encoding="utf-8")
     runs_volume.commit()
     print(f"train13b done: {r['seconds']} s, GPU utilisation {gpu.mean}", flush=True)
@@ -572,18 +572,19 @@ def multi_init13b(model: str = "malecns", n_clips: int = 4, n_starts: int = 8, i
     var_ref = {t: float(targets[0][:, index[t]].var(unbiased=False)) + 1e-6 for t in DEEP}
     T = vids.shape[1]
     B = n_clips * (n_starts + 1)
-    g = torch.Generator(device="cpu").manual_seed(seed)
-    init = torch.full((B, T, 721), 0.5)
+    rng = np.random.default_rng(seed)
+    init_np = np.full((B, T, 721), 0.5, np.float32)
     for c in range(n_clips):
         for k in range(n_starts):
-            init[c * (n_starts + 1) + 1 + k] = (0.5 + init_sd * torch.randn(T, 721, generator=g)).clamp(0, 1)
+            init_np[c * (n_starts + 1) + 1 + k] = np.clip(0.5 + init_sd * rng.standard_normal((T, 721)), 0, 1)
+    init = torch.as_tensor(init_np, device=dev)
     tg = targets.repeat_interleave(n_starts + 1, 0)
     state = net.steady_state(t_pre, dt, batch_size=B, value=0.5)
     with GpuSampler() as gpu:
         inv, tr, n_steps = invert_batch(net, tg, [w_cells] * B, dt=dt, state=state, steps=inv_steps, lr=0.05, tv=0.02,
                                         plateau_steps=20, plateau_tol=0.01, log_every=50, cell_weights=[w] * B, init=init)
         inv_np = inv.numpy()[:, :40]
-        rt = round_trip(net, inv_np, tg_states[:, :, cells_all].repeat(n_starts + 1, 0), cells_all, type_of, DEEP, dt, t_pre,
+        rt = round_trip(net, inv_np, tg_states.repeat(n_starts + 1, 0), cells_all, type_of, DEEP, dt, t_pre,
                         margin, (0, T), var_ref)
     res = {}
     for c in range(n_clips):
@@ -598,7 +599,7 @@ def multi_init13b(model: str = "malecns", n_clips: int = 4, n_starts: int = 8, i
               f"[{rt[sl][1:].min():.4f}-{rt[sl][1:].max():.4f}]; pairwise r {off.mean():.3f} (min {off.min():.3f})", flush=True)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(outdir / "multi_init.npz", ids=ids, videos=inv_np, true=vids[:, :40], roundtrip=rt, init=init.numpy()[:, :40])
+    np.savez_compressed(outdir / "multi_init.npz", ids=ids, videos=inv_np, true=vids[:, :40], roundtrip=rt, init=init_np[:, :40])
     summary = {"clips": res, "n_starts": n_starts, "init_sd": init_sd, "steps": int(n_steps), "batch": B, "gpu": GPU,
                "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 6144, "seconds": round(time.time() - t0, 1)}
     (outdir / "multi_init.json").write_text(json.dumps(summary), encoding="utf-8")
@@ -800,8 +801,8 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
             print("maps13b on CPU (2 cores, 12 GB): pairs13 shards -> deep maps"); r = maps13b.remote()
             (d / "maps.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
         if bench13b_run:
-            print(f"bench13b on {GPU}: hexresnet {width13b}x{depth13b} and sit, {steps13b} steps, batch {batch13b}")
-            r = bench13b.remote(steps=steps13b, batch=batch13b, width_hex=width13b, depth_hex=depth13b, compile_model=compile13b)
+            print(f"bench13b on {GPU}: hexresnet {width13b}x{depth13b} and sit, 200 steps, batch {batch13b}")
+            r = bench13b.remote(steps=200, batch=batch13b, width_hex=width13b, depth_hex=depth13b, compile_model=compile13b)
             (d / "bench.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
         if multi_init13b_run:
             print(f"multi_init13b on {GPU}: {model}"); r = multi_init13b.remote(model=model, seed=seed)
