@@ -91,6 +91,7 @@ def run(model: str, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *, n:
     pick = rng.choice(len(cz["videos"]), min(n, len(cz["videos"])), replace=False)
     corpus_v = np.asarray(cz["videos"][np.sort(pick)], np.float32)
     labels = [cmeta[int(i)].get("label") or cmeta[int(i)].get("class", "?") for i in np.sort(pick)]
+    sources = [cmeta[int(i)].get("source", "video") for i in np.sort(pick)]
     sin_idx = rng.choice(189, n_sintel, replace=False)
     sintel_v = np.stack([clip_from_sintel(int(i), frames, dt, margin) for i in sin_idx])
     log(f"corpus {corpus_v.shape} ({len(set(labels))} labels), sintel {sintel_v.shape}")
@@ -140,6 +141,9 @@ def run(model: str, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *, n:
     per = []
     for i, k in enumerate(kinds):
         per.append({"kind": k, "round_trip": float(rts[i]),
+                    "source": sources[i] if k == "corpus" else k,
+                    "contrast": float((corpus_v if k == "corpus" else sintel_v)[i if k == "corpus" else i - len(m_corpus)][:frames].std())
+                    if k != "shuffled" else 0.0,
                     "label": labels[i] if k == "corpus" else (f"sintel {int(sin_idx[i - len(m_corpus)])}" if k == "sintel" else "shuffled"),
                     "direction_state": direction_energy(target_raw[i], st_grey, d)["T4_argmax"],
                     "direction_video": direction_energy(st_back[i], st_grey, d)["T4_argmax"]})

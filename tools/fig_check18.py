@@ -37,8 +37,11 @@ def main(argv=None) -> int:
     z = np.load(run / f"{a.name}.npz")
     frames = S["frames"]
     per = S["per_clip"]
-    corpus = [i for i, r in enumerate(per) if r["kind"] == "corpus"]
+    corpus = [i for i, r in enumerate(per) if r["kind"] == "corpus" and r.get("source", "video") == "video"]
     sintel = [i for i, r in enumerate(per) if r["kind"] == "sintel"]
+    floor = np.median([per[i].get("contrast", 1.0) for i in sintel])
+    legible = [i for i in sintel if per[i].get("contrast", 1.0) >= floor]          # a black scene shows nothing;
+    sintel = legible or sintel                                                    # the score shown is still its own
     shuf = next(i for i, r in enumerate(per) if r["kind"] == "shuffled")
     ranked = sorted(corpus, key=lambda i: per[i]["round_trip"])                          # typical, not best:
     mid = len(ranked) // 2                                                               # the middle of the
