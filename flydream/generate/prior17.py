@@ -36,11 +36,18 @@ from flydream.generate.gen13b import EMA, SiTBlock, sample_t, t_embedding
 class SiTStates(nn.Module):
     """Token = column; features = the column's T frames of K types."""
 
-    def __init__(self, frames: int = 40, k: int = 8, width: int = 128, depth: int = 4, heads: int = 4, n: int = 721):
+    def __init__(self, frames: int = 40, k: int = 8, width: int = 128, depth: int = 4, heads: int = 4, n: int = 721,
+                 n_classes: int = 0):
         super().__init__()
-        self.frames, self.k, self.n = frames, k, n
+        self.frames, self.k, self.n, self.n_classes = frames, k, n, n_classes
         self.t_dim = 128
         self.t_mlp = nn.Sequential(nn.Linear(self.t_dim, self.t_dim), nn.SiLU(), nn.Linear(self.t_dim, self.t_dim))
+        # DiT's own form of conditioning: the label embedding is added to the
+        # timestep embedding and modulates every block through adaLN-Zero. No
+        # dropout and no null class — the precedent this follows (Dhariwal &
+        # Nichol, Table 4: FID 26.21 -> 10.94) is conditioning alone, without
+        # classifier-free guidance on either side.
+        self.y_emb = nn.Embedding(n_classes, self.t_dim) if n_classes else None
         self.inp = nn.Linear(frames * k, width)
         self.pos = nn.Parameter(torch.randn(1, n, width) * 0.02)
         self.blocks = nn.ModuleList([SiTBlock(width, heads, self.t_dim) for _ in range(depth)])
@@ -49,12 +56,16 @@ class SiTStates(nn.Module):
         self.out = nn.Linear(width, frames * k)
         nn.init.zeros_(self.out.weight); nn.init.zeros_(self.out.bias)
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
         """(B, T, K, n) states and (B,) times -> the velocity, same shape."""
         B, T, K, n = x.shape
         tok = x.permute(0, 3, 1, 2).reshape(B, n, T * K)
         h = self.inp(tok) + self.pos
         te = self.t_mlp(t_embedding(t, self.t_dim))
+        if self.y_emb is not None:
+            if y is None:
+                raise ValueError("this prior is class-conditional; pass y")
+            te = te + self.y_emb(y)
         for blk in self.blocks:
             h = blk(h, te)
         s, b = self.out_ada(F.silu(te))[:, None].chunk(2, -1)
@@ -63,14 +74,23 @@ class SiTStates(nn.Module):
 
 
 def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
-    return SiTStates(frames=frames, k=k, width=kw.get("width", 128), depth=kw.get("depth", 4), heads=kw.get("heads", 4))
+    return SiTStates(frames=frames, k=k, width=kw.get("width", 128), depth=kw.get("depth", 4),
+                     heads=kw.get("heads", 4), n_classes=kw.get("n_classes", 0))
 
 
-def loss_fn(model: nn.Module, x1: torch.Tensor) -> torch.Tensor:
+def loss_fn(model: nn.Module, x1: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
     eps = torch.randn_like(x1)
     t = sample_t(x1.shape[0], x1.device)
     xt = (1 - t)[:, None, None, None] * eps + t[:, None, None, None] * x1
-    return F.mse_loss(model(xt, t), x1 - eps)
+    v = model(xt, t) if y is None else model(xt, t, y)
+    return F.mse_loss(v, x1 - eps)
+
+
+def conditioned(model, y: torch.Tensor | None):
+    """`integrate` and everything built on it call `f(x, t)`; a conditional
+    prior needs its label carried along, so bind it once here rather than
+    threading `y` through the sampler, the inversion and the refiner."""
+    return model if y is None else (lambda x, t: model(x, t, y))
 
 
 @torch.no_grad()
@@ -105,15 +125,16 @@ def invert(model: nn.Module, x: torch.Tensor, *, steps: int = 20, fixed_point: i
 
 @torch.no_grad()
 def sample(model: nn.Module, n: int, *, frames: int = 40, k: int = 8, columns: int = 721, steps: int = 20,
-           device=None, generator: torch.Generator | None = None) -> torch.Tensor:
+           device=None, generator: torch.Generator | None = None, y: torch.Tensor | None = None) -> torch.Tensor:
     """(n, T, K, 721) states drawn from the prior, in 13B's conditioning units."""
     dev = device or next(model.parameters()).device
     x = torch.randn(n, frames, k, columns, device=dev, generator=generator)
-    return integrate(model, x, steps=steps)
+    return integrate(conditioned(model, y), x, steps=steps)
 
 
 @torch.no_grad()
-def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, use_amp: bool) -> float:
+def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, use_amp: bool,
+             labels: torch.Tensor | None = None) -> float:
     """Mean interpolant loss with the EMA weights on a fixed t grid — the same every call."""
     backup = [p.detach().clone() for p in model.parameters()]
     ema.copy_to(model); model.eval()
@@ -125,7 +146,7 @@ def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, us
         t = torch.linspace(0.05, 0.95, len(x1), device=x1.device)
         xt = (1 - t)[:, None, None, None] * eps + t[:, None, None, None] * x1
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            v = model(xt, t)
+            v = model(xt, t) if labels is None else model(xt, t, labels[i:i + batch])
         tot += float(F.mse_loss(v.float(), x1 - eps)) * len(x1); n += len(x1)
     for p, b in zip(model.parameters(), backup):
         p.copy_(b)
@@ -134,11 +155,20 @@ def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, us
 
 
 def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr: float = 3e-4, warmup: int = 100,
-          seed: int = 0, amp: bool = True, log_every: int = 100, log=print, val: torch.Tensor | None = None,
-          val_every: int = 500) -> dict:
+          seed: int = 0, amp: bool = True, compile_mode: str = "", log_every: int = 100, log=print,
+          val: torch.Tensor | None = None, val_every: int = 500, labels: torch.Tensor | None = None,
+          val_labels: torch.Tensor | None = None) -> dict:
     """13B's optimised loop without the condition: data already on the device
     (float16), AMP fp16 with a GradScaler, fused AdamW, warmup + cosine, EMA,
-    gradient clipping. `states` (N, T, K, n)."""
+    gradient clipping. `states` (N, T, K, n).
+
+    `compile_mode` compiles the forward pass (18.4a: fusion is the only lever
+    on this shape — 1.42 x with `reduce-overhead`, of which at most 4.5 % can
+    come from its CUDA graphs, since the affine fit puts only 2.44 ms of the
+    54.72 ms step in fixed cost). `validate` swaps the EMA weights into the
+    same module between steps, which CUDA graphs do not tolerate, so the
+    default here is plain fusion; `reduce-overhead` is for a loop without
+    validation."""
     dev = states.device
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
@@ -149,6 +179,8 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         opt, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / max(1, steps)))))
     use_amp = amp and dev.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    fwd = torch.compile(model, **({"mode": compile_mode} if compile_mode != "default" else {})) if compile_mode \
+        else model                                                   # the optimiser and the EMA keep the real module
     ema = EMA(model)
     hist, t0 = [], time.time()
     run_loss, run_n = 0.0, 0
@@ -156,7 +188,7 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         idx = torch.as_tensor(rng.integers(0, len(states), batch), device=dev)
         x1 = states[idx].float()
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            loss = loss_fn(model, x1)
+            loss = loss_fn(fwd, x1, None if labels is None else labels[idx])
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
@@ -167,7 +199,7 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         if (step + 1) % log_every == 0 or step == steps - 1:
             rec = {"step": step + 1, "loss": run_loss / run_n, "lr": sched.get_last_lr()[0], "seconds": round(time.time() - t0, 1)}
             if val is not None and ((step + 1) % val_every == 0 or step == steps - 1):
-                rec["val_loss"] = validate(model, ema, val, batch=batch, use_amp=use_amp)
+                rec["val_loss"] = validate(model, ema, val, batch=batch, use_amp=use_amp, labels=val_labels)
             hist.append(rec); run_loss, run_n = 0.0, 0
             log(f"  step {step + 1:5d}  loss {rec['loss']:.4f}" + (f"  val {rec['val_loss']:.4f}" if "val_loss" in rec else "")
                 + f"  lr {rec['lr']:.2e}  {rec['seconds']:.0f}s")
@@ -227,12 +259,12 @@ def from_model_space(meta: dict, x: torch.Tensor) -> np.ndarray:
 
 @torch.no_grad()
 def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, device=None,
-                  generator: torch.Generator | None = None) -> np.ndarray:
+                  generator: torch.Generator | None = None, y: torch.Tensor | None = None) -> np.ndarray:
     """(n, 40, 8, 721) states in 13B's conditioning units, from either prior:
     the plain one samples frames directly, the DCT one samples coefficients,
     undoes their per-coefficient scaling and transforms back to frames."""
     dev = device or next(model.parameters()).device
-    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator)
+    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator, y=y)
     return from_model_space(meta, x)
 
 
@@ -312,7 +344,8 @@ def save(path, model: nn.Module, ema: EMA, meta: dict) -> None:
 def load(path, device) -> tuple[nn.Module, dict]:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     m = ck["meta"]
-    model = build(frames=m["frames"], k=m.get("k", 8), width=m["width"], depth=m["depth"], heads=m.get("heads", 4))
+    model = build(frames=m["frames"], k=m.get("k", 8), width=m["width"], depth=m["depth"], heads=m.get("heads", 4),
+                  n_classes=int(m.get("n_classes", 0) or 0))
     model.load_state_dict(ck["state_dict"])
     for p, s in zip(model.parameters(), ck["ema"]):
         p.data.copy_(s)                                                          # sample with the EMA weights

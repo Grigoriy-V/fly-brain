@@ -620,7 +620,8 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
 def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
             seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
-            maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13") -> dict:
+            maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
+            classes: bool = False) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -637,8 +638,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
 
     dev = torch.device("cuda")
     t0 = time.time()
-    _, m, _, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
-    _, mv, _, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False, sources=sources, run=run)
+    _, m, idx_tr, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+    _, mv, idx_val, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False, sources=sources, run=run)
     print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s "
           f"({m.element_size() * m.nelement() / 1e9:.1f} GB)", flush=True)
     time_frames, coef_mean, coef_std = int(m.shape[1]), None, None
@@ -657,16 +658,29 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         coef_mean = coef_mean[0, :, :, 0].cpu().numpy(); coef_std = coef_std[0, :, :, 0].cpu().numpy()
         print(f"DCT-{dct_k}: train {tuple(m.shape)}, coefficient sd per index "
               f"{np.round(coef_std.mean(1), 3).tolist()}", flush=True)
-    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads)
+    names, labels, val_labels = [], None, None
+    if classes:                                                      # 18.4e: the label the clip came with
+        meta = json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["meta"]
+        of = [_clip_label(r) for r in meta]
+        names = sorted(set(of))
+        ids = {n: i for i, n in enumerate(names)}
+        by_clip = np.array([ids[n] for n in of], np.int64)
+        labels = torch.as_tensor(by_clip[idx_tr], device=dev)
+        val_labels = torch.as_tensor(by_clip[idx_val], device=dev)
+        print(f"classes: {len(names)} labels, {np.bincount(by_clip[idx_tr]).min()}-"
+              f"{np.bincount(by_clip[idx_tr]).max()} training clips each", flush=True)
+    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads, n_classes=len(names))
     n_par = sum(p.numel() for p in model.parameters())
     print(f"state flow: {n_par} parameters", flush=True)
     with GpuSampler() as gpu:
-        r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, log_every=100,
-                    log=lambda s_: print(s_, flush=True), val=mv, val_every=500)
+        r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, compile_mode=compile_mode,
+                    log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
+                    labels=labels, val_labels=val_labels)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
+            "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
             "coef_mean": None if coef_mean is None else coef_mean.tolist(),
@@ -725,6 +739,68 @@ def _bench_step_ms(R, model, states, *, steps: int, warmup: int, batch: int, see
         acc = acc + (loss.item() if host_sync else loss.detach())
     torch.cuda.synchronize()
     return round((time.time() - t0) / steps * 1000.0, 2)
+
+
+def _clip_label(r: dict) -> str:
+    """The class a clip carries. Ordinary video brings its UCF101 action; the
+    procedural minority has no action, so its own generator class stands in —
+    the alternative (one bucket for 3,103 stimuli of six kinds) would put the
+    most different clips in the set under a single label."""
+    if r.get("label"):
+        return str(r["label"])
+    kind = (r.get("params") or {}).get("class") or r.get("class") or r.get("scene") or "other"
+    return f"{r.get('source', 'other')}:{kind}"
+
+
+@app.function(image=image, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=2, memory=24576, timeout=45 * MINUTES)
+def dct_maps(src: str = "gen18/maps_deep.npz", dct_out: str = "", dct_k: int = 32, dct_frames: int = 40) -> dict:
+    """A second compact file at a different K from the maps that already exist
+    — CPU only, and it **never touches `src`**. 18.3 left a floor of 0.021 that
+    belongs to DCT-16 itself (a real state band-limited to it scores exactly
+    that), so K is the one knob with an unambiguous direction; re-running
+    `maps13b` would rebuild and overwrite a 9 GB file to get it."""
+    import numpy as np
+    from flydream.generate import prior17 as R
+
+    t0 = time.time()
+    z = np.load(Path(RUNS) / src)
+    x, index = z["maps"], z["index"]
+    mean, std, split = z["mean"], z["std"], {k: z[k] for k in ("train", "val", "test")}
+    tf, k = min(int(dct_frames), x.shape[1]), x.shape[2]
+    print(f"{src}: {tuple(x.shape)}, DCT-{dct_k} over {tf} frames in {time.time() - t0:.0f} s", flush=True)
+    dmat = R.dct_matrix(tf, int(dct_k))
+    c = np.empty((len(x), int(dct_k), k, x.shape[3]), np.float16)
+    num = den = 0.0
+    for i in range(0, len(x), 256):
+        xb = x[i:i + 256, :tf].astype(np.float32)
+        cb = R.to_dct(xb, dmat)                                      # orthonormal: energy is comparable
+        num += float((cb ** 2).sum()); den += float((xb ** 2).sum())
+        c[i:i + 256] = cb.astype(np.float16)
+    del x, z
+    s1 = np.zeros((dct_k, k)); s2 = np.zeros((dct_k, k)); n = 0      # z-scored on the training split only
+    idx_tr = np.where(np.isin(index, split["train"]))[0]
+    for i in range(0, len(idx_tr), 256):
+        cb = c[idx_tr[i:i + 256]].astype(np.float32)
+        s1 += cb.sum((0, 3)); s2 += (cb ** 2).sum((0, 3)); n += cb.shape[0] * cb.shape[3]
+    cm = (s1 / n).astype(np.float32); cs = (np.sqrt(np.maximum(s2 / n - cm ** 2, 0)) + 1e-6).astype(np.float32)
+    for i in range(0, len(c), 256):
+        c[i:i + 256] = ((c[i:i + 256].astype(np.float32) - cm[None, :, :, None]) / cs[None, :, :, None]).astype(np.float16)
+    dp = Path(RUNS) / (dct_out or f"{src.rsplit('/', 1)[0]}/maps_dct{dct_k}.npz")
+    if dp.exists():                                                  # AGENTS: a dataset is never overwritten
+        raise SystemExit(f"{dp} already exists; pass a different dct_out")
+    dp.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(dp, maps=c, index=index, mean=mean, std=std, coef_mean=cm, coef_std=cs,
+             time_frames=np.array(tf), dct_k=np.array(int(dct_k)),
+             train=split["train"], val=split["val"], test=split["test"])
+    r = {"src": src, "dct_file": str(dp.relative_to(RUNS)), "dct_shape": list(c.shape), "dct_k": int(dct_k),
+         "time_frames": tf, "dct_gb": round(dp.stat().st_size / 1e9, 2),
+         "dct_energy_kept": round(num / max(den, 1e-9), 5),          # DCT-16 kept 0.9932 on this corpus
+         "dct_coefficient_sd": np.round(cs.mean(1), 3).tolist(), "cpu": 2, "memory_mb": 24576,
+         "seconds": round(time.time() - t0, 1)}
+    runs_volume.commit()
+    print(f"DCT-{dct_k}: keeps {100 * num / max(den, 1e-9):.2f} % of the state energy, "
+          f"{c.shape} -> {r['dct_gb']} GB in {r['seconds']} s", flush=True)
+    return r
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)

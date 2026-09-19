@@ -309,3 +309,44 @@ def test_prior17_noise_inversion_and_slerp():
     assert np.allclose(R.slerp(a, b, 0.0), a, atol=1e-4) and np.allclose(R.slerp(a, b, 1.0), b, atol=1e-4)
     mid = R.slerp(a, b, 0.5)
     assert abs(np.linalg.norm(mid) - np.linalg.norm(a)) / np.linalg.norm(a) < 0.05   # the radius survives the mix
+
+
+def test_prior17_class_conditioning_changes_the_sample():
+    """18.4e: a label reaches the sample, and the unconditional path is untouched."""
+    import numpy as np
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(3)
+    T, K, C = 4, 3, 5
+    x = torch.randn(24, T, K, 721) * 0.5
+    y = torch.randint(0, C, (24,))
+    model = R.build(frames=T, k=K, width=32, depth=2, heads=2, n_classes=C)
+    assert model.y_emb is not None and model.y_emb.num_embeddings == C
+    r = R.train(model, x, steps=8, batch=8, lr=1e-2, warmup=2, amp=False, log_every=99, log=lambda s: None,
+                val=x[:8], val_every=8, labels=y, val_labels=y[:8])
+    assert np.isfinite(r["history"][-1]["val_loss"])                           # the label reaches validation too
+
+    def draw(label):                                                           # the same noise, a different label
+        return R.sample(model, 2, frames=T, k=K, columns=721, steps=3,
+                        generator=torch.Generator().manual_seed(7),
+                        y=torch.full((2,), label, dtype=torch.long))
+
+    assert float((draw(0) - draw(C - 1)).abs().mean()) > 1e-6
+    meta = {"frames": T, "k": K, "dct_k": 0, "n_classes": C}
+    g = torch.Generator().manual_seed(1)
+    s = R.sample_states(model, meta, 4, steps=3, device=torch.device("cpu"), generator=g,
+                        y=torch.randint(0, C, (4,), generator=g))
+    assert s.shape == (4, T, K, 721) and np.isfinite(s).all()
+    try:                                                                       # a conditional prior without a label
+        R.sample_states(model, meta, 2, steps=2, device=torch.device("cpu"))
+        raise AssertionError("a conditional prior must refuse to sample without a label")
+    except ValueError:
+        pass
+
+    plain = R.build(frames=T, k=K, width=32, depth=2, heads=2)                 # and the old path still works
+    assert plain.y_emb is None
+    R.train(plain, x, steps=4, batch=8, lr=1e-2, warmup=2, amp=False, log_every=99, log=lambda s: None)
+    assert R.sample_states(plain, {"frames": T, "k": K, "dct_k": 0}, 2, steps=3,
+                           device=torch.device("cpu")).shape == (2, T, K, 721)

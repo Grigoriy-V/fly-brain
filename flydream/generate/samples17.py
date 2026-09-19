@@ -96,9 +96,17 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
 
     # --- the states to render ---
     g = torch.Generator(device=dev).manual_seed(2000 + seed)
-    prior_states = R.sample_states(prior, pmeta, n_samples, steps=sample_steps, device=dev, generator=g)
+    n_cls = int(pmeta.get("n_classes") or 0)
+    y = cls_names = None
+    if n_cls:                                                                # a conditional prior needs a label per
+        y = torch.randint(0, n_cls, (n_samples,), device=dev, generator=g)   # sample; draw them uniformly and record
+        cls_names = [(pmeta.get("class_names") or [])[i] if pmeta.get("class_names") else str(i)
+                     for i in y.tolist()]
+    prior_states = R.sample_states(prior, pmeta, n_samples, steps=sample_steps, device=dev, generator=g, y=y)
     log(f"{n_samples} states from the prior ({pmeta.get('sources', 'all')} data, "
-        f"DCT {pmeta.get('dct_k') or 'off'}) in {time.time() - t0:.0f} s")
+        f"DCT {pmeta.get('dct_k') or 'off'}"
+        + (f", classes {n_cls}: {', '.join(cls_names[:4])}..." if n_cls else "")
+        + f") in {time.time() - t0:.0f} s")
     n_s = int(manifest["n_sintel"])
     if n_s:                                                                  # 13A's set: take clips from both sources
         half = max(1, n_clips // 2)
@@ -181,7 +189,9 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
                "sample_steps": sample_steps, "seed": seed, "n_samples": n_samples,
                "prior": {k: pmeta[k] for k in ("width", "depth", "steps", "parameters")},
                "bank": {"train": int(len(train_idx)), "test": int(len(test_idx))},
-               "prior_meta": {k: pmeta.get(k) for k in ("sources", "dct_k", "n_train", "steps", "width", "depth")},
+               "prior_meta": {k: pmeta.get(k) for k in ("sources", "dct_k", "n_train", "steps", "width", "depth",
+                                                        "lr", "n_classes", "compile_mode")},
+               "sampled_classes": cls_names,
                "gates": {k: {q: group(k, q) for q in ("round_trip", "video_nn_r", "video_nn_distance")}
                          for k in ("prior", "clip", "ceiling") if any(kinds[n] == k for n in names)},
                "diversity": diversity, "scores": scores, "seconds": round(time.time() - t0, 1)}
