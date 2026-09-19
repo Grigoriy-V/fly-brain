@@ -360,11 +360,51 @@ def train13(run: str = "pairs13", conditions: str = "early,deep,all", epochs: in
     return summary
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=4096,
+              timeout=60 * MINUTES)
+def roundtrip13(model: str = "malecns", ckpt: str = "train13", frames: int = 40, margin: int = 5, dt: float = 0.02,
+                t_pre: float = 1.0, inv_steps: int = 150, seed: int = 0, out: str = "roundtrip13") -> dict:
+    """ROADMAP 13A, last part: the train13 decoders on the states of items
+    11-12 (rebuilt here from their recipes), beside the inversion and a
+    shuffled-state control; `flydream.generate.roundtrip13`. Videos saved
+    under /runs/<out>/<cond>.npz, the summary returned."""
+    import numpy as np
+
+    _prepare_root()
+    from flydream.generate import roundtrip13 as R
+    from flydream.generate.invert import GpuSampler
+
+    manifest = json.loads((Path(RUNS) / "pairs13" / "manifest.json").read_text(encoding="utf-8"))
+    columns = json.loads(Path(f"{DATA}/pairs13/columns.json").read_text(encoding="utf-8"))
+    t0 = time.time()
+    with GpuSampler() as gpu:
+        r = R.run(model, Path(RUNS) / ckpt, manifest, columns, frames=frames, margin=margin, dt=dt, t_pre=t_pre,
+                  inv_steps=inv_steps, seed=seed, log=lambda s_: print(s_, flush=True))
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    arrays = r.pop("arrays")
+    for cond, arr in arrays.items():
+        flat = {}
+        for name, a in arr.items():
+            for k, v in a["videos"].items():
+                flat[f"{name}__{k}"] = v
+            for k, v in a["refs"].items():
+                flat[f"{name}__ref_{k}"] = v
+            if a["input"] is not None:
+                flat[f"{name}__input"] = a["input"]
+        np.savez_compressed(outdir / f"{cond}.npz", **flat)
+    r.update({"gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 4096, "seconds_worker": round(time.time() - t0, 1)})
+    (outdir / "summary.json").write_text(json.dumps(r), encoding="utf-8")
+    runs_volume.commit()
+    print(f"GPU utilisation: {gpu.mean}; roundtrip13 done in {time.time() - t0:.0f} s", flush=True)
+    return r
+
+
 @app.local_entrypoint()
 def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin: int = -1, steps: int = -1,
          stages: str = "", dream_sources: str = "", seed: int = 0, mix_clips: str = "", pairs13_run: bool = False,
          train13_run: bool = False, epochs: int = 12, pairs13_videos_run: bool = False, epochs_cnn: int = -1,
-         resume: str = ""):
+         resume: str = "", roundtrip13_run: bool = False):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -376,6 +416,18 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
+    if roundtrip13_run:
+        print(f"roundtrip13 on {GPU}: {model}, decoders of /runs/train13, states of items 11-12")
+        r = roundtrip13.remote(model=model, frames=frames, margin=margin, seed=seed)
+        d = root / "data" / "roundtrip13"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "summary.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        for cond, res in r["conditions"].items():
+            for name, sc in res["states"].items():
+                print(f"{cond:>6} {name:<18} rt linear {sc['linear']['round_trip']:.3f}  cnn {sc['cnn']['round_trip']:.3f}  "
+                      f"inversion {sc['inversion']['round_trip']:.3f}  shuffled {sc['shuffled']['round_trip']:.3f}")
+        print(f"done in {time.time() - t0:.0f} s; GPU utilisation {r['gpu_utilisation']}")
+        return
     if train13_run:
         import numpy as np
         print(f"train13 on {GPU}: {model}, {epochs} epochs (cnn {epochs_cnn if epochs_cnn >= 0 else epochs}){', resume ' + resume if resume else ''}")

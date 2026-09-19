@@ -84,10 +84,13 @@ viewed), `..._summary.png`.
   early types a linear sum nearly suffices; with all 14 types the linear
   decoder (491 weights) matches the inversion on both scores and the CNN,
   under-trained at 4 epochs, sits below it.
-- **The learned models are 2-3× less compatible with the state than the
-  inversion** (deep: 0.029-0.036 vs 0.009). They return the video that is on
-  average right for a state, not the one that caused it; this is the
-  amortisation gap, and the number the round trip was built to show.
+- **The learned models sit a few hundredths of r below the inversion, and
+  their round-trip error is larger in relative terms** (deep: 0.029-0.036 vs
+  0.009; the pictures differ in detail, not in kind). They return the video
+  that is on average right for a state, not the one that caused it; this is
+  the amortisation gap, small on the eye and measurable in the round trip.
+  For a first version the one-pass readout is a competitor to the
+  inversion, not a fallback.
 - Dark scenes are the weak spot (cave_4 0.81-0.85 from deep).
 
 ## Not done (the rest of 13A)
