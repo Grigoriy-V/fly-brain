@@ -354,11 +354,14 @@ spent.
 | 18.1 states | 605 s on a T4 at batch 32, utilisation 69 %; maps (15,514, 45, 8, 721) on 13B's per-type scale, compact DCT-16 file (2.86 GB) keeping 99.32 % of the energy; 0 dead clips. ≈ $0.15. |
 | 18.2 checks | corpus vs Sintel: motion 0.0248 / 0.0118, contrast 0.272 / 0.241, state lag-1 0.975 / 0.982, one-ring 0.875 / 0.866, cross-type 0.348 / 0.349. 13B: 0.016 / 0.011 / 1.048. $0. |
 | 18.3 prior | **round trip 0.095** (0.077-0.117) against 17.1b's 0.142; real clip 0.012, DCT-16 ceiling 0.021, shuffled 1.313, white noise 2.177. Video novelty +0.35 against +0.55 for a real clip (bank = the corpus). Noise radius of a real state 1.110 / 0.970 against Gaussian 1.000 ± 0.014 (was 1.073 / 1.290); a clip survives the trip through its own noise at r 0.98-0.99, and mixtures of two clips score 0.050-0.066 — better than unconditional samples. One T4, 1,128 s, utilisation 98.5 %, ≈ $0.22. |
+| 18.4a throughput | the step is **per-sample bound, not launch-bound**: 2.44 ms fixed + 1.6229 ms per sample, so 4.5 % of a batch-32 step is fixed cost and an 8× batch buys **+4.9 %**. Removing the per-step `loss.item()` (54.81) and fusing the EMA loop (54.94) change nothing against the base 54.72. **`torch.compile(reduce-overhead)` 38.47 ms = 1.42×**, warmup 41 s once — a 20k-step run becomes ≈ 810 s, $0.22 → $0.16. One T4, 120.6 s, ≈ $0.03. |
+| 18.4b learning rate | **1e-4 is 6.2× worse than our 3e-4** on the main gate (0.591 against 0.095) and 0.7328 against 0.5064 on validation, with identical controls. One T4, 1,243 s, utilisation 97.5 %, ≈ $0.24. |
 
 `reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
 `reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
+`reports/2026-09-20_step18_4_throughput_and_learning_rate.md`,
 `reports/figures/2026-09-20_malecns_check18.gif`,
-`..._prior18.gif`, `..._new_video18.gif`.
+`..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
 model and the same code move the gate 0.142 → 0.095 and the coverage 1.290 →
@@ -373,13 +376,15 @@ prior**. So:
    here) because corpus states move twice as fast and 16 temporal
    coefficients are tight for them. K = 24-32 lowers it; maps ≈ $0.05 plus a
    training run ≈ $0.22. The only option with an unambiguous answer.
-2. **The learning rate** (added 2026-09-20 from the research, see the report
-   below): ours is 3e-4 at batch 32 where DiT/SiT, EDM and Lipman et al. all
-   use 1e-4 at batches of 256-4096 — **8.5-24× above either extrapolation** of
-   that anchor down to our batch. It is the only parameter of our
-   configuration that sits that far from every reference found, and it acts on
-   the prior's own 0.074. A paired run (1e-4 vs 3e-4, same batch and steps)
-   settles it for ≈ $0.22.
+2. ~~**The learning rate**~~ — **closed by measurement 2026-09-20 (18.4b)**.
+   The research flagged our 3e-4 at batch 32 as 8.5-24× above the
+   extrapolation of DiT/SiT's 1e-4 @ 256. Run as a paired arm, nothing else
+   changed: **1e-4 gives a round trip of 0.591 against 0.095, 6.2× worse**,
+   and a validation loss of 0.7328 against 0.5064, flatter at the end rather
+   than merely late. The literature's value does not transfer; ours stands.
+   ≈ $0.24 spent, the question does not need asking again.
+   *Open follow-up, untested:* two points are not a sweep, and the shape of
+   the curves is consistent with an optimum **above** 3e-4.
 3. **Classes** (added the same day): ~101 UCF101 classes at ~123 clips each are
    already in the corpus and unused. The one clean conditioning-alone ablation
    (same net, same budget, no guidance either side) is FID 26.21 → 10.94.
