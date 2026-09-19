@@ -216,10 +216,23 @@ model argument is a flyvis NetworkView name or `malecns[:member]`.
 
 ## Commands (13A, 13B, 14 — the generator track)
 
-One app, `flydream-generate` (`deploy/modal/generate_app.py`), one flag per
-stage on its local entrypoint. Every line below starts a **priced** worker and
-needs the human's word first; `--dry`-style planning does not exist here, so
-the price is stated in the message that asks.
+One app, `flydream-generate` (`deploy/modal/generate_app.py`). It is
+**deployed, not ephemeral** (the human, 2026-09-20: "не делай эфемерный апп"):
+
+```powershell
+.venv\Scripts\python.exe -m modal deploy deploy\modal\generate_app.py        # once, free; re-run after changing a function
+.venv\Scripts\python.exe tools\modal_call.py train17 --kw steps=20000 name=corpus_dct16 --out data\prior18	rain.json
+```
+
+`modal run` builds a throw-away app per invocation — that is what fills the
+dashboard with `ap-…` entries and leaves no history; `tools/modal_call.py`
+resolves a function inside the deployed app by name and calls it instead.
+Nothing is kept warm, so the deployed app costs nothing while idle. The local
+entrypoint below still works and is kept for the older stages.
+
+Every line below starts a **priced** worker and needs the human's word first;
+`--dry`-style planning does not exist here, so the price is stated in the
+message that asks.
 
 ```powershell
 $env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'          # the Modal CLI cannot print Cyrillic otherwise
