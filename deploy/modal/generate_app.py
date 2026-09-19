@@ -471,14 +471,32 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz", stats_from:
     outp.parent.mkdir(parents=True, exist_ok=True)
     np.savez(outp, maps=x, videos=y, index=index, mean=mean, std=std,
              train=np.array(split["train"]), val=np.array(split["val"]), test=np.array(split["test"]))
+    per_type = {t: {"mean": float(mean[i]), "sd": float(std[i])} for i, t in enumerate(DEEP)}
+    var = np.empty(len(x), np.float32)                               # is every clip a live state?
+    energy = np.zeros(k, np.float64)
+    for i in range(0, len(x), 256):
+        xb = x[i:i + 256].astype(np.float32)
+        var[i:i + 256] = xb.reshape(len(xb), -1).var(1)
+        energy += (xb ** 2).mean((0, 1, 3)) * len(xb)
+    energy = (energy / len(x)).astype(float)
     r = {"n": int(len(x)), "maps": list(x.shape), "gb": round(outp.stat().st_size / 1e9, 2),
-         "stats_from": stats_from or None, "cpu": 2}
+         "stats_from": stats_from or None, "cpu": 2,
+         "state_per_type": per_type,
+         "state_energy_per_type": {t: round(float(energy[i]), 3) for i, t in enumerate(DEEP)},
+         "clip_variance": {"median": float(np.median(var)), "p01": float(np.percentile(var, 1)),
+                           "min": float(var.min()), "dead_below_0.01": int((var < 0.01).sum())}}
+    print(f"  states: per-type sd {np.round(std, 3).tolist()}, clip variance median {np.median(var):.3f} "
+          f"(min {var.min():.4f}, {int((var < 0.01).sum())} clips below 0.01)", flush=True)
     if dct_k:                                                        # the compact file the prior trains on
         tf = min(int(dct_frames), x.shape[1])
         dmat = R.dct_matrix(tf, int(dct_k))
         c = np.empty((len(x), int(dct_k), k, x.shape[3]), np.float16)
+        num = den = 0.0
         for i in range(0, len(x), 256):
-            c[i:i + 256] = R.to_dct(x[i:i + 256, :tf].astype(np.float32), dmat).astype(np.float16)
+            xb = x[i:i + 256, :tf].astype(np.float32)
+            cb = R.to_dct(xb, dmat)                                  # orthonormal: energy is comparable
+            num += float((cb ** 2).sum()); den += float((xb ** 2).sum())
+            c[i:i + 256] = cb.astype(np.float16)
         s1 = np.zeros((dct_k, k)); s2 = np.zeros((dct_k, k)); n = 0
         idx_tr = np.where(tr)[0]
         for i in range(0, len(idx_tr), 256):
@@ -494,6 +512,10 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz", stats_from:
                  train=np.array(split["train"]), val=np.array(split["val"]), test=np.array(split["test"]))
         r["dct_file"] = str(dp.relative_to(RUNS)); r["dct_shape"] = list(c.shape)
         r["dct_gb"] = round(dp.stat().st_size / 1e9, 2)
+        r["dct_energy_kept"] = round(num / max(den, 1e-9), 5)        # 17.1b measured 0.9955 on the Sintel states
+        r["dct_coefficient_sd"] = np.round(cs.mean(1), 3).tolist()
+        print(f"  DCT-{dct_k}: keeps {100 * num / max(den, 1e-9):.2f} % of the state energy, "
+              f"coefficient sd by index {np.round(cs.mean(1), 3).tolist()}", flush=True)
         print(f"  DCT-{dct_k} over {tf} frames: {c.shape}, {r['dct_gb']} GB", flush=True)
     runs_volume.commit()
     r["seconds"] = round(time.time() - t0, 1)
