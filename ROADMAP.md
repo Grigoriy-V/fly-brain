@@ -356,12 +356,18 @@ spent.
 | 18.3 prior | **round trip 0.095** (0.077-0.117) against 17.1b's 0.142; real clip 0.012, DCT-16 ceiling 0.021, shuffled 1.313, white noise 2.177. Video novelty +0.35 against +0.55 for a real clip (bank = the corpus). Noise radius of a real state 1.110 / 0.970 against Gaussian 1.000 ± 0.014 (was 1.073 / 1.290); a clip survives the trip through its own noise at r 0.98-0.99, and mixtures of two clips score 0.050-0.066 — better than unconditional samples. One T4, 1,128 s, utilisation 98.5 %, ≈ $0.22. |
 | 18.4a throughput | the step is **per-sample bound, not launch-bound**: 2.44 ms fixed + 1.6229 ms per sample, so 4.5 % of a batch-32 step is fixed cost and an 8× batch buys **+4.9 %**. Removing the per-step `loss.item()` (54.81) and fusing the EMA loop (54.94) change nothing against the base 54.72. **`torch.compile(reduce-overhead)` 38.47 ms = 1.42×**, warmup 41 s once — a 20k-step run becomes ≈ 810 s, $0.22 → $0.16. One T4, 120.6 s, ≈ $0.03. |
 | 18.4b learning rate | **1e-4 is 6.2× worse than our 3e-4** on the main gate (0.591 against 0.095) and 0.7328 against 0.5064 on validation, with identical controls. One T4, 1,243 s, utilisation 97.5 %, ≈ $0.24. |
+| 18.4c the sweep's control | 18.3's configuration with `torch.compile`: gate **0.090**, validation 0.5052, 920 s against 1,128 s (**1.23× end to end**). The 0.095 → 0.090 difference is the measured size of fusion plus one seed, and the reason every arm below is compared to this run. ≈ $0.18. |
+| 18.4c higher learning rates | 6e-4 → **0.080**, 1e-3 → **0.076**, against the control's 0.090. With 18.4b the series 1e-4 / 3e-4 / 6e-4 / 1e-3 = 0.591 / 0.090 / 0.080 / 0.076 is monotone: **the optimum is at or above 1e-3 and is not bracketed.** ≈ $0.34 for both. |
+| 18.4d **capacity** | **width 192 (2.64 M par): the gate goes 0.090 → 0.034**, validation 0.5052 → 0.2977. The gap to the representation's floor falls from 4.3× to **1.6×**, and the prior's own share of the error from 0.069 to **0.013** — the floor now dominates. The largest single move in item 18. One T4, 1,215 s, ≈ $0.24. |
+| 18.4d K = 32 | the floor is lower (99.913 % of the energy kept against 99.32 %) and the gate is **5.9× worse**: 0.527. At width 128 the model already binds, so twice the target dimension makes it relatively smaller. Revisit **after** capacity, not instead of it. Maps file by `dct_maps` (cpu 2 / 24 GB, 106 s, ≈ $0.03) built **without touching** the 9 GB original. One T4, 1,033 s, ≈ $0.23. |
+| 18.4e classes | 110 labels (101 UCF101 + 9 procedural kinds), DiT-style label embedding: **no effect**, 0.098 against 0.090, inside the spread. The published precedent (conditioning alone, FID 26.21 → 10.94) does not transfer — the research note named the reason in advance: no study covers a label only loosely coupled to the signal. One T4, 845 s, ≈ $0.17. |
 
 `reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
 `reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
 `reports/2026-09-20_step18_4_throughput_and_learning_rate.md`,
 `reports/figures/2026-09-20_malecns_check18.gif`,
-`..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`.
+`..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
+`..._arms18.png`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
 model and the same code move the gate 0.142 → 0.095 and the coverage 1.290 →
@@ -372,10 +378,11 @@ texture, 8× a real clip's round trip.
 human decides). Of the 0.095, **0.021 is the floor** — a real state
 band-limited to the same DCT-16 scores exactly that — and **0.074 is the
 prior**. So:
-1. **The floor itself rose** with the corpus (0.009 on Sintel states, 0.021
-   here) because corpus states move twice as fast and 16 temporal
-   coefficients are tight for them. K = 24-32 lowers it; maps ≈ $0.05 plus a
-   training run ≈ $0.22. The only option with an unambiguous answer.
+1. ~~**The floor**~~ — **measured 2026-09-20 (18.4d): K = 32 is 5.9× worse**,
+   not better, because at width 128 the model binds before the representation
+   does. The floor is still there (0.021 of today's best 0.034, i.e. two
+   thirds of what is left), so K comes back **after** width, at a width that
+   can carry it.
 2. ~~**The learning rate**~~ — **closed by measurement 2026-09-20 (18.4b)**.
    The research flagged our 3e-4 at batch 32 as 8.5-24× above the
    extrapolation of DiT/SiT's 1e-4 @ 256. Run as a paired arm, nothing else
@@ -385,17 +392,15 @@ prior**. So:
    ≈ $0.24 spent, the question does not need asking again.
    *Open follow-up, untested:* two points are not a sweep, and the shape of
    the curves is consistent with an optimum **above** 3e-4.
-3. **Classes** (added the same day): ~101 UCF101 classes at ~123 clips each are
-   already in the corpus and unused. The one clean conditioning-alone ablation
-   (same net, same budget, no guidance either side) is FID 26.21 → 10.94.
-   The small-data objection (conditioning hurts below ≈ 5,000 images) is below
-   our 12,411. ≈ $0.22. The risk is ours alone: no study covers a label only
-   loosely coupled to the signal, which is our case.
-4. **Capacity**: 1.4 M parameters on 13,555 states; width 192-256 ≈ $0.4-0.9.
-   *Reading corrected 2026-09-20:* five independent lines (DiT's params/example
-   ratio, EDM2-XS's, the absent upturn in our validation curve, the
-   depth-to-width transition, Hyper-DP3) say growing is **safe**, and none says
-   capacity is the cause. A cheap no-risk check, not the leading suspect.
+3. ~~**Classes**~~ — **measured 2026-09-20 (18.4e): no effect** (0.098 against
+   0.090, inside the spread). The risk named when this was proposed — a label
+   only loosely coupled to the signal, with no study covering that case — is
+   what happened. ≈ $0.17 spent, the option is closed.
+4. ~~**Capacity**~~ — **measured 2026-09-20 (18.4d) and it was the answer.**
+   Width 192 moves the gate 0.090 → 0.034 and cuts the prior's own share of
+   the error from 0.069 to 0.013. The literature reading written the same
+   morning ("growing is safe, nothing says capacity is the cause") was right
+   about safety and wrong about cause; ≈ $0.24 settled it.
 5. **More steps**: validation was still falling at 20,000 (0.5165 at 14.5k →
    0.5064 at 20k), but by 2 % over 5,500 steps and decelerating — the cheapest
    check (≈ $0.66 to 60k), not the most likely cause.
