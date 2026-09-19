@@ -335,22 +335,53 @@ clips → their real states → 13B → the round trip, against 0.023-0.038 for
 Sintel clips in the same code path. If 13B renders the new states as well as
 the old ones, it is not retrained.
 
-**18.3 The prior retrained** (one T4, ≈ $0.15-0.30, the human's word first).
-Same `SiTStates`, same DCT-16 basis, on the new corpus; then 17.2's gates and
-17.3b's noise radius, in the same code path, so the numbers land beside 0.142
-and 1.07-1.29. Capacity (width 192-256) is the next knob if data alone does
-not move them — the per-run cap that forbade it was lifted.
+**18.3 The prior retrained** (done: one T4, 1,128 s, ≈ $0.22).
+Same `SiTStates`, same DCT-16 basis, on the new corpus, 20,000 steps; then
+17.2's gates and 17.3b's noise radius in the same code path, so the numbers
+land beside 0.142 and 1.07-1.29.
 
-**18.4 13B retrained — only if 18.2(b) or 18.3 shows it is the limit**
-(one T4, ≈ $0.22-0.40, the human's word first). The human allowed it in
-advance and set the order: the existing 13B is checked against the new prior
-first.
+**18.4 13B retrained — not needed.** *Measured 2026-09-20 (18.2b): 13B renders
+a state that came from ordinary video at a round trip of 0.016 against 0.011
+on its own Sintel states, with an unreachable state at 1.048.* The human's
+condition is not met, so 13B is not retrained and its ≈ $0.22-0.40 is not
+spent.
 
-**What counts as done.** The prior's round trip and noise radius measured on
-the new corpus beside 17.1b's 0.142 and 1.07-1.29; the corpus statistics
-beside Sintel's; a row clip of samples from the new prior with the same
-controls; and a plain statement of which of the two — data or capacity — moved
-the number.
+**Status, all measured 2026-09-20.**
+
+| | result |
+|---|---|
+| 18.0 corpus | **15,514 clips** = 12,411 of 13,320 UCF101 files (93 % passed the derived band, 0 failed) + 3,103 procedural (20 %); 1.03 GB; built in 543 s locally, $0. The eye chain reproduces flyvis exactly (r = 1.000000) and is 25× cheaper than `BoxEye`. |
+| 18.1 states | 605 s on a T4 at batch 32, utilisation 69 %; maps (15,514, 45, 8, 721) on 13B's per-type scale, compact DCT-16 file (2.86 GB) keeping 99.32 % of the energy; 0 dead clips. ≈ $0.15. |
+| 18.2 checks | corpus vs Sintel: motion 0.0248 / 0.0118, contrast 0.272 / 0.241, state lag-1 0.975 / 0.982, one-ring 0.875 / 0.866, cross-type 0.348 / 0.349. 13B: 0.016 / 0.011 / 1.048. $0. |
+| 18.3 prior | **round trip 0.095** (0.077-0.117) against 17.1b's 0.142; real clip 0.012, DCT-16 ceiling 0.021, shuffled 1.313, white noise 2.177. Video novelty +0.35 against +0.55 for a real clip (bank = the corpus). Noise radius of a real state 1.110 / 0.970 against Gaussian 1.000 ± 0.014 (was 1.073 / 1.290); a clip survives the trip through its own noise at r 0.98-0.99, and mixtures of two clips score 0.050-0.066 — better than unconditional samples. One T4, 1,128 s, utilisation 98.5 %, ≈ $0.22. |
+
+`reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
+`reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
+`reports/figures/2026-09-20_malecns_check18.gif`,
+`..._prior18.gif`, `..._new_video18.gif`.
+
+**What the numbers answer.** Data was the limit, not the method: the same
+model and the same code move the gate 0.142 → 0.095 and the coverage 1.290 →
+0.970. What they do not give is a scene: the samples are structured moving
+texture, 8× a real clip's round trip.
+
+**Where the remaining error sits, and the options** (nothing started, the
+human decides). Of the 0.095, **0.021 is the floor** — a real state
+band-limited to the same DCT-16 scores exactly that — and **0.074 is the
+prior**. So:
+1. **The floor itself rose** with the corpus (0.009 on Sintel states, 0.021
+   here) because corpus states move twice as fast and 16 temporal
+   coefficients are tight for them. K = 24-32 lowers it; maps ≈ $0.05 plus a
+   training run ≈ $0.22. The only option with an unambiguous answer.
+2. **Capacity**: 1.4 M parameters on 13,555 states; width 192-256 ≈ $0.4-0.9.
+   The shape of the loss curve (a fast drop and a long tail) fits a capacity
+   limit as well as it fits an unfinished run.
+3. **More steps**: validation was still falling at 20,000 (0.5165 at 14.5k →
+   0.5064 at 20k), but by 2 % over 5,500 steps and decelerating — the cheapest
+   check (≈ $0.66 to 60k), not the most likely cause.
+Also measured and usable now: the path between two real states in noise space
+scores 0.050-0.066, better than sampling from scratch — a practical route to
+new-but-reachable video that needs no further training.
 
 ## Current state of the system
 

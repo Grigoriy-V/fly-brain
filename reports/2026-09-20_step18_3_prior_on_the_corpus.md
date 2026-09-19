@@ -96,6 +96,35 @@ And the trip through noise and back, with the mixtures on the sphere:
   the samples are not copies of training videos; it does not say they are
   scenes of a new kind.
 
+## Where the remaining error sits
+
+The round trip of a sample is not one number but a sum, and the same table
+separates it:
+
+| given to 13B | round trip | what it contains |
+|---|---|---|
+| a real clip's state | 0.012 | 13B's own error plus the brain's |
+| the same state band-limited to DCT-16 | **0.021** | + what the representation throws away — the **floor** |
+| a state from the prior | **0.095** | + the prior's own error |
+
+So of today's 0.095, **0.021 is the floor and 0.074 is the prior**. Two
+consequences.
+
+**The floor rose with the corpus** — it was 0.009 on Sintel states and is
+0.021 here. Corpus clips move twice as fast (0.0248 against 0.0118), and 16
+temporal coefficients are tight for them even though they keep 99.32 % of the
+energy. No prior on this representation can go below it, so K = 24-32 is the
+one change whose answer is unambiguous (maps ≈ $0.05, a training run ≈ $0.22).
+
+**The "unfinished run" reading is weaker than it looks.** Validation was still
+falling at 20,000 steps, but by 2 % over the last 5,500 (0.5165 → 0.5064) and
+decelerating. Continuing to 60,000 is the cheapest check (≈ $0.66), not the
+most likely cause; the shape of the curve fits a capacity limit (1.4 M
+parameters on 13,555 states) at least as well.
+
+**13B is not in the suspects.** 18.2 measured it on the new distribution:
+0.016 against 0.011 on its own states, with an unreachable state at 1.048.
+
 ## Cost
 
 One T4, cpu 1 / 12 GB, 1,128 s, GPU utilisation 98.5 %, ≈ $0.22. Item 18 in
