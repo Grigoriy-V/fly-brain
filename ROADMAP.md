@@ -298,6 +298,14 @@ cancelled; it waits for the human's word.
   Y — 25 % of the synapses onto the ladder and 91 % of T4/T5's output go to
   types model zero lacks), stability and validation as gates; 16.3 central
   brain drive. Original note (2026-09-19) kept below.
+  **Status 2026-09-20: not yet fully formed, not yet fully discussed** (the
+  human). The human's revision `docs/ideas/step16_dream_source_revised.md`
+  is the companion to the design report and takes precedence where they
+  differ (parameters of the added types as ranges with a sensitivity sweep,
+  sign from neurotransmitter annotations; loops ON/OFF and shuffled-topology
+  controls; 16.1 is an artificial-drive baseline, not "the brain generated
+  the state"; result levels A/B/C). Deferred; the discussion resumes on
+  the human's word before any build.
   (the human, 2026-09-19: "чтобы сам мозг стал нейронной моделью-генератором";
   "вернёмся к ней позже"). Items 8-13 generate *beside* the brain: an
   optimiser or a separate network turns a state into a video. The
