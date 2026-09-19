@@ -45,8 +45,11 @@ sees. A state sampled from a learned prior is not the brain's own activity,
 and a video made from one is not a dream; the word "dream" is the project's
 title (`DECISIONS.md` 2026-09-18). Novelty is a measurement, not an
 impression: a sampled state is "new" only against the distance to its nearest
-training state, and a generated video's compatibility is the round trip
-through the frozen brain beside the same number for a real clip.
+training state, a generated video only against the distance to its nearest
+training video (without that second number the claim is "generated without a
+source clip", not "a video that exists in no clip"), and a generated video's
+compatibility is the round trip through the frozen brain beside the same
+number for a real clip, measured in the same code path so the scales match.
 
 **The connectome is a constraint, not a brain.** The model is called a
 connectome-constrained model. A report says what was removed (input), what was

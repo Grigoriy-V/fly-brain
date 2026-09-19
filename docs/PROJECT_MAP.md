@@ -10,10 +10,13 @@ evidence.
 **State on 2026-09-20:** data, model zero, the decoder ladder, encoder
 inversion, the learned 13A decoders, the 13B conditional flow generator and
 the item-14 prompt experiments are measured. The three Modal apps support
-training, decoding and generation. Every state the generator has ever been
-given came from a video; the current track (item 17) adds the missing piece,
-a learned prior over reachable T4/T5 states so a state can be **sampled from
-noise** — that component does not exist yet. MaleCNS fine-tuning is paused; an
+training, decoding and generation. States that no single clip caused have
+already been rendered (item 11's noise, flash and dark states; 14.2's states
+composed by region), and 13B can also draw video from z alone with its
+unconditional mask; what does not exist is a **learned model of the
+distribution of reachable T4/T5 states**, so a valid state cannot be sampled.
+The current track (item 17) builds that prior, after measuring the free
+unconditional baseline first. MaleCNS fine-tuning is paused; an
 internal source of spontaneous states is a deferred draft (item 16). The
 current order and approvals live in `ROADMAP.md`.
 
@@ -193,9 +196,13 @@ This 30-iteration test does not establish equal long-run convergence. Evidence:
 - The unit of evidence on the generator track is the **round trip** of a
   generated video through the frozen brain, reported beside the same number
   for a real clip and for a state known to be unreachable (a shuffled state,
-  noise in the types). A state that was not caused by a video is additionally
-  reported with its distance to the nearest training state, so "new" is a
-  measurement and not an impression (`AGENTS.md`).
+  noise in the types) — with every control in a table rebuilt in that table's
+  own code path, since the two existing shuffled-state controls (13B's 0.96,
+  item 14's 19.1) do not share a scale. A result that was not caused by a
+  source clip is additionally reported with two distances: the sampled state
+  to its nearest training state, and the generated video to its nearest
+  training video. Without the second, the claim is "generated without a source
+  clip", never "a video that exists in no clip" (`AGENTS.md`).
 - Third-party mappings enter through `flydream.data` with a check against
   the source and a listed residue, never by copying a table in.
 - Subagent output (`research_notes/`) is data the project agent checks

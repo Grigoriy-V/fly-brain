@@ -13,13 +13,28 @@ The chain `video → frozen brain → T4/T5 state → generator → video → fr
 brain` works and is measured end to end: model zero on the MaleCNS export
 (step 2), the decodability ladder (4), encoder inversion (8-12), the learned
 decoder 13A, the conditional flow generator 13B, and item 14 on what can and
-cannot be prompted. The generator reads a state in one pass at a round trip of
-0.031 against the inversion's 0.009 and a shuffled-state control of 0.96.
+cannot be prompted. 13B turns a state into video by integrating its flow in 20
+Euler steps (the one-pass read-out is 13A's CNN, not this one), at a round trip
+of 0.031 against the inversion's 0.009 and its own shuffled-state control of
+0.96.
 
-What is missing is a **source of states**. Every state so far came from a
-video, so the system can only return video it was given; numbers put into the
-T4/T5 types by hand are not states the brain can reach (14.0: round trip
-1.9-2.3 against 0.03 for a clip, control 19).
+What is missing is a **generative source of states**. Generating from a state
+that no single clip caused is already measured: eye noise, a flash, the dark
+after a clip and noise inside the neurons (item 11), and in 14.2 states
+composed by region — motion right on the left half and left on the right,
+motion up in a window on grey — which 13B rendered as asked and the brain read
+back at a round trip of 0.100-0.150, with no source clip behind them. What the
+project cannot do is **sample** a valid state: 13B's training distribution is
+`video → brain → T4/T5`, no model of that distribution exists, and numbers
+written into the eight types by hand land outside what the brain can reach
+(14.0: 1.9-2.3 against 0.027 for a clip in the same table).
+
+Two shuffled-state controls appear in the records and are **not on one scale**:
+13B's, computed inside its sampling job (`sample13b`), is 0.96; item 14's,
+built in `prompts14.py` with its own reference variances and state set, is 19.1.
+Each sets the scale inside its own table only; the reason for the gap between
+the two constructions has not been re-derived, so the two numbers are never
+compared with each other or quoted as one baseline.
 
 ## Current track: new video without a source video
 
@@ -35,22 +50,53 @@ The human's design documents for this track:
 `docs/ideas/brain_state_prior_new_video_generation.md` and
 `docs/ideas/full_project_architecture_brain_to_video.md`.
 
+**Why a prior over states and not only "a new video".** 13B was trained with
+an unconditional mask on 5 % of its steps, so it can already draw video from z
+alone, and a video the brain has never seen produces a reachable state by
+construction; 17.0 measures how far that alone gets us, for free, before
+anything is trained. The prior's own value is different and is the reason it
+is worth $0.22: it makes the **neural-state space itself a generative
+interface** — sampling and editing in state space rather than in pixels,
+interpolation between two brain states, variations around one — and it is the
+interface a state from somewhere else can enter later: a deeper level of the
+model, or the model's own spontaneous activity (item 16). A mechanism that
+pulls an off-manifold state onto the learned manifold would serve item 16
+directly, but it does not come free with a flow over states and has to be
+defined and tested on its own (17.3).
+
 This is not the dream chapter: the source of the state is an artificial prior,
 not the brain's own activity. The dream source inside the model (item 16)
-stays deferred, and the prior built here is what a spontaneous state will
-later be projected through.
+stays deferred.
 
 ## Current approved step: 17, the brain-state prior
 
-Goal: videos that exist in no clip, made from sampled states, at the round
-trip of a real clip. Nothing here retrains 13B, changes the frozen brain or
-needs a new export.
+Goal: video generated without a source clip, from states the project produced
+rather than read, at the round trip of a real clip — and a state space that can
+be sampled, interpolated and edited on its own. Nothing here retrains 13B,
+changes the frozen brain or needs a new export.
 
-The **track and the goal are the human's** (2026-09-20, approved in words).
-The shape below (flow over states rather than a VAE first, the gates, the
-order) is the agent's design from the human's documents; it stands until the
-human says otherwise, and each priced run starts on the human's word with the
-price stated first.
+**What is whose.** The human decided the track: new video without a source
+clip, through generated brain states, with the neural-state space as the
+interface to deeper and internal brain activity later (2026-09-20, in words).
+The shape below is the agent's design from the human's documents: the free
+unconditional baseline first, a flow over states before any VAE, an
+autoencoder plus a latent flow held as the fallback, and the gates as listed.
+It stands until the human says otherwise, and each priced run starts on the
+human's word with the price stated first.
+
+**17.0 The unconditional baseline — free, and first.** `z → 13B with
+mask "none" → video → frozen brain → state`. 13B already saw that mask on 5 %
+of its training steps, so this costs nothing but sampling and one simulation
+and it answers the plain question before any training: *can the system already
+make new video without a source clip, and what states does that video produce?*
+Measured: diversity of the generated videos (pairwise correlation), the nearest
+training video to each (correlation and normalised distance), the distribution
+of the resulting brain states (per-type energy, the T4 direction the brain
+reads). No round trip is scored here: the state is read *from* the generated
+video, so comparing it with itself is zero by construction — the baseline's
+claim is about novelty and diversity of video, not about compatibility, and
+the report says so. These numbers are what every 17.2 result is read against.
+Local CPU, $0, no new training code — only a sampling and scoring script.
 
 **17.1 The prior (training).** Flow matching over states, not a VAE: the same
 linear interpolant and the same `SiTColumns` backbone as 13B
@@ -67,41 +113,60 @@ Fallback if the samples fail the gates: an autoencoder over states plus a flow
 in its latent (§6 of the human's document), not a prettier picture.
 
 **17.2 Sampling and the gates.** Sampled states → 13B (full mask, s = 1,
-20 Euler steps) → video → frozen brain → state′, batched in one pass.
-Measured per sample:
-- **round trip** of the sample, the main gate, against 13B on held-out clips
-  (0.031), raw noise in the types (1.9 / 2.3) and the shuffled-state control
-  (19);
-- **nearest neighbour** to the training states (correlation and normalised
-  distance): a sample that reproduces a training state is not a new state;
+20 Euler steps) → video → frozen brain → state′, all samples batched into one
+pass on the card. Measured per sample:
+- **round trip** of the sample, the main gate: `state → 13B → video → brain →
+  state′` against the sampled state;
+- **state novelty**: the nearest training state (correlation and normalised
+  distance) — a sample that reproduces a training state is not a new state;
+- **video novelty**: the nearest training video to the generated one, on the
+  same 40 × 721 hexals (correlation and normalised distance). Without this
+  number the result is stated as "generated without a source clip" and never
+  as "a video that exists in no clip";
 - **diversity**: pairwise correlation between sampled states and between their
-  videos, on the scale of the pairwise correlation of real clips' states;
+  videos, on the scale of the pairwise correlation of real clips' states and
+  videos;
 - **what the brain reads**: the T4 direction energy after the round trip
   (`prompts14.direction_energy`), so a sample is described by the motion it
   carries.
-Controls in the same table: a held-out clip (the reachable reference), white
-and structured noise in the types (14.0), a shuffled clip state, and 13B with
-the unconditional mask (z only, no state) as the picture of "no state at all".
-Local CPU if sampling and the round trips fit in minutes as they did in item
-14 ($0); otherwise one T4 pass, ≈ $0.05.
+Controls, **rebuilt inside this run's own code path** so every number in the
+table shares one scale (the 0.96 / 19.1 pair above is what happens otherwise):
+a held-out clip as the reachable reference, white and structured noise in the
+types (14.0's construction), a shuffled clip state, and 17.0's unconditional
+samples as the "no state at all" row. Local CPU if sampling and the round trips
+fit in minutes as they did in item 14 ($0); otherwise one T4 pass, ≈ $0.05.
 
 **17.3 The prior as a control surface** (local, $0, only after 17.2 passes).
-Interpolation between two samples in noise, variations around one state, and
-the projection of an unreachable state onto the prior's manifold (the 14.0
-random state and the hand-written stripe pushed through the prior before 13B).
-This is the part item 16 will reuse.
+Two parts, and only the first is defined today:
+- **Defined:** interpolation between two samples in the prior's noise, and
+  local variations around one sample — both are ordinary sampling with a
+  shared or perturbed z, and they cost nothing once 17.1 exists.
+- **Not defined, to be designed and tested as its own task:** pulling an
+  off-manifold state (14.0's random state, the hand-written stripe, later a
+  spontaneous state from item 16) onto the learned manifold. An unconditional
+  flow `noise → state` is a sampler, not a projector, so this needs a
+  mechanism and a check of its own: optimising z so that the flow's output
+  matches the target state, an inversion / partial-noising-and-denoising
+  procedure, or an autoencoder whose encoder gives the compact latent (the
+  same component as the 17.1 fallback). Which one, and whether the result is
+  still reachable by the brain, is measured before this is called a
+  projection; item 16 depends on the answer, so it is not assumed here.
 
 **17.4 Report and artefacts.** `reports/<date>_step17_brain_state_prior.md`
-with the runs and the controls; `reports/runs.jsonl` per measured outcome; row
-clips per `docs/ARTEFACTS.md`: state map / video / what the brain read, the
-round trip and the nearest-neighbour distance under each, the control states
-as a second row with their own maps.
+with the runs and the controls, 17.0's baseline beside 17.2's samples in one
+table; `reports/runs.jsonl` per measured outcome; row clips per
+`docs/ARTEFACTS.md`: state map / video / what the brain read, with the round
+trip and both nearest-neighbour distances under each, the controls and the
+17.0 baseline as their own rows with their own maps.
 
-**What counts as done.** (1) Sampled states' round trip within a few times a
-held-out clip's 0.031 and at least tenfold below the noise states; (2) the
-nearest-neighbour distance shows they are not copies; (3) samples differ from
-each other; (4) the clips are watchable. A beautiful clip without (1) is the
-13B prior's texture, not a brain state (14.0 measured exactly that).
+**What counts as done.** (1) The sampled states' round trip is close to a
+held-out clip's and far above the noise states, on this run's own scale;
+(2) both nearest-neighbour distances — state and video — show the samples are
+not copies of the training set; (3) samples differ from each other; (4) the
+clips are watchable; (5) the result is stated against 17.0: what the prior
+adds over what unconditional 13B already does. A beautiful clip without (1) is
+the 13B prior's texture, not a brain state (14.0 measured exactly that); a
+clip that passes (1) but not (2) is a training clip remade.
 
 **Limits stated in the report, not discovered by the reader.** The prior
 learns the distribution of *our* clips (Sintel's 23 scenes with flyvis's
@@ -260,8 +325,9 @@ human's word.
   loops ON/OFF and shuffled-topology controls; 16.1 is an artificial-drive
   baseline, not "the brain generated the state"; result levels A/B/C).
   Deferred; the discussion resumes on the human's word before any build.
-  Item 17 feeds it: a spontaneous state can be projected through the prior
-  before it reaches 13B.
+  Item 17 may feed it — a spontaneous state brought onto the learned manifold
+  before it reaches 13B — but only once 17.3 defines and measures such a
+  projection; an unconditional flow over states does not provide one.
 - **5, both eyes, every column, the missing biophysics.** ~880 columns per
   eye and the left eye; photoreceptor temporal filter with luminance-dependent
   speed, R1-6 gap junctions, contrast adaptation, each validated (Pang et al.

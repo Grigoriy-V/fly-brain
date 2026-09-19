@@ -29,7 +29,7 @@ says what replaced it.
 | 2026-09-18 | A transplanted gain preserves total input per target cell, is capped, and a capped pair is an export defect | standing |
 | 2026-09-18 | A decodability number is reported over a lag sweep, several ensemble members and several splits, against a per-type null | standing |
 | 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
-| 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, with the round trip and the nearest-neighbour distance as the gates | standing |
+| 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, gated by the round trip and by novelty of both state and video (the free unconditional baseline measured first) | standing; sub-step design is the agent's |
 | 2026-09-20 | `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan | standing |
 
 ---
@@ -383,44 +383,58 @@ local CPU is the default, Modal only for a GPU or a ≥4× gain, a training run
 within $0.50 and only from the transplant; the running ensemble map was
 stopped, the consecutive-lag sweep of member 000 finishes item 4.
 
-## 2026-09-20 — The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, with the round trip and the nearest-neighbour distance as the gates
+## 2026-09-20 — The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, gated by the round trip and by novelty of both state and video
 
-Decision (the human, 2026-09-20, in words: "я ставлю чёткую задачу: я хочу
-получать новые видео"; design documents
+**Decided by the human** (2026-09-20, in words: "я ставлю чёткую задачу: я
+хочу получать новые видео"; design documents
 `docs/ideas/brain_state_prior_new_video_generation.md` and
-`docs/ideas/full_project_architecture_brain_to_video.md`): the project's
-current track is to generate video **without a source clip**, by learning the
-distribution of reachable T4/T5 states, sampling it from noise and rendering
-the sample with the existing 13B generator through the frozen brain:
+`docs/ideas/full_project_architecture_brain_to_video.md`): the current track is
+to generate video **without a source clip**, through brain states the project
+generates rather than reads, and, long term, to use the neural-state space as
+the interface through which deeper and internal brain activity will drive the
+generator:
 `noise → state prior → T4/T5 state → 13B → video → frozen brain → round trip`.
-The first prior is a flow-matching model over states on 13B's own interpolant
-and `SiTColumns` backbone, not a VAE; an autoencoder plus a latent flow is the
-fallback if its samples fail the gates. The gates are the round trip of the
-sample (against a held-out clip, raw noise in the types and the shuffled-state
-control) and the distance to the nearest training state; diversity between
-samples is reported beside them. Roadmap item 17.
 
-Why: item 14 measured that numbers put into the eight T4/T5 types by hand are
-not states the brain can reach (round trip 1.9-2.3 against 0.03 for a clip and
-19 for a shuffled state), so the generator could only ever return video it had
-been given. The missing component is a source of states, and it is the
-cheapest one available: the 9,468 states are already on the volume, 13B and
-the frozen brain stay untouched, and the run fits the $0.50 training cap. A
-VAE over 230k values per state is the human's own documented fallback (§6),
-and a flow over states reuses code that is already measured, so it is both
-faster to build and closer to the human's stated preference for modern
-architectures.
+**Designed by the agent** (a draft the human has not ruled on line by line; it
+stands until they say otherwise): the order 17.0 → 17.4 of `ROADMAP.md`, with
+the free unconditional-13B baseline measured **before** any training; a
+flow-matching model over states on 13B's own interpolant and `SiTColumns`
+backbone as the first prior, with an autoencoder plus a latent flow held as
+the fallback (the choice of flow before VAE is the agent's, not the human's);
+and the gates — the round trip of the sample, the nearest training **state**,
+the nearest training **video**, diversity of both, and what motion the brain
+reads back.
+
+Why: item 14 measured that numbers written into the eight T4/T5 types by hand
+land outside what the brain can reach (round trip 1.9-2.3 against 0.027 for a
+clip in the same table), so states cannot simply be invented; what is missing
+is a *learned* source of states. Generating from a state no single clip caused
+already works (item 11's noise and flash states, 14.2's region compositions at
+0.100-0.150), so the prior is not needed to make "a new video" as such — the
+unconditional 13B branch already produces video from z alone, which is why
+17.0 measures it first and for free. The prior earns its $0.22 by making the
+state space itself samplable, interpolable and editable, and by being the
+place a state from a deeper level or from the model's own activity can later
+enter. It is also the cheapest such component available: the 9,468 states are
+already on the volume, 13B and the frozen brain stay untouched, and the run
+fits the $0.50 training cap.
 
 Consequences: `ROADMAP.md` item 17 with its sub-steps and gates is the current
-approved step, each priced run on the human's word; the round trip becomes the
+approved step, each priced run on the human's word; the round trip stays the
 unit of evidence on this track (`docs/PROJECT_MAP.md`, Boundaries); novelty is
-reported as a nearest-neighbour distance, never as an impression
-(`AGENTS.md`, Primary principle); "dream" language stays out of this track,
-because the source of the state is an artificial prior — the dream source
-inside the model (item 16) is a separate, deferred item that will reuse this
-prior to project a spontaneous state onto the reachable manifold. Extends
-2026-09-18 ("the generative inverse model is the deliverable"): the
-deliverable now includes the source of the state, not only the inverse.
+reported as a nearest-neighbour distance for the state **and** for the video,
+never as an impression, and without the video distance a result is stated as
+"generated without a source clip", not as "a video that exists in no clip"
+(`AGENTS.md`, Primary principle); every control in a table is rebuilt in that
+table's own code path, because the two existing shuffled-state controls (13B's
+0.96 and item 14's 19.1) are not on one scale; "dream" language stays out of
+this track, because the source of the state is an artificial prior. The dream
+source inside the model (item 16) is a separate, deferred item; it *may* reuse
+this prior to bring a spontaneous state onto the reachable manifold, but that
+projection mechanism is not defined by an unconditional flow and has to be
+designed and measured on its own (ROADMAP 17.3). Extends 2026-09-18 ("the
+generative inverse model is the deliverable"): the deliverable now includes a
+learned source of states, not only the inverse.
 
 ## 2026-09-20 — `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan
 
