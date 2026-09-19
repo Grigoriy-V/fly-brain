@@ -236,8 +236,9 @@ def run(model: str, ckpt, manifest: dict, columns: dict, *, frames: int = 40, ma
             + (f"  r_ref {sc['r_ref']:+.2f}" if "r_ref" in sc else ""))
     # --- 14.3 closed loop ---
     loops = {}
-    starts = {"loop_white": states["r0_white"], "loop_hand": states["p_hand_T4a_stripe"], "loop_swap": states["e_right_swap_ab"],
-              "loop_conflict": states["p_left_right_conflict"]}
+    starts = {"loop_clipA": sA, "loop_clipB": sB, "loop_grating": S["right"], "loop_white": states["r0_white"],
+              "loop_hand": states["p_hand_T4a_stripe"], "loop_swap": states["e_right_swap_ab"], "loop_conflict": states["p_left_right_conflict"]}
+    loop_refs = {"loop_clipA": a_np[:frames], "loop_clipB": b_np[:frames], "loop_grating": stim["right"][:frames]}
     for name, st in starts.items():
         cur, hist, vprev = st, [], None
         for it in range(loop_iters):
@@ -248,12 +249,14 @@ def run(model: str, ckpt, manifest: dict, columns: dict, *, frames: int = 40, ma
             nxt = brain(vm)
             rt = round_trip(net, v[None], cur[None], d.cells_all, d.type_of, DEEP, dt, t_pre, margin, (0, T), var_ref)[0]
             rec = {"iter": it, "round_trip": float(rt), "r_video_prev": None if vprev is None else float(pixcorr_per_frame(v, vprev).mean()),
+                   "r_video_start": None if name not in loop_refs else float(pixcorr_per_frame(v, loop_refs[name]).mean()),
                    "state_change": float(np.abs(nxt[:, cells_deep] - cur[:, cells_deep]).mean() / (sA[:, cells_deep].std() + 1e-6)),
                    "direction_T4": direction_energy(nxt, sG, d)["T4_argmax"]}
             hist.append(rec); videos[f"{name}__it{it}"] = v
             cur, vprev = nxt, v
         loops[name] = hist
-        log(f"  {name}: rt " + " ".join(f"{h['round_trip']:.3f}" for h in hist) + " | change " + " ".join(f"{h['state_change']:.3f}" for h in hist))
+        log(f"  {name}: rt " + " ".join(f"{h['round_trip']:.3f}" for h in hist) + " | change " + " ".join(f"{h['state_change']:.3f}" for h in hist)
+            + ("" if name not in loop_refs else " | r to start clip " + " ".join(f"{h['r_video_start']:.2f}" for h in hist)))
     return {"scores": scores, "loops": loops, "notes": note, "frames": frames, "n_seeds": n_seeds, "loop_iters": loop_iters,
             "seconds": round(time.time() - t0, 1), "arrays": {"videos": videos, "refs": refs, "stim": {k: v[:frames] for k, v in stim.items()},
                                                             "states_T4a": {k: d.get(v, "T4a")[:frames] for k, v in states.items()}}}

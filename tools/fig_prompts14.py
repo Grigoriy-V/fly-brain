@@ -75,13 +75,17 @@ def main(argv=None) -> int:
         pair("p_window_up", "↑ только в окне") + pair("p_hand_T4a_stripe", "рукой: полоса T4a")
     row(cells, f"14.2, промпты без видео: состояния собраны из ответов мозга на стимулы по областям поля, последнее написано рукой. {slow}.",
         outdir / f"{a.prefix}_prompts", frames, a.fps, plt, FuncAnimation, PillowWriter)
-    cells = []
-    for name, head in (("loop_hand", "старт: полоса T4a"), ("loop_white", "старт: белый шум")):
+    n_it = S["loop_iters"]
+    for name, head, ref, tag in (("loop_clipA", "клип A", "ref__e_A", "loop"), ("loop_clipB", "клип B", None, "loop_B"),
+                                 ("loop_white", "белый шум", None, "loop_noise")):
         h = S["loops"][name]
-        for it in (0, 1, 2, S["loop_iters"] - 1):
-            cells.append((z[f"video__{name}__it{it}"], f"{head}, шаг {it}", f"прогонка {h[it]['round_trip']:.3f}, изменение {h[it]['state_change']:.3f}"))
-    row(cells, f"14.3, замкнутый цикл состояние → 13B → видео → мозг → состояние′: неподвижная точка за 1–2 шага. {slow}.",
-        outdir / f"{a.prefix}_loop", frames, a.fps, plt, FuncAnimation, PillowWriter)
+        cells = [] if ref is None else [(z[ref], "что видел глаз", "старт цикла")]
+        for it in (0, 1, 2, 4, 7, n_it - 1):
+            foot = f"прогонка {h[it]['round_trip']:.3f}, сдвиг {h[it]['state_change']:.3f}" +                 ("" if h[it].get("r_video_start") is None else f", r к клипу {h[it]['r_video_start']:+.2f}")
+            cells.append((z[f"video__{name}__it{it}"], f"{head}: шаг {it}", foot))
+        row(cells, f"14.3, замкнутый цикл: состояние → 13B → видео → мозг → состояние′ → 13B → … старт от {head}. "
+            f"Под кадром — прогонка шага, сдвиг состояния к следующему шагу, r к исходному клипу. {slow}.",
+            outdir / f"{a.prefix}_{tag}", frames, a.fps, plt, FuncAnimation, PillowWriter)
     return 0
 
 

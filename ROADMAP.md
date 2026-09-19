@@ -248,8 +248,10 @@ direction channels are not knobs (swaps, rotation, time reversal,
 amplification: 0.7-9.6, motion unchanged); compositions of brain states by
 region are reachable and render as asked (0.06-0.15, the brain reads the
 composite direction back); a hand-written T4a stripe is ignored (grey);
-the closed loop settles in 1-2 iterations, noise is a fixed point, an
-empty state drifts into the prior. `reports/2026-09-20_step14_controllable_generator.md`.
+the closed loop from a clip drifts: every pass compatible (round trip
+0.02-0.05) but r to the clip 0.99 → 0.26 in 11 passes (clip B → 0.10);
+unreachable starts jump to a reachable state in one pass, noise is a
+fixed point. `reports/2026-09-20_step14_controllable_generator.md`.
 Stage closed for the write-up.
 
 

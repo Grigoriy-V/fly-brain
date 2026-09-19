@@ -6,8 +6,8 @@ human: "мне всё равно, если это не будет работат
 получим"). Code `flydream/generate/prompts14.py`, `tools/fig_prompts14.py`.
 Everything on the trained 13B generator (`gen13b/sit.pt`, EMA weights, 20
 Euler steps, full mask, s = 1) and the frozen model zero; no training.
-**Local CPU, 76 s, $0.** Data `data/prompts14/{summary.json, prompts14.npz}`;
-clips `reports/figures/2026-09-20_malecns_prompts14_{random,edits,prompts,loop}.{gif,png}`
+**Local CPU, 99 s, $0.** Data `data/prompts14/{summary.json, prompts14.npz}`;
+clips `reports/figures/2026-09-20_malecns_prompts14_{random,edits,prompts,loop,loop_B,loop_noise}.{gif,png}`
 (frames 0/20/39 viewed).
 
 ## Question
@@ -53,8 +53,11 @@ A's T4/T5 cells permuted.
 iterations, one z (round trip per iteration; state change = mean |Δ| over
 T4/T5 cells in units of clip A's sd):
 
-| start | round trip, iterations 0 … 11 | change |
-|---|---|---|
+| start | round trip, iterations 0 … 11 | change | r to the start clip, 0 … 11 |
+|---|---|---|---|
+| **clip A** | 0.027, 0.021, 0.024, 0.030, 0.038, 0.043, 0.045, 0.052, 0.049, 0.037, 0.027, 0.020 | 0.04–0.07 | 0.99, 0.95, 0.90, 0.82, 0.74, 0.65, 0.55, 0.47, 0.39, 0.33, 0.29, 0.26 |
+| **clip B** | 0.012, 0.010, 0.015, 0.028, 0.050, 0.062, 0.059, 0.054, 0.048, 0.038, 0.029, 0.022 | 0.03–0.07 | 0.99, 0.95, 0.89, 0.80, 0.69, 0.56, 0.44, 0.33, 0.24, 0.18, 0.13, 0.10 |
+| grating → | 0.099, 0.021, 0.018 … 0.024 | 0.04–0.07 | 0.99, 0.97, 0.95, 0.92, 0.89, 0.84, 0.78, 0.71, 0.64, 0.58, 0.52, 0.46 |
 | white noise | 1.86, 0.09, 0.08, 0.06, 0.04, 0.03, 0.02, 0.015, 0.012, 0.010, 0.008, 0.007 | 0.49 → 0.03 |
 | hand-written stripe | 0.095, 0.002, 0.002, 0.003, 0.004, 0.005, 0.007, 0.012, 0.020, 0.031, 0.044, 0.053 | 0.06 → 0.07 |
 | grating, a↔b | 2.17, 0.024, 0.019, 0.020 … 0.024 | 0.42 → 0.05 |
@@ -91,16 +94,24 @@ T4/T5 cells in units of clip A's sd):
   round trip is low (0.095) only because the stripe is a few columns of
   one type, and the generator ignores it. A prompt has to be written in
   the brain's own patterns; a single type set by hand is not one.
-- **14.3 The pair has fixed points, and one of them is noise.** From any
-  start the pair settles within 1–2 iterations to a video the brain maps
-  back to (nearly) the same state (round trip ≤ 0.03), which makes the
-  "nearest reachable state" of 13A explicit. Two details: from white
-  noise the pair settles on a *noise video* (noise → noise state → noise
-  video, round trip → 0.007) — a fixed point that is not a scene; from
-  the hand-written stripe it sits on grey for ~6 iterations and then
-  drifts (0.002 → 0.053) into blobs — the prior slowly filling an empty
-  state. These are properties of generator + brain, not attractors of
-  the brain.
+- **14.3 From a clip the loop drifts: every step is compatible, the scene
+  is not conserved.** Started from clip A's state, each pass returns a
+  video the brain maps back to nearly the same state (round trip
+  0.02–0.05 at every iteration), yet the video walks away from the clip:
+  r to the start 0.99 → 0.90 (step 2) → 0.65 (step 5) → 0.26 (step 11);
+  clip B 0.99 → 0.10; the grating keeps its motion longer (0.46 at step
+  11). The small per-step error of the pair (the 13A/13B amortisation
+  gap, 0.03) compounds: what the generator loses at each pass — dark
+  regions, fine detail — the brain does not put back, and the prior
+  fills the gap with its own texture, so after ten passes the scene is a
+  different one with the same coarse motion. Unreachable starts jump to
+  a reachable state in one step (white noise 1.86 → 0.09, swap 2.17 →
+  0.02) and then drift the same way; from white noise the pair settles
+  on a *noise video* (round trip → 0.007), a fixed point that is not a
+  scene; from the hand-written stripe it sits on grey for ~6 passes
+  and then drifts into blobs. These are properties of generator +
+  brain, not attractors of the brain; the drift is the honest measure of
+  how much of a scene the pair carries per pass.
 
 ## What this changes for the write-up
 
