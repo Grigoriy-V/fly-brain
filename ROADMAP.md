@@ -206,6 +206,18 @@ One item at a time; the human's word starts each. Order: **13**; then the paused
     beat. Tests: held-out clips, item-12 edits and mixes, single-type
     prompts, eye noise and neuron noise, shuffled-state control.
 
+    *13B status (2026-09-20), measured:* (a) no multimodality at the full
+    deep state (8 random starts → one solution); (b) SiT backbone, 0.057
+    s/step; (c) SiT 128 × 4, 20k steps, val 0.0100, ≈ $0.22; (d) held-out
+    clips: median round trip 0.031 / r 0.966 (13A CNN 0.029 / 0.960,
+    inversion 0.009), control 0.96; knobs work (T4 only 0.033, T5 only
+    0.112, T4a only 0.309 with seed spread appearing there); guidance > 1
+    hurts; on gain edits the prior wins as with the CNN (0.29-1.47 vs
+    inversion 0.19-0.86); the strength test passes (r 0.03 / 0.10).
+    `reports/2026-09-20_step13b_generative_decoder.md`. Open options, none
+    started: a brain-consistency term on x̂₁, a wider model / compile,
+    prompts written by hand without a clip.
+
 **Paused in this branch (the human, 2026-09-19: "не сейчас"):**
 
 - **3', fine-tuning MaleCNS from the transplanted weights.** Not from

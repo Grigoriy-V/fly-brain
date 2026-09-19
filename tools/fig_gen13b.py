@@ -108,7 +108,7 @@ def main(argv=None) -> int:
             f"обратной прогонки (видео → мозг → состояние T4/T5; меньше = совместимее). {frames} кадров по 20 мс, в {1 / (a.fps * 0.02):.0f}x медленнее. ")
 
     def samples_row(state, mask, g, label):
-        key = f"{state}__{mask}__{g:g}"
+        key = f"{state}__{mask}__s{g:g}"
         s = sc[key]
         ref, ref_label = ref_of(state, z)
         cells = [(ref, "опорное видео", ref_label)]
@@ -120,16 +120,16 @@ def main(argv=None) -> int:
             (f"\nразброс r {s['r_between_samples']:.2f}" if "r_between_samples" in s else "")
         return (lab, cells)
 
-    tests = sorted([k.split("__")[0] for k in sc if k.startswith("test_") and k.endswith("__full__1")], key=lambda q: int(q[5:]))
+    tests = sorted([k.split("__")[0] for k in sc if k.startswith("test_") and k.endswith("__full__s1")], key=lambda q: int(q[5:]))
     draw([samples_row(t, "full", 1, f"отложенный {t[5:]}") for t in tests],
          base + "Отложенные клипы (сцены и классы, которых модель не видела), полная маска, s = 1.",
          outdir / f"{a.prefix}_test", frames, a.fps, plt, FuncAnimation, PillowWriter)
-    st = [s_ for s_ in ("clip_A", "clip_B", "C_T4a_x0.5", "C_T4a_x2", "C_T5_x0", "A_a0.5", "A_avgvideo", "B_earlyA_motionB", "eye_noise", "neuron_noise") if f"{s_}__full__1" in sc]
+    st = [s_ for s_ in ("clip_A", "clip_B", "C_T4a_x0.5", "C_T4a_x2", "C_T5_x0", "A_a0.5", "A_avgvideo", "B_earlyA_motionB", "eye_noise", "neuron_noise") if f"{s_}__full__s1" in sc]
     draw([samples_row(s_, "full", 1, ROW_RU.get(s_, s_)) for s_ in st],
          base + "Состояния пунктов 11–12 (i2i, правки, смеси, сны), полная маска, s = 1.",
          outdir / f"{a.prefix}_states", frames, a.fps, plt, FuncAnimation, PillowWriter)
-    knobs = [samples_row("clip_A", m, 1, f"клип A, {MASK_RU[m]}") for m in ("full", "T4a", "t4", "t5", "dir_a") if f"clip_A__{m}__1" in sc]
-    knobs += [samples_row("clip_A", "full", g, f"клип A, все, s = {g:g}") for g in S["guidances"][1:] if f"clip_A__full__{g:g}" in sc]
+    knobs = [samples_row("clip_A", m, 1, f"клип A, {MASK_RU[m]}") for m in ("full", "T4a", "t4", "t5", "dir_a") if f"clip_A__{m}__s1" in sc]
+    knobs += [samples_row("clip_A", "full", g, f"клип A, все, s = {g:g}") for g in S["guidances"][1:] if f"clip_A__full__s{g:g}" in sc]
     draw(knobs, base + "Крутилки: маска типов (промпт частью состояния) и сила условия s на состоянии клипа A.",
          outdir / f"{a.prefix}_knobs", frames, a.fps, plt, FuncAnimation, PillowWriter)
     ref = z["ref__clip_A__clip_a"]
