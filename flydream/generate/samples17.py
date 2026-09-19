@@ -56,7 +56,7 @@ def structured_noise(rng, frames: int, k: int, ring: np.ndarray, rounds: int = 5
 
 
 def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedural_file: Path, *,
-        n_samples: int = 16, n_clips: int = 3, frames: int = 40, margin: int = 5, dt: float = 0.02, t_pre: float = 1.0,
+        corpus: Path | None = None, n_samples: int = 16, n_clips: int = 3, frames: int = 40, margin: int = 5, dt: float = 0.02, t_pre: float = 1.0,
         sample_steps: int = 20, seed: int = 0, log=print) -> dict:
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -75,8 +75,18 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
     var_ref = {t: float(ta[0][:, d.pos[t]].var()) + 1e-6 for t in DEEP}      # 13B's and item 14's normalisation
     log(f"model, prior ({pmeta['parameters']} par, {pmeta['steps']} steps) and 13B loaded, {time.time() - t0:.0f} s")
 
-    bank, labels = video_bank(manifest, procedural_file, T, dt, log=log)
-    split = {k: np.asarray(v) for k, v in manifest["split"].items()}
+    if corpus is not None:                                                   # item 18: the prior's own training set
+        cz = np.load(Path(corpus) / "videos.npz")
+        cm = json.loads((Path(corpus) / "pairs_manifest.json").read_text(encoding="utf-8"))
+        bank = np.asarray(cz["videos"], np.float16)
+        meta_c = [json.loads(str(x)) for x in cz["meta"]]
+        labels = [f"{m.get('label') or m.get('class')}" for m in meta_c]
+        split = {k: np.asarray(v) for k, v in cm["split"].items()}
+        manifest = {**manifest, "meta": meta_c, "n_sintel": 0}
+        log(f"bank from the corpus: {bank.shape}, train {len(split['train'])}, test {len(split['test'])}")
+    else:
+        bank, labels = video_bank(manifest, procedural_file, T, dt, log=log)
+        split = {k: np.asarray(v) for k, v in manifest["split"].items()}
     train_idx, test_idx = split["train"], split["test"]
     bank_train = flat(bank[train_idx], frames)
 
@@ -89,10 +99,13 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
     prior_states = R.sample_states(prior, pmeta, n_samples, steps=sample_steps, device=dev, generator=g)
     log(f"{n_samples} states from the prior ({pmeta.get('sources', 'all')} data, "
         f"DCT {pmeta.get('dct_k') or 'off'}) in {time.time() - t0:.0f} s")
-    n_s = int(manifest["n_sintel"])                                          # take clips from both sources
-    half = max(1, n_clips // 2)
-    clip_idx = np.concatenate([rng.choice(test_idx[test_idx < n_s], half, replace=False),
-                               rng.choice(test_idx[test_idx >= n_s], n_clips - half, replace=False)])
+    n_s = int(manifest["n_sintel"])
+    if n_s:                                                                  # 13A's set: take clips from both sources
+        half = max(1, n_clips // 2)
+        clip_idx = np.concatenate([rng.choice(test_idx[test_idx < n_s], half, replace=False),
+                                   rng.choice(test_idx[test_idx >= n_s], n_clips - half, replace=False)])
+    else:                                                                    # the corpus: held-out classes only
+        clip_idx = rng.choice(test_idx, n_clips, replace=False)
     clip_states = simulate_states(net, bank[clip_idx], d.cells_all, dt, t_pre, 8).astype(np.float32)
     clip_maps = to_z(clip_states)
     jobs = {f"prior_{k}": prior_states[k] for k in range(n_samples)}
@@ -109,6 +122,7 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
                  else "ceiling" if n.startswith("dct_ceiling") else "control") for n in names}
     meta = manifest["meta"]
     clip_label = {f"clip_{int(i)}": (f"сцена Sintel: {meta[int(i)]['scene']}" if meta[int(i)]["source"] == "sintel"
+                                     else f"обычное видео: {meta[int(i)].get('label')}" if meta[int(i)]["source"] == "video"
                                      else f"процедурный стимул: {meta[int(i)]['class']}") for i in clip_idx}
 
     # --- 13B renders them, one z shared across the states of a chunk ---
@@ -192,6 +206,7 @@ def main(argv=None) -> int:
     p.add_argument("--tag", default="samples17_local")
     p.add_argument("--samples", type=int, default=16)
     p.add_argument("--clips", type=int, default=3)
+    p.add_argument("--corpus", default="")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
@@ -199,7 +214,7 @@ def main(argv=None) -> int:
     columns = json.loads((pdir / "columns.json").read_text(encoding="utf-8"))
     proc = sorted(pdir.glob("procedural_*.npz"))[0]
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, proc, n_samples=a.samples, n_clips=a.clips,
+    r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, proc, corpus=Path(a.corpus) if a.corpus else None, n_samples=a.samples, n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0),
             seed=a.seed)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1), encoding="utf-8")

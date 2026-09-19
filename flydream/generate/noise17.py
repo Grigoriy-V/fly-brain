@@ -72,7 +72,8 @@ def corr(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedural_file: Path, *,
-        clip_a: int = 3, clip_b: int = 126, alphas=(0.25, 0.5, 0.75), fixed_point: int = 4, n_check: int = 4,
+        clip_a: int = 3, clip_b: int = 126, corpus: Path | None = None, alphas=(0.25, 0.5, 0.75),
+        fixed_point: int = 4, n_check: int = 4,
         frames: int = 40, margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, sample_steps: int = 20,
         seed: int = 0, log=print) -> dict:
     torch.manual_seed(seed); np.random.seed(seed)
@@ -113,12 +114,21 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
             f"relative error {check[f'fixed_point_{fp}']['relative_error']:.4f}")
 
     # --- 2. two real clips -> their own noise -> back ---
+    cz = cmeta = None
+    if corpus is not None:                                                   # item 18: clips of the prior's own set
+        cz = np.load(Path(corpus) / "videos.npz")
+        cmeta = [json.loads(str(x)) for x in cz["meta"]]
     clips = {}
     for name, idx in (("A", clip_a), ("B", clip_b)):
-        v = clip_from_sintel(idx, frames, dt, margin)
-        st = simulate_states(net, v[None].astype(np.float16), d.cells_all, dt, t_pre, 1).astype(np.float32)
-        clips[name] = {"index": int(idx), "scene": scene_name(idx, dt), "video": v[:frames], "state": to_z(st)[0]}
-        log(f"  clip {name}: sample {idx}, {clips[name]['scene']}")
+        if cz is not None:
+            v = np.asarray(cz["videos"][int(idx)], np.float32)
+            label = cmeta[int(idx)].get("label") or cmeta[int(idx)].get("class", "?")
+        else:
+            v = clip_from_sintel(idx, frames, dt, margin)
+            label = scene_name(idx, dt)
+        st = simulate_states(net, v[None][:, :frames + margin].astype(np.float16), d.cells_all, dt, t_pre, 1).astype(np.float32)
+        clips[name] = {"index": int(idx), "scene": label, "video": v[:frames], "state": to_z(st)[0]}
+        log(f"  clip {name}: sample {idx}, {label}")
     shuffled = clips["A"]["state"][:, :, rng.permutation(721)]
 
     states_in = np.stack([clips["A"]["state"], clips["B"]["state"], shuffled])
@@ -223,6 +233,7 @@ def main(argv=None) -> int:
     p.add_argument("--clip-b", type=int, default=126)
     p.add_argument("--alphas", default="0.25,0.5,0.75")
     p.add_argument("--fixed-point", type=int, default=4)
+    p.add_argument("--corpus", default="")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
@@ -231,6 +242,7 @@ def main(argv=None) -> int:
     proc = sorted(pdir.glob("procedural_*.npz"))[0]
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, proc, clip_a=a.clip_a, clip_b=a.clip_b,
+            corpus=Path(a.corpus) if a.corpus else None,
             alphas=tuple(float(x) for x in a.alphas.split(",")), fixed_point=a.fixed_point,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
             t_pre=g.get("t_pre", 1.0), seed=a.seed)

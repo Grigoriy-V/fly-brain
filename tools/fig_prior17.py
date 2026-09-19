@@ -31,6 +31,7 @@ def main(argv=None) -> int:
     p.add_argument("--compare", default="", help="a second run tag: one row, both priors beside the same references")
     p.add_argument("--heads", default="прайор 17.1|прайор 17.1b")
     p.add_argument("--prefix", default="2026-09-20_malecns_prior17")
+    p.add_argument("--title", default="")
     p.add_argument("--fps", type=int, default=8)
     p.add_argument("--outdir", default=str(ROOT / "reports" / "figures"))
     a = p.parse_args(argv)
@@ -83,12 +84,18 @@ def main(argv=None) -> int:
         cells += pair(ref, "настоящее видео", sc[ref].get("label", "отложенный клип"))
     else:
         best = best_of(sc)
-        cells = pair(best[0], "прайор, сэмпл 1") + pair(best[len(best) // 2], "прайор, сэмпл 2") \
+        mid = len(best) // 2                                                 # the middle of the distribution, not
+        cells = pair(best[mid], "прайор, сэмпл 1") + pair(best[min(mid + 1, len(best) - 1)], "прайор, сэмпл 2") \
             + pair(ref, "настоящее видео", sc[ref].get("label", "отложенный клип")) \
-            + pair("noise_white", "контроль: шум в типах")
+            + pair("noise_white", "контроль: шум в типах")                   # ... the best two
     slow = f"{frames} кадров по 20 мс (0.8 с мухи), в {1 / (a.fps * 0.02):.1f}× медленнее"
-    title = ("17.2: состояние T4/T5, взятое из обученного прайора (видео на входе не было), и видео, которое 13B из него делает. "
-             f"Прогонка — ошибка обратного прохода видео через мозг к тому же состоянию, меньше = совместимее. {slow}.")
+    gates = S.get("gates", {})
+    med = gates.get("prior", {}).get("round_trip", {}).get("median")
+    ref_med = gates.get("clip", {}).get("round_trip", {}).get("median")
+    head = a.title or ("17.2: состояние T4/T5, взятое из обученного прайора (видео на входе не было), и видео, которое 13B "
+                       "из него делает. Прогонка — ошибка обратного прохода через мозг, меньше = совместимее")
+    numbers = f" Медиана по 16 сэмплам {med:.3f}, у отложенного клипа {ref_med:.3f}." if med and ref_med else ""
+    title = f"{head}.{numbers} Ячейки взяты из середины распределения, не лучшие. {slow}."
     row(cells, title, Path(a.outdir) / a.prefix, frames, a.fps, plt, FuncAnimation, PillowWriter, dpi=70)
     return 0
 
