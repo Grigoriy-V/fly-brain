@@ -126,7 +126,7 @@ def main(argv=None) -> int:
                         for im, v in ims:
                             im.set_data(rs(v, f))
                         return [im for im, _ in ims]
-                    FuncAnimation(fig, upd, frames=frames, blit=True).save(out, writer=PillowWriter(fps=a.fps))
+                    FuncAnimation(fig, upd, frames=frames, blit=True).save(out, writer=PillowWriter(fps=a.fps), dpi=55)
                 plt.close(fig)
             print(f"{cond}/{group}: wrote {outdir / (a.prefix + '_' + cond + '_' + group)}.png and .gif")
     return 0
