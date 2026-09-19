@@ -31,6 +31,7 @@ says what replaced it.
 | 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
 | 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, gated by the round trip and by novelty of both state and video (the free unconditional baseline measured first) | standing; sub-step design is the agent's |
 | 2026-09-20 | `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan | standing |
+| 2026-09-20 | The $0.50 cap on a training run is lifted; the prior's training set is rebuilt from ordinary video, and 13B may be retrained on it | standing |
 
 ---
 
@@ -461,3 +462,37 @@ and settings to the old section names were updated (`config.toml`,
 document. No rule was weakened, added or removed in the move; the artefact
 rules gained only the layout for a state that no video caused, which item 14
 had already required in practice.
+
+## 2026-09-20 — The $0.50 cap on a training run is lifted; the prior learns from ordinary video, and 13B may be retrained on it
+
+Decision (the human, 2026-09-20, in words): "правило «$0.50 на обучение»
+больше нет"; "можно закладывать переобучение 13б, но сначала проверить его на
+новом приоре"; "датасет выбери сам, можешь скачивать"; "моих видео нет".
+
+Three things follow. **(1)** A training run is no longer capped at $0.50 per
+run. Nothing else about money changes: local is still the default, Modal is
+still only for a GPU or a measured ≥4× gain, a GPU is still used to the full,
+a function still asks for the minimum cpu and memory, and **every priced run
+still needs the human's explicit permission before it starts, with what it
+does, how long it takes, the price and the exact command stated first**. The
+cap was a ceiling on the size of one run; it was never the permission.
+**(2)** The prior's training set stops being 19 Sintel scenes: it is rebuilt
+from ordinary video, with procedural stimuli kept as a minority for motion
+coverage. **(3)** Retraining 13B on that set is allowed, but only after the
+existing 13B is measured against the new prior — if it renders the new prior's
+states at the round trip it reaches on Sintel states, it is not retrained.
+
+Why: 17.1b measured the cause of the gap. The prior samples reach a round trip
+of 0.142 where a real clip reaches 0.006 and the representation itself allows
+0.009, and 17.3b's inversion showed real states sit at a noise radius of 1.07
+and 1.29 where the prior's own draws sit at 1.000 ± 0.014 — the density is
+next to the real states, not on them. 1,695 states of 19 scenes is the
+smallest suspect, and the next one after it is capacity (width 192-256, ≈
+$0.4-0.9 per run), which the old cap forbade outright.
+
+Consequences: `ROADMAP.md` loses the cap wherever it was quoted as a live
+constraint (17.1, the capacity option, 3', item 6) and gains the dataset step;
+the prior is retrained on the new set and read against the same gates so the
+new number is comparable with 0.142; the check of 13B against the new prior is
+a gate of that step, and its outcome decides whether 13B is retrained.
+`AGENTS.md` keeps the permission rule unchanged.

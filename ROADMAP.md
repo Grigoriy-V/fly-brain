@@ -68,7 +68,7 @@ This is not the dream chapter: the source of the state is an artificial prior,
 not the brain's own activity. The dream source inside the model (item 16)
 stays deferred.
 
-## Current approved step: 17, the brain-state prior
+## Item 17, the brain-state prior — measured, its gates open
 
 Goal: video generated without a source clip, from states the project produced
 rather than read, at the round trip of a real clip — and a state space that can
@@ -127,7 +127,7 @@ cropped to 40 frames on load as 13B does), split by scene exactly as 13B split
 them, so a sample can be compared against held-out states. The optimised loop
 of 13B (data on the GPU in fp16, AMP, fused AdamW, warmup + cosine, EMA 0.999,
 batch 32) carries over. A local CPU smoke of the code and the loader first
-($0); then one T4 run, ~20k steps, ≈ 1,100 s, ≈ $0.22, inside the $0.50 cap.
+($0); then one T4 run, ~20k steps, ≈ 1,100 s, ≈ $0.22.
 Fallback if the samples fail the gates: an autoencoder over states plus a flow
 in its latent (§6 of the human's document), not a prettier picture.
 
@@ -205,8 +205,8 @@ minority, then the prior retrained on it; a wider SiT is explicitly **not** to
 be run before that.
 
 **The human's decision, nothing started:** (1) more capacity, same design
-(width 192-256 or depth 6; ≈ $0.4-0.9 per run, which touches or breaks the
-$0.50 rule); (2) the documented fallback — compress the state and put the flow
+(width 192-256 or depth 6; ≈ $0.4-0.9 per run — the per-run cap was lifted
+by the human on 2026-09-20, the permission-per-run gate was not); (2) the documented fallback — compress the state and put the flow
 in the compact space (a small autoencoder, or a fixed temporal-DCT basis that
 matches the measured smoothness and needs no fitting), cheaper per run and
 aimed at the measured cause; (3) stop the prior line, keep 17.0 as the answer
@@ -276,10 +276,81 @@ augmentations, plus 13A's procedural stimuli), so a "new" state is new inside
 that distribution; and 13B's own amortisation gap (0.031 against the
 inversion's 0.009) bounds how compatible any sample's video can be.
 
-**17', more states — not approved, after 17's gates only.** The human's
-document §16: 100k+ clips covering translation, rotation, looming, optic flow,
-several local motions, occlusion and dynamic textures, to cover the reachable
-manifold more densely, then the prior (and possibly 13B) retrained on them.
+**17', more states — superseded by item 18 below.** The human's document §16
+asked for 100k+ clips covering translation, rotation, looming, optic flow,
+several local motions, occlusion and dynamic textures. Item 18 is that, at the
+size the measurements justify and from ordinary video rather than from
+generated stimuli.
+
+## Current approved step: 18, the corpus of ordinary video
+
+The human, 2026-09-20: "правило «$0.50 на обучение» больше нет"; "можно
+закладывать переобучение 13б, но сначала проверить его на новом приоре";
+"датасет выбери сам, можешь скачивать" (`DECISIONS.md`, same date). Item 17's
+prior learned 1,695 states from **19 Sintel scenes**, and two measurements
+point at the set rather than at the method: the samples sit at a round trip of
+0.142 where the representation itself allows 0.009 (17.1b), and real states
+invert to a noise radius of 1.07-1.29 where the prior's own draws sit at
+1.000 ± 0.014 (17.3b) — the density is beside the real states, not on them.
+
+**18.0 The corpus** (local CPU, $0 apart from the download). Source: **UCF101**
+(13,320 clips, 101 action classes, 320×240, ~25 fps, 6.6 GB, research use) —
+chosen for the number of *distinct* scenes per gigabyte, which is the quantity
+17.1b lacked; its low resolution costs nothing, because the eye is 721 hexals.
+Every clip passes through `flydream/data/video_hex.py`, which is flyvis's own
+chain in flyvis's order (centre-crop 0.7 → `split` → `BoxEye` extent 15 /
+kernel 13 → linear resampling to 1/dt → `HexRotate`/`HexFlip`), so a new clip
+is the same kind of object as a Sintel one. Two rules are ours:
+- **the frame is resized to Sintel's 1,024 px across, aspect kept**, so an
+  object subtends the same angle and moves at the same speed across the eye
+  (T4/T5 are speed-tuned; rendering a 320-px video at its own scale would be a
+  different world, not a bigger one);
+- **selection, not collection**: ordinary video carries cuts (a flash across
+  the whole eye), tripod shots (no motion at all) and flat frames, none of
+  which exist in Sintel. `motion`, `contrast` and `cut_score`
+  (`flydream/data/video_corpus.py`) keep a window only inside the band the
+  real Sintel clips occupy, and `--probe` measures that band on the corpus
+  before any threshold is fixed.
+Target ≈ 24,000 clips of 45 frames from ≈ 6,000 distinct videos — about 13×
+17.1b's independent content — with one hex rotation per window, cycled, for
+direction balance. Procedural stimuli stay as a minority (≈ 20 % of the final
+set, reusing 13A's 7,200) for motion-space coverage; the human's own framing
+(2026-09-20) is ordinary video first, procedural as a small part.
+*Verification of the chain (2026-09-20, free):* rendering Sintel's own frames
+through it reproduces flyvis's own item at r = 0.998, slope 1.002, offset
+−0.0003; the residual (sd 0.018, temporally anti-correlated) is a sub-frame
+interpolation phase, not a difference of eye or scaling.
+
+**18.1 The states** (one T4, ≈ 20 min, ≈ $0.20, the human's word first).
+The same function that built 13A's pairs: videos on the volume → frozen brain
+→ the 8 T4/T5 types × 45 frames × 721 columns, z-scored per type with the
+**13B statistics** so the old and new states share one scale. Held-out split
+by *class*, as 13A held out scenes.
+
+**18.2 The two checks before anything is retrained** (local CPU, $0).
+(a) The corpus against Sintel: motion, contrast, brightness and the state
+statistics (lag-1, one-ring, cross-type), so a difference in the prior later
+is attributable. (b) **13B on the new distribution**: ~16 held-out corpus
+clips → their real states → 13B → the round trip, against 0.023-0.038 for
+Sintel clips in the same code path. If 13B renders the new states as well as
+the old ones, it is not retrained.
+
+**18.3 The prior retrained** (one T4, ≈ $0.15-0.30, the human's word first).
+Same `SiTStates`, same DCT-16 basis, on the new corpus; then 17.2's gates and
+17.3b's noise radius, in the same code path, so the numbers land beside 0.142
+and 1.07-1.29. Capacity (width 192-256) is the next knob if data alone does
+not move them — the per-run cap that forbade it was lifted.
+
+**18.4 13B retrained — only if 18.2(b) or 18.3 shows it is the limit**
+(one T4, ≈ $0.22-0.40, the human's word first). The human allowed it in
+advance and set the order: the existing 13B is checked against the new prior
+first.
+
+**What counts as done.** The prior's round trip and noise radius measured on
+the new corpus beside 17.1b's 0.142 and 1.07-1.29; the corpus statistics
+beside Sintel's; a row clip of samples from the new prior with the same
+controls; and a plain statement of which of the two — data or capacity — moved
+the number.
 
 ## Current state of the system
 
@@ -396,7 +467,7 @@ manifold more densely, then the prior (and possibly 13B) retrained on them.
 ## Paused in this track
 
 - **3', fine-tuning MaleCNS from the transplanted weights** (the human,
-  2026-09-19: "не сейчас"). Within $0.50: two members × 1,200 iterations at
+  2026-09-19: "не сейчас"). Two members × 1,200 iterations at
   batch 16 with `--variant stats_relu`, checkpoints at 0/900/1200, validated
   like model zero. Bought only if a generator on model zero turns out visibly
   worse than on FlyVis, or when the human wants a trained MaleCNS model.
@@ -438,8 +509,8 @@ human's word.
 - **6, the central brain and the state knobs:** LC types, optic glomeruli, the
   central complex from MaleCNS in one model; trained on a behavioural task or
   fitted to whole-brain data (DANDI 000727); knobs — octopamine gain, R5
-  slow-wave gating, mean luminance. A large item: new export, training beyond
-  $0.50, validation.
+  slow-wave gating, mean luminance. A large item: new export, a long training
+  run, validation.
 - **7, dreams, the full protocol** (the rigorous form of item 11): decoding in
   the dark against the stimulus history; internally generated activity with
   the fraction of variance in the stimulus subspace measured before anything
