@@ -79,3 +79,24 @@ def test_video_hex_eye_chain_and_selection_scores():
 
     ws = V.windows(one, 5, 5)
     assert len(ws) == len(one) // 5 and ws[0].shape == (5, 721)
+
+
+def test_video_hex_sampler_matches_flyvis_boxeye():
+    """The corpus is built with running sums read at the receptor lattice
+    instead of flyvis's full 13x13 convolution (10x faster). It must give the
+    same numbers, and the views must be cut where flyvis cuts them."""
+    import torch
+    from flyvis.datasets.rendering.utils import split as hsplit
+
+    from flydream.data import video_hex as V
+
+    box = V.eye()
+    g = torch.rand(2, 6, 417, 417)
+    ref = torch.stack([box(v[None]).squeeze(2)[0] for v in g])           # flyvis, the full convolution
+    assert (ref - V.hexal_sample(g, box)).abs().max() < 1e-5
+    assert V.hexal_sample(g[0], box).shape == (6, 721)                   # leading dimensions are kept
+
+    wide = torch.rand(4, 417, 716)
+    bounds = V.view_bounds(716, 417, 2)
+    assert torch.equal(hsplit(wide, 417, 2, None), torch.stack([wide[..., a:b] for a, b in bounds]))
+    assert V.view_bounds(417, 417, 1) == [(0, 417)]
