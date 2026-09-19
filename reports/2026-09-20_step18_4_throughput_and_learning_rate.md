@@ -6,7 +6,7 @@ Code `deploy/modal/generate_app.py::{bench17, dct_maps, train17}`,
 `flydream/generate/prior17.py` (compile, class conditioning),
 `flydream/generate/samples17.py` (a label per sample); figures
 `tools/fig_bench17.py`, `tools/fig_lr18.py`, `tools/fig_arms18.py`.
-**Cost: $1.46 on nine Modal containers**; every gate below is local CPU, $0.
+**Cost: $1.93 on ten Modal containers**; every gate below is local CPU, $0.
 Checkpoints on `flydream-runs:/prior18/`, local copies in `data/prior18/`.
 
 The headline in one line: **width 192 moves the main gate 0.095 → 0.034**,
@@ -26,6 +26,7 @@ The gate is the round trip of 16 samples through the frozen brain.
 | lr 6e-4 | 0.4264 | **0.080** | +0.40 |
 | lr 1e-3 | 0.4225 | **0.076** | +0.42 |
 | **width 192** | **0.2977** | **0.034** | +0.45 |
+| 60,000 steps | 0.4046 | **0.074** | +0.38 |
 | K = 32 | 0.9835 ‡ | 0.527 | +0.12 |
 | lr 1e-4 (18.4b, uncompiled) | 0.7328 | 0.591 | +0.16 |
 | *the representation's floor* (a real state at DCT-16) | — | *0.021* | +0.52 |
@@ -85,6 +86,26 @@ DiT/SiT's 1e-4 @ 256 down to our batch. Three arms settle the direction:
 extrapolated 1e-4 is 6.6× worse than our own setting, and the series is still
 improving at 1e-3, so the optimum is at or above 1e-3 and **is not bracketed**.
 It is also flattening: 3e-4 → 6e-4 buys 0.010, 6e-4 → 1e-3 buys 0.004.
+
+**Length is the same lever, bought dearer.** The 60,000-step arm (same 3e-4)
+settles 18.3's open question — validation was still falling at 20,000, and
+running three times longer does converge: −0.41 % over the last 10,000 steps,
+landing at validation 0.4046 and a gate of **0.074**. Put the four arms in
+terms of the product **lr × steps** and they collapse onto one curve:
+
+| lr × steps (units of 1e-4 × 1,000 steps) | arm | round trip | cost |
+|---|---|---|---|
+| 60 | 20k at 3e-4 (control) | 0.090 | $0.18 |
+| 120 | 20k at 6e-4 | 0.080 | $0.17 |
+| 180 | **60k at 3e-4** | **0.074** | **$0.47** |
+| 200 | **20k at 1e-3** | **0.076** | **$0.17** |
+| *60* | *20k at 3e-4, width 192* | *0.034* | *$0.24* |
+
+60k at 3e-4 and 20k at 1e-3 are **interchangeable** (0.074 against 0.076 at 180
+against 200 units) — and the learning rate buys that product **2.8× cheaper**
+than steps do. Width 192 sits at the *same* 60 units as the control and scores
+0.034, entirely off this curve: capacity is a different axis, and it dominates
+the one these four share.
 
 The 1e-4 arm also shows why novelty is never reported alone. Its samples are
 *less* correlated with each other and *further* from the nearest training video
@@ -178,7 +199,9 @@ cell viewed before sending).
 1. **Capacity first.** Width 192 alone is worth more than every other lever
    tested put together, and the prior is no longer the dominant term.
 2. **The learning rate is not bracketed.** 1e-3 is the best measured point and
-   the series has not turned.
+   the series has not turned. What the four length/rate arms share is the
+   product lr × steps; the rate is the cheap way to buy it, and **more steps
+   is the expensive way** — $0.47 for what $0.17 already gives.
 3. **Two levers are dead for now:** classes (no effect — and the same-noise
    diagnostic shows why: the label displaces the sample by r 0.09 where the
    noise decides the rest, and what it carries is not motion) and K = 32 (much
@@ -213,9 +236,10 @@ cell viewed before sending).
 
 ## Cost
 
-Nine containers, all cpu 1 / 12 GB except the maps builder: bench17 120.6 s
+Ten containers, all cpu 1 / 12 GB except the maps builder: bench17 120.6 s
 ≈ $0.03; lr 1e-4 1,243 s ≈ $0.24; `dct_maps` cpu 2 / 24 GB 106.5 s ≈ $0.03;
 then the sweep — control 920 s ≈ $0.18, 6e-4 863 s ≈ $0.17, 1e-3 842 s ≈ $0.17,
-width 192 1,215 s ≈ $0.24, K = 32 1,033 s ≈ $0.23, classes 845 s ≈ $0.17. GPU
+width 192 1,215 s ≈ $0.24, K = 32 1,033 s ≈ $0.23, classes 845 s ≈ $0.17,
+60,000 steps 2,479 s ≈ $0.47. GPU
 utilisation 97-98 % on every training arm. Gates, figures and analysis local
-CPU, $0. **Item 18 total ≈ $2.04.**
+CPU, $0. **Item 18 total ≈ $2.51.**

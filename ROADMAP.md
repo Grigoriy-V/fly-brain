@@ -360,6 +360,7 @@ spent.
 | 18.4c higher learning rates | 6e-4 → **0.080**, 1e-3 → **0.076**, against the control's 0.090. With 18.4b the series 1e-4 / 3e-4 / 6e-4 / 1e-3 = 0.591 / 0.090 / 0.080 / 0.076 is monotone: **the optimum is at or above 1e-3 and is not bracketed.** ≈ $0.34 for both. |
 | 18.4d **capacity** | **width 192 (2.64 M par): the gate goes 0.090 → 0.034**, validation 0.5052 → 0.2977. The gap to the representation's floor falls from 4.3× to **1.6×**, and the prior's own share of the error from 0.069 to **0.013** — the floor now dominates. The largest single move in item 18. One T4, 1,215 s, ≈ $0.24. |
 | 18.4d K = 32 | the floor is lower (99.913 % of the energy kept against 99.32 %) and the gate is **5.9× worse**: 0.527. At width 128 the model already binds, so twice the target dimension makes it relatively smaller. Revisit **after** capacity, not instead of it. Maps file by `dct_maps` (cpu 2 / 24 GB, 106 s, ≈ $0.03) built **without touching** the 9 GB original. One T4, 1,033 s, ≈ $0.23. |
+| 18.4c 60,000 steps | **0.074** against the control's 0.090, validation 0.4046 — and converged (−0.41 % over the last 10,000 steps), which settles 18.3's open question. The four rate/length arms collapse onto the product **lr × steps**: 60 / 120 / 180 / 200 units give 0.090 / 0.080 / 0.074 / 0.076, so 60k at 3e-4 and 20k at 1e-3 are interchangeable — and the rate buys that product **2.8× cheaper** than steps. Width 192 sits at the same 60 units as the control at 0.034, off this curve entirely. One T4, 2,479 s, utilisation 95.0 %, ≈ $0.47. |
 | 18.4e classes | 110 labels (101 UCF101 + 9 procedural kinds), DiT-style label embedding: **no effect**, 0.098 against 0.090, inside the spread. The published precedent (conditioning alone, FID 26.21 → 10.94) does not transfer — the research note named the reason in advance: no study covers a label only loosely coupled to the signal. One T4, 845 s, ≈ $0.17. |
 
 `reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
@@ -401,9 +402,10 @@ prior**. So:
    the error from 0.069 to 0.013. The literature reading written the same
    morning ("growing is safe, nothing says capacity is the cause") was right
    about safety and wrong about cause; ≈ $0.24 settled it.
-5. **More steps**: validation was still falling at 20,000 (0.5165 at 14.5k →
-   0.5064 at 20k), but by 2 % over 5,500 steps and decelerating — the cheapest
-   check (≈ $0.66 to 60k), not the most likely cause.
+5. ~~**More steps**~~ — **measured 2026-09-20 (18.4c): it works and it is the
+   expensive way.** 60,000 steps converge at a gate of 0.074, but 20,000 at
+   lr 1e-3 reach 0.076 for **$0.17 against $0.47**. Length and rate buy the
+   same product; the rate is 2.8× cheaper per unit of it.
 6. **Free, local, no GPU**: an MMD permutation test (validated at 5-10 samples
    per group), the same checks in a PCA-32 feature space (rankings stable at
    N = 50) and Carlini's neighbourhood-relative threshold in place of our
