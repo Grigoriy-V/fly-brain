@@ -289,8 +289,16 @@ cancelled; it waits for the human's word.
   needs item 5's luminance adaptation, otherwise the panorama is tone-mapped
   to 0..1. A day for the renderer; then the stimulus set for 11/12 and the
   data for 3'. Beyond the branch until the renderer exists, then it joins it.
-- **16, the brain as its own generator — feedback connections** (the
-  human, 2026-09-19: "чтобы сам мозг стал нейронной моделью-генератором";
+- **16, the dream source inside the model** — reformulated by the human
+  2026-09-20 ("источник мозговой активности внутри модели"; the one task
+  after 13B): the brain must produce T4/T5 states with no video, 13B turns
+  them into video. Design `reports/2026-09-20_step16_dream_source_design.md`
+  (draft): 16.1 structured spontaneous drive into model zero as is; 16.2
+  close the optic-lobe loops the export filter dropped (LPi, Dm, Pm, TmY16/19a,
+  Y — 25 % of the synapses onto the ladder and 91 % of T4/T5's output go to
+  types model zero lacks), stability and validation as gates; 16.3 central
+  brain drive. Original note (2026-09-19) kept below.
+  (the human, 2026-09-19: "чтобы сам мозг стал нейронной моделью-генератором";
   "вернёмся к ней позже"). Items 8-13 generate *beside* the brain: an
   optimiser or a separate network turns a state into a video. The
   alternative is inside it: the MaleCNS export carries top-down and
