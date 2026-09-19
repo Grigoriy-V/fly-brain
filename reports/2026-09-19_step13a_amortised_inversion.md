@@ -93,18 +93,77 @@ viewed), `..._summary.png`.
   inversion, not a fallback.
 - Dark scenes are the weak spot (cave_4 0.81-0.85 from deep).
 
+## Round trip on the states of 11-12
+
+Run `roundtrip13` (`flydream/generate/roundtrip13.py`,
+`generate_app.py::roundtrip13`, `tools/fig_roundtrip13.py`): the 16 states of
+items 11-12 rebuilt on the worker from their recipes (4 dreams; clips A and B;
+gain edits T4a × 0.5, × 2, T5 × 0, Mi4 × 1.5; whole-state mixes α = 0.25,
+0.5, 0.75 and the averaged video's state; two hybrids, L1…Tm9 from one clip
+and T4/T5 from the other — the mixes and hybrids differ from item 12 so one
+state feeds all three conditions). Per condition: linear, CNN, the Adam
+inversion on the same types (item-12 loss, clip A's variances, batch of 15;
+dark_after alone on 85 frames with the dark window read), and the linear
+decoder on the state with its cells permuted (control). Every video's round
+trip as above, relative to the target on the condition's types; r to the
+reference video where one exists. T4, cpu=1, 4 GB, 441 s on the worker, GPU
+utilisation 44 % (the inversion batch saturates; the single-clip dark_after
+inversion and the decoders' small batches do not), ≈ $0.11. Data
+`data/roundtrip13/`; clips
+`reports/figures/2026-09-19_malecns_roundtrip13_{early,deep,all}_{dream,mix}.{gif,png}`,
+frames 0/20/39 viewed.
+
+Round-trip error, `deep` (T4a-d + T5a-d), linear / CNN / inversion / shuffled:
+
+| state | linear | CNN | inversion | shuffled | r (CNN) to |
+|---|---|---|---|---|---|
+| eye noise | 0.020 | 0.015 | 0.007 | 3.85 | 0.97 input |
+| flash | 0.014 | 0.003 | 0.000 | 4.51 | 1.00 input (temporal) |
+| dark after clip | 0.168 | 0.150 | 0.000* | 0.47 | — |
+| neuron noise | 0.056 | 0.040 | 0.028 | 3.98 | — |
+| clip A | 0.036 | 0.018 | 0.001 | 2.86 | 0.99 A |
+| clip B | 0.028 | 0.010 | 0.004 | 3.17 | 0.99 B |
+| A, T4a × 0.5 | 2.384 | 0.508 | 0.194 | 3.40 | 0.96 A |
+| A, T4a × 2 | 2.643 | 1.378 | 0.802 | 4.19 | 0.91 A |
+| A, T5 × 0 | 1.713 | 1.584 | 0.864 | 6.39 | 0.78 A |
+| A, Mi4 × 1.5 | 0.036 | 0.018 | 0.001 | 3.03 | 0.99 A |
+| 0.5·A + 0.5·B | 0.047 | 0.022 | 0.008 | 3.11 | 0.97 ½(A+B) |
+| state of ½(A+B) video | 0.017 | 0.006 | 0.001 | 3.29 | 0.98 ½(A+B) |
+| L1…Tm9 ← A, T4/T5 ← B | 0.028 | 0.010 | 0.004 | 3.28 | 0.99 B |
+
+\* the dark_after inversion reads 85 frames (clip + darkness) and so sees the
+clip; the decoders read the dark window only, and return darkness (no
+after-image). `early` and `all`: the full table is `data/roundtrip13/summary.json`;
+early is flat (0.006-0.015 on every reachable state, the gain edits on T4a/T5/Mi4
+invisible to L1/L3 by construction), `all` on the gain edits: linear 0.13-0.97,
+CNN 0.21-0.74, inversion 0.12-0.62; on the hybrids 0.60 / 0.48 / 0.26.
+
+What it shows:
+
+- **On reachable states the one-pass readout holds off the training set.**
+  Dreams, clips, whole-state mixes: the CNN's round trip is 0.003-0.04, within
+  2-4× of the inversion's and 100-300× below the shuffled control; the video
+  is the one the eye saw (r 0.97-1.00), and eye noise is recovered as noise,
+  the flash by its timing. The amortisation gap of the test set is the same
+  gap here; no new failure appears on states the training set did not contain.
+- **On unreachable states the methods part.** A gain edit or a hybrid has no
+  video; the inversion returns the nearest reachable video (item 12) with a
+  large residual, and the decoders return something else with a larger one
+  (T4a × 0.5: linear 2.4, the picture goes black; CNN 0.5; inversion 0.2).
+  Linear and CNN still agree (r 0.87-0.98), so the decoders are consistent
+  with each other but not with the brain. The round trip is the number that
+  tells the two cases apart; r to a clip does not (0.85-0.96 on the edits).
+- **After-image lost.** The dark window's state carries the clip (item 11),
+  and the decoders read it as darkness (0.15-0.17 vs the shuffled 0.47): a
+  state's history is not in the maps a one-pass readout sees.
+
 ## Not done (the rest of 13A)
 
-The round trip on the states of items 11-12 (dreams, mixes) — the states with
-no video — was not part of this run; the checkpoints are on the volume
-(`/runs/train13/<cond>_<kind>.pt`) and a short GPU job (≈ $0.05) applies them
-to those states beside the inversion's round trip, the shuffled-state control
-and the model-to-model agreement. Also open: more CNN epochs from the saved
-checkpoints (`--resume train13`) if the `deep` gap to the inversion is to be
-narrowed before 13B.
+More CNN epochs from the saved checkpoints (`--resume train13`) if the `deep`
+gap to the inversion is to be narrowed before 13B; not a gate.
 
 ## Cost
 
 Modal: pairs13 ≈ $0.5 (T4 25 min + 4 cores / 24 GB, the render on the card
-included), train13 ≈ $1.0 (T4 59 min + 2 cores / 12 GB) + ≈ $0.15 aborted.
+included), train13 ≈ $1.0 (T4 59 min + 2 cores / 12 GB) + ≈ $0.15 aborted; roundtrip13 ≈ $0.11 (T4 7.4 min + 1 core / 4 GB).
 Local: procedural clips (34 s on 16 cores), figures.

@@ -171,15 +171,20 @@ One item at a time; the human's word starts each. Order: **13**; then the paused
       three conditions, r where a video exists and the round-trip error
       under every column.
 
-    *13A status (2026-09-20):* data and the three conditions measured on
-    held-out scenes and classes — deep: linear r 0.93 / round trip 0.036,
-    CNN 0.96 / 0.029, inversion 1.00 / 0.009; the deep state reads out in
-    one pass, the nonlinearity matters only there, and the learned models
-    are 2-3× less compatible with the state than the inversion.
-    `reports/2026-09-19_step13a_amortised_inversion.md`. **Left in 13A:**
-    the round trip on the states of 11-12 (no video) beside the inversion
-    and the shuffled control, from the saved checkpoints (≈ $0.05); more CNN
-    epochs via `--resume` if the deep gap is to be narrowed.
+    *13A status (2026-09-20), measured, complete:* data and the three
+    conditions on held-out scenes and classes — deep: linear r 0.93 / round
+    trip 0.036, CNN 0.96 / 0.029, inversion 1.00 / 0.009; the deep state
+    reads out in one pass, the nonlinearity matters only there; the learned
+    models sit hundredths of r below the inversion, with a larger round-trip
+    error (the amortisation gap). The round trip on the 16 states of 11-12
+    (rebuilt on the worker): on reachable states (clips, whole-state mixes,
+    the dreams) the decoders' round trip is within 2-4× of the inversion's
+    (deep CNN 0.006-0.022 vs 0.001-0.008) and 100-300× below the
+    shuffled-state control (≈ 3); on unreachable states (gain edits, hybrids)
+    every method's error is large and the decoders diverge from the
+    inversion (deep, T4a × 0.5: linear 2.4, CNN 0.5, inversion 0.2).
+    `reports/2026-09-19_step13a_amortised_inversion.md` §Round trip on 11-12.
+    Open option, not a gate for 13B: more CNN epochs via `--resume`.
 
     **13B, the generative decoder** (only after 13A shows a measured
     dependence on the state in `deep`): `state → a distribution of
