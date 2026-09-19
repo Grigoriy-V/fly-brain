@@ -218,6 +218,41 @@ One item at a time; the human's word starts each. Order: **13**; then the paused
     started: a brain-consistency term on x̂₁, a wider model / compile,
     prompts written by hand without a clip.
 
+**14, four cheap tests that turn 13B from a decoder into a controllable
+generator** (the human, 2026-09-20, `docs/ideas/fly_brain_next_3_experiments.md`
+plus the random-state test; to close the stage before item 16 and the
+write-up). All on the trained 13B generator and the frozen brain, no
+training; the round trip is the score, the shuffled state the control,
+and the direction of motion in a generated video is read by the brain
+itself (T4/T5 energy per direction after the round trip).
+- **14.0 Random state.** The 8 T4/T5 types set to noise (per-cell white
+  at the clip's mean/sd; and a structured variant, smoothed in time and
+  over the lattice) → 13B → video → round trip. The human: "мне всё
+  равно, если это не будет работать, надо посмотреть, что получим".
+- **14.1 Counterfactual edits.** Swaps and rotations of the direction
+  channels (T4a↔T4c, all four rotated by 90°: reachable by the lattice's
+  symmetry), left/right half from two clips, one direction amplified.
+- **14.2 Prompts without a video.** States assembled from the brain's
+  own responses to procedural stimuli (motion right/left/up, expansion,
+  rotation) by regions of the eye — conflict of directions, motion in a
+  window only — beside one state written by hand (a T4a stripe).
+- **14.3 Closed loop.** state → 13B → video → brain → state′ → … for 12
+  iterations from random / hand-written / edited / neuron-noise starts:
+  round trip and change per iteration; fixed points of the pair
+  generator + brain, not attractors of the brain.
+Local CPU where it fits (sampling is seconds), the round trips on Modal
+only if ≥ 4× faster; ≈ $0.1-0.2 in total. Report + one row-clip per test.
+*14 status (2026-09-20), measured, local CPU, $0:* random states give the
+prior's texture (round trip 1.9 / 2.3 vs control 19, clip 0.03); the
+direction channels are not knobs (swaps, rotation, time reversal,
+amplification: 0.7-9.6, motion unchanged); compositions of brain states by
+region are reachable and render as asked (0.06-0.15, the brain reads the
+composite direction back); a hand-written T4a stripe is ignored (grey);
+the closed loop settles in 1-2 iterations, noise is a fixed point, an
+empty state drifts into the prior. `reports/2026-09-20_step14_controllable_generator.md`.
+Stage closed for the write-up.
+
+
 **Paused in this branch (the human, 2026-09-19: "не сейчас"):**
 
 - **3', fine-tuning MaleCNS from the transplanted weights.** Not from
