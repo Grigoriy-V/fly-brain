@@ -142,13 +142,46 @@ UCF101 action class is to a T4/T5 motion trajectory. "Archery" does not
 constrain which directions the eight motion types take. The mechanism the
 precedent relies on is absent here, and the measurement says so.
 
+**Is the label read at all?** A gate averaged over sixteen samples from sixteen
+noises cannot tell "the label is ignored" from "the label moves the sample but
+not its compatibility". `flydream/generate/classcmp18.py` separates them: **one
+noise vector, four ways out of it** — through the unconditional prior and
+through the conditional one with three labels — with 13B rendering all four
+from the same z, so the only thing that differs is the prior's response to the
+label. Repeated on four noises (local CPU, 4 × 20 s, $0):
+
+| | unconditional | «Surfing» | «Archery» | «procedural:grating» |
+|---|---|---|---|---|
+| round trip, mean of 4 noises | 0.093 | **0.081** | 0.103 | **0.136** |
+| consistent across noises | — | better in 4 / 4 | worse in 3 / 4 | worst in 4 / 4 |
+
+Correlation between the videos of two different labels on the same noise:
+**+0.91** (0.88-0.93 per noise). Two different *noises* give +0.02. So:
+
+- **the label is read** — the cells are not identical, and the ordering repeats
+  in every noise;
+- **it displaces the sample, it does not choose it.** The noise decides which
+  video this is; the label adjusts it. Whatever the label carries, it is a
+  small fraction of what the noise carries.
+- **and what it carries is not motion.** The one class that should have helped
+  most — a drifting grating, the canonical T4/T5 stimulus — is the **worst** of
+  the four in every noise, while "Surfing" beats the unconditional prior in
+  every noise. A label that encoded the motion in the clip would do the
+  opposite. Over 110 classes these cancel, which is exactly the null the gate
+  reported.
+
+`reports/figures/2026-09-20_malecns_classcmp18.gif` (frames 0/20/39 of every
+cell viewed before sending).
+
 ## What this changes
 
 1. **Capacity first.** Width 192 alone is worth more than every other lever
    tested put together, and the prior is no longer the dominant term.
 2. **The learning rate is not bracketed.** 1e-3 is the best measured point and
    the series has not turned.
-3. **Two levers are dead for now:** classes (no effect) and K = 32 (much
+3. **Two levers are dead for now:** classes (no effect — and the same-noise
+   diagnostic shows why: the label displaces the sample by r 0.09 where the
+   noise decides the rest, and what it carries is not motion) and K = 32 (much
    worse at this width).
 4. **`torch.compile` is free money**: 1.23× end to end, so every future run of
    this shape costs about 80 % of what it did.
