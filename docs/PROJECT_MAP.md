@@ -6,11 +6,11 @@ Of?: components, ownership and data flows. Not a roadmap or a history.
 `ROADMAP.md` has current work, `DECISIONS.md` the reasons behind the
 boundaries below, `reports/` the evidence.
 
-**State on 2026-09-19:** data, model zero, the decoder ladder (ridge and
-hex-conv), the generator (encoder inversion, rung three) and the Modal apps
-for training, decoding and generation exist and are tested (64 offline
-tests). The central brain is "(to come)". The deliverable is the generator
-(`ROADMAP.md`); the decoder is its baseline.
+**State on 2026-09-19:** data, model zero, the decoder ladder, encoder
+inversion, the learned 13A/13B decoders and the item-14 prompt experiments
+are measured. The three Modal apps support training, decoding and generation.
+MaleCNS fine-tuning is paused; an internal source of spontaneous states is a
+deferred draft (item 16). The current order and approvals live in `ROADMAP.md`.
 
 ## System at a glance
 
@@ -44,7 +44,7 @@ tests). The central brain is "(to come)". The deliverable is the generator
                                  ▼
           data/decode/<run>/ (map.csv, pairs.npz, meta.json)
           reports/figures/ + reports/<date>_<step>.md + reports/runs.jsonl
-          deploy/modal/ (to come at roadmap 3)
+          deploy/modal/ (training, decoding and generation apps)
 ```
 
 ## Components and owners
@@ -103,8 +103,11 @@ tests). The central brain is "(to come)". The deliverable is the generator
   comes from a state no clip caused; the control is a second input clip.
   `run_ladder` does every stage in one model load; `figures.py` draws the
   ladder and the clip; `clip_from_sintel` takes the clip from the dataset
-  so no pairs file is needed. Settings in `config.toml [generate]` (to be
-  added at item 9: frames, margin).
+  so no pairs file is needed. Settings in `config.toml [generate]` include
+  frames and the end margin. `gen13b.py` implements the learned
+  conditional flow decoder from eight T4/T5 types and a type mask;
+  `prompts14.py` evaluates random, edited and composed states and the
+  generator-brain loop. See the 13A, 13B and 14 reports linked in `ROADMAP.md`.
 - **Train** (`flydream/train/`, built 2026-09-18): `member.py` composes
   flyvis's own solver from its Hydra config on a connectome export
   (`--init` a transplanted state, `--variant stats_relu` the two measured
@@ -118,13 +121,15 @@ tests). The central brain is "(to come)". The deliverable is the generator
   `map_local.py` (the ensemble map locally, parked); figure scripts
   (`fig_batch_throughput.py`, `fig_optimization_bench.py`);
   `verify_train_optimizations.py`, `summarize_training_benchmark.py`.
-- **Tests** (`tests/`, 64 offline): `fixtures/mini_connectome.json` (five
+- **Tests** (`tests/`, 77 offline passed on 2026-09-19):
+  `fixtures/mini_connectome.json` (five
   types on a 19-column lattice, one double-inversion ON pathway and one
   strided wide-field type) with `test_mini_network.py` building and
   simulating it; `test_transplant.py` (the rescale invariant and the cap);
   `test_decode.py` (metrics, batched SSIM against skimage, ridge
   scale-invariance and GCV against hold-out, controls, pairs, raster);
-  `test_hexconv.py`; `test_sweep.py`; `test_train_optimizations.py`;
+  `test_hexconv.py`; `test_sweep.py`; `test_generate.py`;
+  `test_train_optimizations.py`;
   `test_data_helpers.py`. No test downloads, calls Modal or needs a
   credential.
 - **Deploy** (`deploy/modal/`, built 2026-09-18/19): three Modal Apps on a
@@ -139,14 +144,18 @@ tests). The central brain is "(to come)". The deliverable is the generator
 
 ## Boundaries
 
-Engineering benchmark (2026-09-18, opt-in; GPU measurement pending):
+Engineering benchmark (2026-09-18, completed on one T4):
 `flydream/train/optimizations.py` binds reversible per-instance adapters for
 device-side diagnostic reductions and node-wise ReLU before edge gathering.
 `flydream/train/benchmark.py` compares four variants in separate processes,
 with two paired repeats and a separate profiler run. `train/member.py` records
 actual optimizer-iteration deltas. Default training remains `baseline`.
-The implementation and synthetic numerical evidence are in
-`reports/2026-09-18_training_optimization_bench.md`; no GPU speed claim yet.
+The paired runs measured `stats_relu` at 1.164× and 1.172× the corresponding
+baseline. Loss curves passed the specified tolerance; final decoder states
+did not, while the network's free parameters matched within 3e-8 and the
+decoder drift stayed within the observed baseline-to-baseline CUDA variation.
+This 30-iteration test does not establish equal long-run convergence. Evidence:
+`reports/2026-09-18_training_optimization_bench.md`.
 
 - The repository holds code, settings, manifests, reports, figures and
   notes; data, activity tensors, cached pairs and checkpoints live under

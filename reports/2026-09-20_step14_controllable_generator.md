@@ -119,7 +119,7 @@ The generator is controllable through *compositions of brain states*
 (regions, clips, stimuli), not through per-type knobs: the state space
 has a structure the brain imposes, and edits outside it are answered by
 the prior. Random inputs give the prior's texture, measurably
-incompatible. This closes the stage: 13A (what reads out), 13B (one-pass
+incompatible. This closes the stage: 13A (what reads out), 13B (conditional
 generator with masks), 14 (what can and cannot be prompted). Item 16
 (where states come from without a video) stays deferred.
 

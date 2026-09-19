@@ -102,7 +102,8 @@ prior, makes the picture. Figures
 
 ## What the pictures show
 
-- **The generator is a one-pass inversion with an interface.** On held-out
+- **At full conditioning the iterative sampler behaves like a learned
+  inverse.** SiT uses 20 Euler steps. On held-out
   clips and on every reachable state of items 11-12 its round trip equals
   the 13A CNN's (0.031 vs 0.029 on the 8 test clips; r 0.966 vs 0.960),
   3× the Adam inversion's, 30× under the shuffled control. The video is the

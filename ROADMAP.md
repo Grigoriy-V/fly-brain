@@ -19,8 +19,9 @@ and only from the transplanted weights; one substrate (MaleCNS) at a time;
 one artefact per message with its text first (`AGENTS.md`, "Artefacts for
 the human").
 
-**Current approved step:** 13B (design approved 2026-09-20); 9, 11, 12 and
-13A are done. Each priced run starts on the human's word.
+**Current approved step:** none. Steps 13B and 14 are measured and closed;
+item 16 is a draft, deferred until the human resumes its discussion. Fine-tuning
+MaleCNS (3') remains paused. Each priced run starts on the human's word.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -62,7 +63,8 @@ and authorization.
   both brains (`2026-09-19_*_generator_two_inputs.*`,
   `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). Training priced:
   batch 16 saturates a T4 at 14 samples/s, `stats_relu` gives 1.17×
-  (`reports/2026-09-18_step3_training_options.md`). Tests: 64 offline.
+  (`reports/2026-09-18_step3_training_options.md`). Tests: 77 offline
+  passed on 2026-09-19.
 
 ## Done
 
@@ -129,9 +131,10 @@ and authorization.
   3' below. `reports/2026-09-18_step3_training_options.md`,
   `reports/2026-09-18_training_optimization_bench.md`.
 
-## Queue: the dreams and visual-data branch
+## Completed generator branch: steps 13 and 14
 
-One item at a time; the human's word starts each. Order: **13**; then the paused items of this branch when the human says so.
+The measurements and remaining limitations of these steps are recorded below.
+No further build on this branch is approved at present.
 
 13. **Level C, a learned generator — in two layers** (the human and a
     second agent's review, 2026-09-19; the goal stays the human's: "видео

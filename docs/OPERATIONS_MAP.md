@@ -2,7 +2,8 @@
 
 Configuration, data locations, Modal, and how a run is started and read
 back. Not a roadmap. **State on 2026-09-19:** data, model zero, the
-decoder, the generator and the three Modal apps are set up; each section
+decoder ladder, encoder inversion, the learned 13A/13B decoders and the
+item-14 prompt experiments are measured; the three Modal apps are set up. Each section
 below names where its facts live so a later reader finds one place per fact.
 
 ## Machine and environment
@@ -34,8 +35,8 @@ below names where its facts live so a later reader finds one place per fact.
   `side` R, `extent` 15, the weak-pair exception, columnar outputs),
   `[flyvis]` (version, ensemble, root_dir), `[model]` (`rescale_cap`),
   `[decode]` (model, members, splits, lags, lag_windows, metrics settings),
-  `[benchmark]` (the training-optimisation benchmark); `[generate]` is added
-  at ROADMAP item 9 (frames, margin).
+  `[benchmark]` (the training-optimisation benchmark); `[generate]` includes
+  frames, margin and the later generator settings.
 
 ## Commands (step 1)
 
@@ -48,7 +49,7 @@ below names where its facts live so a later reader finds one place per fact.
 .venv\Scripts\python.exe -m flydream.data.export
 .venv\Scripts\python.exe -m flydream.model.zero --models 0 1 2 --protocols flash edge --control --run <id>   # step 2, ~8 min CPU without --control
 .venv\Scripts\python.exe -m flydream.model.zero --models 0 --no-rescale --run <id>          # reproduces the pre-fix transplant (ISS-0003)
-.venv\Scripts\python.exe -m pytest -q                                                       # 64 offline tests
+.venv\Scripts\python.exe -m pytest -q                                                       # 77 offline tests
 .venv\Scripts\python.exe tools\run_log.py --agent claude --run <id> --experiment <x> --metric <m> --value <v>
 ```
 
@@ -168,8 +169,9 @@ in the network and is dropped from the outputs.
 
 ## Runs and evidence
 
-Training optimization benchmark (run once on a T4, 2026-09-18 22:00, ~$0.30; result:
-`stats_relu` 1.17×, equivalent within CUDA noise — `reports/2026-09-18_training_optimization_bench.md`):
+Training optimization benchmark (run once on a T4, 2026-09-18 22:00, ~$0.30;
+`stats_relu` 1.16–1.17×; final-state tolerance failed, with drift comparable
+to the baseline CUDA variation — `reports/2026-09-18_training_optimization_bench.md`):
 
 ```powershell
 .venv\Scripts\python.exe -m flydream.train.benchmark  # print local plan only
@@ -209,10 +211,17 @@ The T4 app returns the recovered videos in its result (hundreds of KB) and
 writes them under `data/generate/<tag>/`; nothing large is downloaded. The
 model argument is a flyvis NetworkView name or `malecns[:member]`.
 
+The learned 13B model is in `data/gen13b/sit.pt`; its measured samples and
+metrics are in `data/gen13b/` and
+`reports/2026-09-20_step13b_generative_decoder.md`. Item 14 uses
+`flydream/generate/prompts14.py` on local CPU; its saved results are in
+`data/prompts14/` and `reports/2026-09-20_step14_controllable_generator.md`.
+The approved state of further work is in `ROADMAP.md`.
+
 ## Checks
 
-- `pytest -q -p no:cacheprovider`: 64 offline tests, no data download, no
-  Modal, no credential (~25 s).
+- `pytest -q -p no:cacheprovider`: 77 offline tests passed on 2026-09-19,
+  no data download, no Modal, no credential (22 s; one PyTorch warning).
 - A model's validation (flash and moving-edge protocols against FlyVis's
   targets) is a script, run locally on CPU for one model and on Modal for an
   ensemble.
