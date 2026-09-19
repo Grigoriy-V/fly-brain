@@ -67,7 +67,7 @@ def read_gray(path, *, max_frames: int | None = None, skip: int = 0) -> tuple[np
 
 
 def to_hexals(gray: np.ndarray, fps: float, dt: float, box=None, *, splits: int = SPLITS,
-              crop: float = CROP, width: int = WIDTH) -> np.ndarray:
+              crop: float = CROP, width: int = WIDTH, chunk: int = 32) -> np.ndarray:
     """(T, H, W) frames → (splits, T', 721) hexal luminance at 1/dt.
 
     The frame is first resized to `width` pixels across, aspect ratio kept.
@@ -82,12 +82,16 @@ def to_hexals(gray: np.ndarray, fps: float, dt: float, box=None, *, splits: int 
 
     box = box or eye()
     x = torch.as_tensor(np.asarray(gray, np.float32))
-    if width and x.shape[-1] != width:
-        h = max(int(box.min_frame_size[0]), int(round(x.shape[-2] * width / x.shape[-1])))
-        x = torch.nn.functional.interpolate(x[:, None], size=(h, int(width)), mode="bilinear",
-                                            align_corners=False, antialias=True)[:, 0]
-    views = hsplit(x, int(box.min_frame_size[1]) + 2 * box.kernel_size, splits, crop)   # (splits, T, H, W)
-    hexals = box(views).squeeze(2)                                                      # (splits, T, 721)
+    out = []
+    for i in range(0, len(x), chunk):                     # in chunks: a resized 1024-px frame is 3 MB
+        c = x[i:i + chunk]
+        if width and c.shape[-1] != width:
+            h = max(int(box.min_frame_size[0]), int(round(c.shape[-2] * width / c.shape[-1])))
+            c = torch.nn.functional.interpolate(c[:, None], size=(h, int(width)), mode="bilinear",
+                                                align_corners=False, antialias=True)[:, 0]
+        views = hsplit(c, int(box.min_frame_size[1]) + 2 * box.kernel_size, splits, crop)   # (splits, t, H, W)
+        out.append(box(views).squeeze(2))                                                   # (splits, t, 721)
+    hexals = torch.cat(out, dim=1)
     if abs(fps - 1 / dt) > 1e-6:
         hexals = Interpolate(fps, 1 / dt, mode="linear").transform(hexals, dim=1)
     return hexals.cpu().numpy().astype(np.float32)

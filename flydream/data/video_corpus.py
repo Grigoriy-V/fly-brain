@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -96,6 +97,97 @@ def label_of(path: Path, root: Path) -> str:
     return rel.parts[0] if len(rel.parts) > 1 else "video"
 
 
+_CFG: dict = {}
+
+
+def _init(cfg: dict) -> None:
+    import torch
+
+    torch.set_num_threads(1)                                             # 16 processes, one thread each
+    _CFG.update(cfg)
+    _CFG["box"] = V.eye()
+
+
+def _one(arg) -> dict:
+    """One file in a worker: decode, render, score, keep, rotate."""
+    i, path = arg
+    c = _CFG
+    try:
+        got = from_file(Path(path), frames=c["frames"], dt=c["dt"], raw_frames=c["raw_frames"],
+                        per_video=c["per_video"], band=c["band"], splits=c["splits"], box=c["box"])
+    except Exception as e:
+        return {"path": str(path), "error": f"{type(e).__name__}: {e}", "clips": []}
+    clips = []
+    for j, d in enumerate(got):
+        n_rot = (i + j) % max(1, c["rotations"])                         # cycled: every heading equally often
+        v = V.augment(d["video"].astype(np.float32), n_rot=n_rot) if n_rot else d["video"].astype(np.float32)
+        clips.append({"video": v.astype(np.float16), "n_rot": int(n_rot), "split": d["split"],
+                      "window": d["window"], "scores": d["scores"]})
+    return {"path": str(path), "clips": clips}
+
+
+def build(files: list[Path], root: Path, out: Path, *, videos: int, per_video: int, frames: int, dt: float,
+          raw_frames: int, splits: int, band: dict, rotations: int, shard: int, workers: int, seed: int,
+          log=print) -> dict:
+    """Render, score and shard the corpus. Local CPU, one process per core."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    rng = np.random.default_rng(seed)
+    pick = files if videos >= len(files) else [files[i] for i in sorted(rng.choice(len(files), videos, replace=False))]
+    out.mkdir(parents=True, exist_ok=True)
+    cfg = {"frames": frames, "dt": dt, "raw_frames": raw_frames, "per_video": per_video, "band": band,
+           "splits": splits, "rotations": rotations}
+    t0, meta, buf, shards, errors = time.time(), [], [], [], []
+    def flush():
+        if not buf:
+            return
+        name = f"videos_{len(shards):03d}.npz"
+        np.savez(out / name, videos=np.stack([b["video"] for b in buf]))
+        shards.append({"file": name, "n": len(buf)})
+        log(f"  wrote {name} ({len(buf)} clips, {time.time() - t0:.0f} s)")
+        buf.clear()
+
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init, initargs=(cfg,)) as pool:
+        for k, r in enumerate(pool.map(_one, list(enumerate(pick)), chunksize=8)):
+            if r.get("error"):
+                errors.append(r)
+            for c in r["clips"]:
+                buf.append(c)
+                meta.append({"source": "video", "path": str(Path(r["path"]).relative_to(root)),
+                             "label": label_of(Path(r["path"]), root), "n_rot": c["n_rot"],
+                             "view": c["split"], "window": c["window"], "scores": c["scores"]})
+            if len(buf) >= shard:
+                flush()
+            if (k + 1) % 500 == 0:
+                log(f"  {k + 1}/{len(pick)} files, {len(meta)} clips kept, {len(errors)} failed, {time.time() - t0:.0f} s")
+    flush()
+    manifest = {"source_root": str(root), "files_read": len(pick), "n": len(meta), "frames": frames, "dt": dt,
+                "splits": splits, "per_video": per_video, "rotations": rotations, "band": band,
+                "shards": shards, "failed": len(errors), "seconds": round(time.time() - t0, 1), "meta": meta}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    if errors:
+        (out / "errors.json").write_text(json.dumps(errors[:200], indent=1), encoding="utf-8")
+    log(f"corpus {len(meta)} clips from {len(pick)} files ({len(errors)} failed) in {time.time() - t0:.0f} s")
+    return manifest
+
+
+def pack(out: Path, log=print) -> dict:
+    """The shards plus the manifest as one `videos.npz` in the shape
+    `pairs13` reads: `videos` (n, frames, 721) float16 and `meta`, one JSON
+    string per clip. That is what goes to the Modal volume."""
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    vids = [np.load(out / sh["file"])["videos"] for sh in manifest["shards"]]
+    videos = np.concatenate(vids).astype(np.float16)
+    if len(videos) != manifest["n"]:
+        raise SystemExit(f"{len(videos)} clips in the shards, {manifest['n']} in the manifest")
+    meta = [json.dumps({"source": "video", "label": m["label"], "path": m["path"], "n_rot": m["n_rot"],
+                        "view": m["view"], "window": m["window"]}) for m in manifest["meta"]]
+    np.savez(out / "videos.npz", videos=videos, meta=np.array(meta))
+    size = (out / "videos.npz").stat().st_size / 1e9
+    log(f"packed {videos.shape} into {out / 'videos.npz'} ({size:.2f} GB)")
+    return {"n": len(videos), "shape": list(videos.shape), "gigabytes": round(size, 3)}
+
+
 def main(argv=None) -> int:
     from flydream.model import ROOT
 
@@ -111,6 +203,8 @@ def main(argv=None) -> int:
     p.add_argument("--rotations", type=int, default=6)
     p.add_argument("--shard", type=int, default=4000)
     p.add_argument("--probe", type=int, default=0)
+    p.add_argument("--band", default="")
+    p.add_argument("--pack", action="store_true")
     p.add_argument("--workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
@@ -126,7 +220,16 @@ def main(argv=None) -> int:
         print(json.dumps(r["percentiles"], indent=1))
         print(f"windows {r['windows']}, pass rate in the Sintel band {r['pass_rate_sintel_band']:.1%}, {r['seconds']} s")
         return 0
-    raise SystemExit("building the corpus is a separate run; --probe first")
+    if a.pack:
+        pack(Path(a.out))
+        return 0
+    band = json.loads(a.band) if a.band else SINTEL_BAND
+    out = Path(a.out)
+    build(files, src, out, videos=a.videos, per_video=a.per_video, frames=a.frames, dt=a.dt,
+          raw_frames=a.raw_frames, splits=a.splits, band=band, rotations=a.rotations, shard=a.shard,
+          workers=a.workers or (os.cpu_count() or 8) // 2, seed=a.seed)
+    pack(out)
+    return 0
 
 
 if __name__ == "__main__":

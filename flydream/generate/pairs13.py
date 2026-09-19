@@ -96,11 +96,15 @@ def sintel_videos(frames: int, dt: float, flips=(0, 1), rotations=(0, 1, 2, 3, 4
 
 
 def split_indices(meta: list[dict], held_scenes: list[str], held_classes: list[str], val_fraction: float, seed: int):
-    """train / val / test index arrays. Test = whole held-out scenes and
-    classes; val = a random fraction of the rest, by clip."""
+    """train / val / test index arrays. Test = whole held-out scenes, classes
+    and (item 18) labels of the ordinary-video corpus; val = a random fraction
+    of the rest, by clip. Holding out whole scenes/classes/labels rather than
+    clips is what keeps a test clip's content out of training."""
     rng = np.random.default_rng(seed)
     test = [i for i, m in enumerate(meta)
-            if (m["source"] == "sintel" and m["scene"] in held_scenes) or (m["source"] == "procedural" and m["class"] in held_classes)]
+            if (m["source"] == "sintel" and m["scene"] in held_scenes)
+            or (m["source"] == "procedural" and m["class"] in held_classes)
+            or (m["source"] == "video" and m.get("label") in held_scenes)]
     rest = np.array([i for i in range(len(meta)) if i not in set(test)])
     rng.shuffle(rest)
     n_val = int(round(val_fraction * len(rest)))
