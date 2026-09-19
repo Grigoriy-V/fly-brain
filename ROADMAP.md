@@ -180,6 +180,30 @@ full training set is still unmeasured** (the states live in the 5.5 GB
 `maps_deep.npz` on the volume; `sample17` in the Modal app measures it there,
 ≈ $0.10) — it is pointless until a sample passes the round trip.
 
+*17.1b status (2026-09-20), measured, one T4 676 s ≈ $0.14 + local CPU $0:*
+the human's diagnostic — **scene states only** (1,695 Sintel states of the
+6,725; the set was 76 % procedural and the task is a video generator) in a
+**compact temporal basis** (DCT, 16 of 40 coefficients, each z-scored). K was
+chosen by a free local sweep first: band-limiting a *real* state costs a round
+trip of 0.58 at K = 8, 0.20 at K = 12, 0.045 at K = 16 against 0.019 for the
+full state, so K = 8 would have capped the test. Result: **round trip 0.142**
+(0.119-0.176) against 17.1's 1.19 — 8× better, no longer in the class of a
+shuffled state (1.77), still ~20× above a real clip (0.006) and ~15× above
+what this representation allows (0.009). The structure of the samples now
+matches real states — temporal lag-1 0.98, one-ring spatial 0.77, cross-type
+coupling 0.31 against 0.99 / 0.80 / 0.35 — and it is learned, not imposed: the
+basis alone gives 0.77 / −0.00 / 0.01. The speckle is gone (video
+frame-to-frame 0.026 against 17.1's 0.280, a real clip's 0.057); what appears
+is oriented structure and large moving regions, **not scenes with objects**.
+Video novelty +0.41 against 17.1's +0.12 (a real clip +0.68), samples still
+differ from each other. Two factors moved at once (data and basis), so this
+run does not separate them.
+`reports/2026-09-20_step17_1b_scene_dct_prior.md`,
+`reports/figures/2026-09-20_malecns_prior17b.gif`. Next per the human's plan,
+not started: a large set of ordinary video with procedural stimuli as a
+minority, then the prior retrained on it; a wider SiT is explicitly **not** to
+be run before that.
+
 **The human's decision, nothing started:** (1) more capacity, same design
 (width 192-256 or depth 6; ≈ $0.4-0.9 per run, which touches or breaks the
 $0.50 rule); (2) the documented fallback — compress the state and put the flow

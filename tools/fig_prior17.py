@@ -28,6 +28,8 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default=str(ROOT / "data" / "prior17"))
     p.add_argument("--name", default="samples17_local")
+    p.add_argument("--compare", default="", help="a second run tag: one row, both priors beside the same references")
+    p.add_argument("--heads", default="прайор 17.1|прайор 17.1b")
     p.add_argument("--prefix", default="2026-09-20_malecns_prior17")
     p.add_argument("--fps", type=int, default=8)
     p.add_argument("--outdir", default=str(ROOT / "reports" / "figures"))
@@ -53,13 +55,37 @@ def main(argv=None) -> int:
                 (z[f"video__{name}"], f"{head}: видео 13B",
                  f"прогонка {s['round_trip']:.3f}, мозг читает {s['direction_video']}")]
 
-    prior = [n for n in sc if sc[n]["kind"] == "prior"]
+    def best_of(scores):
+        return sorted([n for n in scores if scores[n]["kind"] == "prior"], key=lambda n: scores[n]["round_trip"])
+
     clips = [n for n in sc if sc[n]["kind"] == "clip"]
-    best = sorted(prior, key=lambda n: sc[n]["round_trip"])                 # the most compatible sample first
     sintel = [n for n in clips if "Sintel" in sc[n].get("label", "")]
     ref = min(sintel or clips, key=lambda n: sc[n]["round_trip"])
-    cells = pair(best[0], "прайор, сэмпл 1") + pair(best[len(best) // 2], "прайор, сэмпл 2") \
-        + pair(ref, "настоящее видео", sc[ref].get("label", "отложенный клип"))         + pair("noise_white", "контроль: шум в типах")
+    if a.compare:
+        S2 = json.loads((run / f"{a.compare}.json").read_text(encoding="utf-8"))
+        z2 = np.load(run / f"{a.compare}.npz")
+        sc2 = S2["scores"]
+        ha, hb = (a.heads.split("|") + ["", ""])[:2]
+
+        def pair2(name, head, note=""):                                      # the same cell pair from the second run
+            s2 = sc2[name]
+            m = z2[f"T4a__{name}"][:frames]
+            lo, hi = np.percentile(m, 1), np.percentile(m, 99)
+            foot = (note + ", " if note else "") + f"направление {s2['direction_state']}"
+            return [(np.clip((m - lo) / (hi - lo + 1e-6), 0, 1), f"{head}: карта T4a", foot),
+                    (z2[f"video__{name}"], f"{head}: видео 13B",
+                     f"прогонка {s2['round_trip']:.3f}, мозг читает {s2['direction_video']}")]
+
+        cells = pair(best_of(sc)[0], ha) + pair2(best_of(sc2)[0], hb)
+        ceil = [n for n in sc2 if sc2[n]["kind"] == "ceiling"]
+        if ceil:
+            cells += pair2(min(ceil, key=lambda n: sc2[n]["round_trip"]), "потолок DCT", "настоящее состояние, срезано")
+        cells += pair(ref, "настоящее видео", sc[ref].get("label", "отложенный клип"))
+    else:
+        best = best_of(sc)
+        cells = pair(best[0], "прайор, сэмпл 1") + pair(best[len(best) // 2], "прайор, сэмпл 2") \
+            + pair(ref, "настоящее видео", sc[ref].get("label", "отложенный клип")) \
+            + pair("noise_white", "контроль: шум в типах")
     slow = f"{frames} кадров по 20 мс (0.8 с мухи), в {1 / (a.fps * 0.02):.1f}× медленнее"
     title = ("17.2: состояние T4/T5, взятое из обученного прайора (видео на входе не было), и видео, которое 13B из него делает. "
              f"Прогонка — ошибка обратного прохода видео через мозг к тому же состоянию, меньше = совместимее. {slow}.")
