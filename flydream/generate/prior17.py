@@ -147,6 +147,47 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     return {"history": hist, "ema": ema, "seconds": round(time.time() - t0, 1)}
 
 
+def dct_matrix(n: int, k: int | None = None) -> np.ndarray:
+    """(k, n) rows of the orthonormal DCT-II — `scipy.fft.dct(norm="ortho")`
+    as a matrix, so the transform is one einsum in numpy or torch and the
+    inverse is its transpose (17.1b: the state's time axis is compressed)."""
+    k = k or n
+    j = np.arange(n)[None, :]; i = np.arange(k)[:, None]
+    d = np.cos(np.pi * (j + 0.5) * i / n) * np.sqrt(2.0 / n)
+    d[0] *= 1 / np.sqrt(2)
+    return d.astype(np.float32)
+
+
+def to_dct(x, d):
+    """(..., T, K, n) -> (..., k, K, n): the first `k` temporal coefficients."""
+    if isinstance(x, torch.Tensor):
+        return torch.einsum("kt,btcn->bkcn", torch.as_tensor(d, device=x.device, dtype=x.dtype), x)
+    return np.einsum("kt,btcn->bkcn", d, x)
+
+
+def from_dct(c, d):
+    """The inverse of `to_dct`: the band-limited state in frames."""
+    if isinstance(c, torch.Tensor):
+        return torch.einsum("kt,bkcn->btcn", torch.as_tensor(d, device=c.device, dtype=c.dtype), c)
+    return np.einsum("kt,bkcn->btcn", d, c)
+
+
+@torch.no_grad()
+def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, device=None,
+                  generator: torch.Generator | None = None) -> np.ndarray:
+    """(n, 40, 8, 721) states in 13B's conditioning units, from either prior:
+    the plain one samples frames directly, the DCT one samples coefficients,
+    undoes their per-coefficient scaling and transforms back to frames."""
+    dev = device or next(model.parameters()).device
+    k = int(meta.get("dct_k", 0))
+    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator)
+    if not k:
+        return x.cpu().numpy().astype(np.float32)
+    cm = torch.as_tensor(np.array(meta["coef_mean"], np.float32), device=dev)[None, :, :, None]
+    cs = torch.as_tensor(np.array(meta["coef_std"], np.float32), device=dev)[None, :, :, None]
+    return from_dct(x * cs + cm, dct_matrix(int(meta["time_frames"]), k)).cpu().numpy().astype(np.float32)
+
+
 def from_maps(maps: np.ndarray, layout, n_cells: int) -> np.ndarray:
     """(N, T, K, 721) maps -> (N, T, cells) states, the inverse of
     `learned.to_maps` (a bijection for the columnar T4/T5 types: one cell per

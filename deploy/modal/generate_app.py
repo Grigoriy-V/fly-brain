@@ -450,15 +450,21 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz") -> dict:
 
 
 def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train", limit: int = 0,
-               with_videos: bool = True):
+               with_videos: bool = True, sources: str = "all"):
     """(videos, maps) float16 tensors of one split on `device`, plus the index.
     `with_videos=False` leaves the videos on the volume (17.1 trains on the
-    states alone and the card need not hold them)."""
+    states alone and the card need not hold them). `sources="sintel"` keeps
+    only the scene clips, `"procedural"` only the stimuli (17.1b: the human,
+    2026-09-20 — the set is 76 % procedural and the task is a video
+    generator)."""
     import numpy as np
     import torch
 
     z = np.load(Path(RUNS) / file)
     keep = np.isin(z["index"], z[subset])
+    if sources != "all":
+        n_s = int(json.loads((Path(RUNS) / "pairs13" / "manifest.json").read_text(encoding="utf-8"))["n_sintel"])
+        keep &= (z["index"] < n_s) if sources == "sintel" else (z["index"] >= n_s)
     idx = np.where(keep)[0]
     if limit:
         idx = idx[:limit]
@@ -534,21 +540,39 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
 def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
-            seed: int = 0, out: str = "prior17") -> dict:
+            seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow") -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
-    loss every 500 steps; checkpoint with EMA weights on
-    /runs/<out>/state_flow.pt. One T4, the states alone on the card."""
+    loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
+    One T4, the states alone on the card.
+
+    17.1b (`sources="sintel"`, `dct_k=16`): scene states only, and the time
+    axis compressed to its first DCT coefficients, each z-scored over the
+    training subset. K = 16 keeps 99.55 % of the energy and costs a round trip
+    of 0.045 on real states; K = 8 costs 0.58 (measured before the run)."""
+    import numpy as np
     import torch
     from flydream.generate import prior17 as R
     from flydream.generate.invert import GpuSampler
 
     dev = torch.device("cuda")
     t0 = time.time()
-    _, m, _, stats = _load_maps(dev, with_videos=False)
-    _, mv, _, _ = _load_maps(dev, subset="val", limit=256, with_videos=False)
+    _, m, _, stats = _load_maps(dev, with_videos=False, sources=sources)
+    _, mv, _, _ = _load_maps(dev, subset="val", limit=256, with_videos=False, sources=sources)
     print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s "
           f"({m.element_size() * m.nelement() / 1e9:.1f} GB)", flush=True)
+    time_frames, coef_mean, coef_std = int(m.shape[1]), None, None
+    if dct_k:
+        dmat = R.dct_matrix(time_frames, dct_k)
+        m = R.to_dct(m.float(), dmat)
+        mv = R.to_dct(mv.float(), dmat)
+        coef_mean = m.mean((0, 3), keepdim=True)
+        coef_std = m.std((0, 3), keepdim=True) + 1e-6
+        m = ((m - coef_mean) / coef_std).half()
+        mv = ((mv - coef_mean) / coef_std).half()
+        coef_mean = coef_mean[0, :, :, 0].cpu().numpy(); coef_std = coef_std[0, :, :, 0].cpu().numpy()
+        print(f"DCT-{dct_k}: train {tuple(m.shape)}, coefficient sd per index "
+              f"{np.round(coef_std.mean(1), 3).tolist()}", flush=True)
     model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads)
     n_par = sum(p.numel() for p in model.parameters())
     print(f"state flow: {n_par} parameters", flush=True)
@@ -559,11 +583,14 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
-            "mean": stats["mean"].tolist(), "std": stats["std"].tolist()}
-    R.save(outdir / "state_flow.pt", model, r["ema"], meta)
+            "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
+            "time_frames": time_frames, "n_train": int(m.shape[0]),
+            "coef_mean": None if coef_mean is None else coef_mean.tolist(),
+            "coef_std": None if coef_std is None else coef_std.tolist()}
+    R.save(outdir / f"{name}.pt", model, r["ema"], meta)
     summary = {**meta, "history": r["history"], "seconds": r["seconds"], "seconds_worker": round(time.time() - t0, 1),
                "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 12288}
-    (outdir / "state_flow_train.json").write_text(json.dumps(summary), encoding="utf-8")
+    (outdir / f"{name}_train.json").write_text(json.dumps(summary), encoding="utf-8")
     runs_volume.commit()
     print(f"train17 done: {r['seconds']} s, GPU utilisation {gpu.mean}", flush=True)
     return summary
@@ -994,7 +1021,8 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
          train13b_run: bool = False, multi_init13b_run: bool = False, sample13b_run: bool = False, kind: str = "hexresnet",
          steps13b: int = 6000, batch13b: int = 32, width13b: int = 64, depth13b: int = 6, compile13b: bool = False,
          train17_run: bool = False, steps17: int = 20000, batch17: int = 32, width17: int = 128, depth17: int = 4,
-         sample17_run: bool = False, samples17: int = 16):
+         sample17_run: bool = False, samples17: int = 16, sources17: str = "all", dct17: int = 0,
+         name17: str = "state_flow"):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -1007,11 +1035,13 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
     if train17_run:
-        print(f"train17 on {GPU}: state flow {width17}x{depth17}, {steps17} steps, batch {batch17}")
-        r = train17.remote(steps=steps17, batch=batch17, width=width17, depth=depth17, seed=seed)
+        print(f"train17 on {GPU}: state flow {width17}x{depth17}, {steps17} steps, batch {batch17}, "
+              f"sources {sources17}, DCT {dct17 or 'off'} -> {name17}.pt")
+        r = train17.remote(steps=steps17, batch=batch17, width=width17, depth=depth17, seed=seed,
+                           sources=sources17, dct_k=dct17, name=name17)
         d = root / "data" / "prior17"
         d.mkdir(parents=True, exist_ok=True)
-        (d / "state_flow_train.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        (d / f"{name17}_train.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
         h = r["history"]
         print(json.dumps({k: v for k, v in r.items() if k not in ("history", "mean", "std")}, indent=1)[:1500])
         print(f"loss {h[0]['loss']:.4f} -> {h[-1]['loss']:.4f}, val {h[-1].get('val_loss')}")

@@ -249,3 +249,22 @@ def test_prior17_map_state_roundtrip():
     mean = np.array([1.0, -2.0], np.float32); std = np.array([2.0, 0.5], np.float32)
     raw = R.unscale((maps - mean[None, None, :, None]) / std[None, None, :, None], mean, std)
     assert np.allclose(raw, maps.astype(np.float32), atol=1e-4)
+
+
+def test_prior17_dct_matrix_and_sample_states():
+    import torch
+    from flydream.generate import prior17 as R
+
+    d40 = R.dct_matrix(40)
+    assert d40.shape == (40, 40) and np.allclose(d40 @ d40.T, np.eye(40), atol=1e-5)   # orthonormal
+    x = np.random.default_rng(0).standard_normal((2, 40, 3, 5)).astype(np.float32)
+    assert np.allclose(R.from_dct(R.to_dct(x, d40), d40), x, atol=1e-4)                # full basis is lossless
+    d16 = R.dct_matrix(40, 16)
+    band = R.from_dct(R.to_dct(x, d16), d16)
+    assert band.shape == x.shape and np.abs(band - x).mean() > 0                       # truncation loses something
+    assert np.allclose(R.to_dct(band, d16), R.to_dct(x, d16), atol=1e-4)               # ...only above K
+    model = R.build(frames=16, k=3, width=16, depth=1, heads=2)
+    meta = {"frames": 16, "k": 3, "dct_k": 16, "time_frames": 40,
+            "coef_mean": np.zeros((16, 3)).tolist(), "coef_std": np.ones((16, 3)).tolist()}
+    s = R.sample_states(model, meta, 2, steps=2, generator=torch.Generator().manual_seed(0))
+    assert s.shape == (2, 40, 3, 721) and np.isfinite(s).all()                         # back in frames
