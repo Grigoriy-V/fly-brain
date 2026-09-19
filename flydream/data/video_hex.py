@@ -10,7 +10,7 @@ own call in flyvis's order:
       → `rendering.utils.split`   centre-crop 0.7 of the width, then cut it
                                   into `vertical_splits` overlapping views
       → `rendering.BoxEye`        extent 15, kernel 13 → 721 hexals
-      → `augmentation.Interpolate` native framerate → 1/dt, linear
+      → `augmentation.Interpolate` native framerate → 1/dt, **nearest-exact**
       → `augmentation.HexRotate` / `HexFlip`   (the lattice, not the image)
 
 What is *not* flyvis's is the selection: ordinary video contains cuts, static
@@ -67,7 +67,8 @@ def read_gray(path, *, max_frames: int | None = None, skip: int = 0) -> tuple[np
 
 
 def to_hexals(gray: np.ndarray, fps: float, dt: float, box=None, *, splits: int = SPLITS,
-              crop: float = CROP, width: int = WIDTH, chunk: int = 32) -> np.ndarray:
+              crop: float = CROP, width: int = WIDTH, chunk: int = 32,
+              resample: str = "nearest-exact") -> np.ndarray:
     """(T, H, W) frames → (splits, T', 721) hexal luminance at 1/dt.
 
     The frame is first resized to `width` pixels across, aspect ratio kept.
@@ -76,7 +77,15 @@ def to_hexals(gray: np.ndarray, fps: float, dt: float, box=None, *, splits: int 
     in the clips 13B already knows — T4/T5 are tuned to speed, so rendering a
     320-pixel-wide video at its own scale would hand the prior a different
     world, not a bigger one. It is also required: the eye's window is 417
-    pixels wide and `split` cannot cut that out of a 224-pixel crop."""
+    pixels wide and `split` cannot cut that out of a 224-pixel crop.
+
+    Time is resampled the way the Sintel clips of 13A/13B actually are:
+    **nearest-exact**, not linear. Measured 2026-09-20: a Sintel clip at
+    50 Hz repeats every second frame (21 of 39 consecutive pairs are
+    identical), because 24 fps is held, not interpolated. The frozen brain
+    steps at 20 ms and answers frame-to-frame change, so a smoothly
+    interpolated corpus would move differently from everything 13B was
+    trained on."""
     from flyvis.datasets.augmentation.temporal import Interpolate
     from flyvis.datasets.rendering.utils import split as hsplit
 
@@ -89,11 +98,16 @@ def to_hexals(gray: np.ndarray, fps: float, dt: float, box=None, *, splits: int 
             h = max(int(box.min_frame_size[0]), int(round(c.shape[-2] * width / c.shape[-1])))
             c = torch.nn.functional.interpolate(c[:, None], size=(h, int(width)), mode="bilinear",
                                                 align_corners=False, antialias=True)[:, 0]
+        keep_h = int(box.min_frame_size[0]) + 2 * box.kernel_size
+        if c.shape[-2] > keep_h:                          # the eye samples the centre (BoxEye.hex_render adds h//2),
+            top = c.shape[-2] // 2 - keep_h // 2          # and the box filter is local: rows beyond the window
+            c = c[:, top:top + keep_h]                    # cannot reach a sampled hexal. The offset keeps h//2 on
+                                                          # the same row — (h-keep)//2 shifts it by one and costs 0.06.
         views = hsplit(c, int(box.min_frame_size[1]) + 2 * box.kernel_size, splits, crop)   # (splits, t, H, W)
         out.append(box(views).squeeze(2))                                                   # (splits, t, 721)
     hexals = torch.cat(out, dim=1)
     if abs(fps - 1 / dt) > 1e-6:
-        hexals = Interpolate(fps, 1 / dt, mode="linear").transform(hexals, dim=1)
+        hexals = Interpolate(fps, 1 / dt, mode=resample).transform(hexals, dim=1)
     return hexals.cpu().numpy().astype(np.float32)
 
 
@@ -134,12 +148,21 @@ def contrast(x: np.ndarray) -> float:
 
 
 def cut_score(x: np.ndarray) -> float:
-    """Largest frame-to-frame jump over the median one. A hard cut is a flash
-    to the whole eye, which the T4/T5 types answer with a transient no real
-    motion produces, so clips above the builder's threshold are dropped."""
+    """Largest frame-to-frame jump against the 90th percentile of the clip's
+    own non-zero jumps. A hard cut is a flash across the whole eye, which
+    T4/T5 answer with a transient no real motion produces.
+
+    Non-zero, because 25 fps held to 50 Hz makes every second difference
+    exactly zero; a high percentile rather than the mean or the median,
+    because the cut itself is in the sample and would inflate them. Measured
+    on 95 Sintel clips against the same clips spliced in half: at the
+    threshold that drops 1 % of clean clips this catches 84 % of the splices,
+    where max/mean catches 78 % and max/median 58 %."""
     d = np.abs(np.diff(np.asarray(x, np.float32), axis=-2)).mean(-1)
-    med = float(np.median(d))
-    return float(d.max() / (med + 1e-6))
+    nz = d[d > 1e-7]
+    if not len(nz):
+        return 0.0
+    return float(d.max() / (float(np.percentile(nz, 90)) + 1e-6))
 
 
 def windows(x: np.ndarray, frames: int, stride: int | None = None) -> list[np.ndarray]:

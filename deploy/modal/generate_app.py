@@ -434,12 +434,24 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz", stats_from:
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     columns = json.loads(Path(f"{DATA}/pairs13/columns.json").read_text(encoding="utf-8"))
     layout = L.channel_layout(manifest, columns, DEEP)
-    xs, ys, ids = [], [], []
-    for name in manifest["shards"]:
-        z = np.load(root / name)
-        xs.append(L.to_maps(z["states"], layout, len(DEEP))); ys.append(z["videos"]); ids.append(z["index"])
-        print(f"  {name} {time.time() - t0:.0f} s", flush=True)
-    x, y, index = np.concatenate(xs), np.concatenate(ys), np.concatenate(ids)
+    n_total = int(manifest["n"])
+    x = y = None
+    index = np.empty(n_total, np.int64)
+    at = 0
+    for name in manifest["shards"]:                                  # filled in place: a corpus-sized
+        z = np.load(root / name)                                     # set cannot afford two copies
+        xm = L.to_maps(z["states"], layout, len(DEEP))
+        if x is None:
+            x = np.empty((n_total, *xm.shape[1:]), np.float16)
+            y = np.empty((n_total, *z["videos"].shape[1:]), np.float16)
+        x[at:at + len(xm)] = xm
+        y[at:at + len(xm)] = z["videos"]
+        index[at:at + len(xm)] = z["index"]
+        at += len(xm)
+        del xm, z
+        print(f"  {name} {at}/{n_total} {time.time() - t0:.0f} s", flush=True)
+    if at != n_total:
+        raise SystemExit(f"shards hold {at} clips, the manifest says {n_total}")
     split = manifest["split"]
     tr = np.isin(index, split["train"])
     k = x.shape[2]
@@ -460,7 +472,7 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz", stats_from:
     np.savez(outp, maps=x, videos=y, index=index, mean=mean, std=std,
              train=np.array(split["train"]), val=np.array(split["val"]), test=np.array(split["test"]))
     r = {"n": int(len(x)), "maps": list(x.shape), "gb": round(outp.stat().st_size / 1e9, 2),
-         "stats_from": stats_from or None, "cpu": 2, "memory_mb": 12288}
+         "stats_from": stats_from or None, "cpu": 2}
     if dct_k:                                                        # the compact file the prior trains on
         tf = min(int(dct_frames), x.shape[1])
         dmat = R.dct_matrix(tf, int(dct_k))
@@ -1074,7 +1086,7 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
          sample17_run: bool = False, samples17: int = 16, sources17: str = "all", dct17: int = 0,
          name17: str = "state_flow", maps_file17: str = "gen13b/maps_deep.npz", run17: str = "pairs13",
          pairs18_run: bool = False, maps18_run: bool = False, videos18: str = "corpus18/videos.npz",
-         out18: str = "pairs18", gen18: str = "gen18", held18: str = ""):
+         out18: str = "pairs18", gen18: str = "gen18", held18: str = "", mem18: int = 16384):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -1097,10 +1109,11 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
         return
     if maps18_run:                                                   # the maps on 13B's scale, plus the compact file
         k = dct17 or 16
-        print(f"maps18 on CPU (2 cores, 12 GB): /runs/{out18} shards -> {gen18}/maps_deep.npz and maps_dct{k}.npz, "
-              f"per-type scale from gen13b/maps_deep.npz")
-        r = maps13b.remote(run=out18, out=f"{gen18}/maps_deep.npz", stats_from="gen13b/maps_deep.npz",
-                           dct_k=k, dct_out=f"{gen18}/maps_dct{k}.npz")
+        print(f"maps18 on CPU (2 cores, {mem18 // 1024} GB): /runs/{out18} shards -> {gen18}/maps_deep.npz and "
+              f"maps_dct{k}.npz, per-type scale from gen13b/maps_deep.npz")
+        r = maps13b.with_options(memory=mem18).remote(                # the corpus needs more than 13A's 12 GB
+            run=out18, out=f"{gen18}/maps_deep.npz", stats_from="gen13b/maps_deep.npz",
+            dct_k=k, dct_out=f"{gen18}/maps_dct{k}.npz")
         d = root / "data" / gen18
         d.mkdir(parents=True, exist_ok=True)
         (d / "maps.json").write_text(json.dumps(r, indent=1), encoding="utf-8")

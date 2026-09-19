@@ -92,6 +92,37 @@ def probe(files: list[Path], n: int, *, frames: int, dt: float, raw_frames: int,
             "pass_rate_sintel_band": passed / max(1, len(rows)), "seconds": round(time.time() - t0, 1)}
 
 
+def sintel_band(n_clips: int = 189, frames: int = 45, dt: float = 0.02, lo: int = 5, hi: int = 95, log=print) -> dict:
+    """The band, derived: the same three scores on the Sintel clips 13A/13B
+    were built from (`AGENTS.md`: a limit is derived, not written). A corpus
+    window is kept when its motion and contrast fall between the `lo` and `hi`
+    percentiles of those clips; the cut threshold is separate, because a cut
+    is not a property Sintel has at all — it is set at the 99th percentile of
+    those same clean clips and read against what a *spliced* clip gives
+    (measured below). The two distributions overlap in the tail: at that
+    threshold about 1 % of clean windows are dropped and a soft cut can still
+    pass, which the report states rather than hides."""
+    from flydream.generate.invert import clip_from_sintel
+
+    rows, clips = [], []
+    for i in range(n_clips):
+        v = clip_from_sintel(i, frames, dt, 0)
+        clips.append(v)
+        rows.append(score_window(v))
+    q = {k: {f"p{p}": float(np.percentile([r[k] for r in rows], p)) for p in (1, 5, 25, 50, 75, 95, 99)}
+         for k in ("motion", "contrast", "cut", "mean")}
+    spliced = [score_window(np.concatenate([clips[i][:frames // 2], clips[(i + 7) % n_clips][frames // 2:]]))["cut"]
+               for i in range(0, n_clips, 7)]                         # what a real cut reads on this scale
+    band = {"motion": [q["motion"][f"p{lo}"], q["motion"][f"p{hi}"]],
+            "contrast": [q["contrast"][f"p{lo}"], q["contrast"][f"p{hi}"]],
+            "cut": [0.0, round(float(np.percentile([r["cut"] for r in rows], 99)), 2)]}
+    log(f"sintel band from {n_clips} clips: motion {band['motion'][0]:.4f}-{band['motion'][1]:.4f}, "
+        f"contrast {band['contrast'][0]:.3f}-{band['contrast'][1]:.3f}, cut <= {band['cut'][1]} "
+        f"(clean clips p99 {q['cut']['p99']:.1f}, spliced median {float(np.median(spliced)):.1f})")
+    return {"n_clips": n_clips, "percentiles": q, "spliced_cut": {"min": float(np.min(spliced)),
+            "median": float(np.median(spliced)), "n": len(spliced)}, "band": band}
+
+
 def label_of(path: Path, root: Path) -> str:
     rel = path.relative_to(root)
     return rel.parts[0] if len(rel.parts) > 1 else "video"
@@ -235,6 +266,7 @@ def main(argv=None) -> int:
     p.add_argument("--rotations", type=int, default=6)
     p.add_argument("--shard", type=int, default=4000)
     p.add_argument("--probe", type=int, default=0)
+    p.add_argument("--sintel-band", action="store_true")
     p.add_argument("--band", default="")
     p.add_argument("--pack", action="store_true")
     p.add_argument("--procedural", default="")
@@ -245,6 +277,12 @@ def main(argv=None) -> int:
     src = Path(a.src)
     files = V.video_files(src)
     print(f"{len(files)} video files under {src}")
+    if a.sintel_band:
+        out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+        r = sintel_band(frames=a.frames, dt=a.dt)
+        (out / "sintel_band.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        print(json.dumps(r["band"], indent=1))
+        return 0
     if a.probe:
         rng = np.random.default_rng(a.seed)
         sample = [files[i] for i in rng.choice(len(files), min(a.probe, len(files)), replace=False)]
@@ -258,7 +296,7 @@ def main(argv=None) -> int:
         pack(Path(a.out), procedural=Path(a.procedural) if a.procedural else None,
              fraction=a.procedural_fraction, frames=a.frames, seed=a.seed)
         return 0
-    band = json.loads(a.band) if a.band else SINTEL_BAND
+    band = json.loads(a.band) if a.band else json.loads((Path(a.out) / "sintel_band.json").read_text(encoding="utf-8"))["band"]         if (Path(a.out) / "sintel_band.json").exists() else SINTEL_BAND
     out = Path(a.out)
     build(files, src, out, videos=a.videos, per_video=a.per_video, frames=a.frames, dt=a.dt,
           raw_frames=a.raw_frames, splits=a.splits, band=band, rotations=a.rotations, shard=a.shard,
