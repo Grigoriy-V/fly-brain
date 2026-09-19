@@ -172,3 +172,22 @@ def test_learned_models_shapes_and_ring():
     assert cnn(x, 9).shape == (2, 9, 721)                          # taps past the end are edge-padded
     n = sum(p.numel() for p in lin.parameters()); assert n == 3 * 7 * 5 + 1
     p = np.random.default_rng(0).random((4, 5, 721)); assert np.allclose(L.pixcorr(p, p), 1.0)
+
+
+def test_gen13b_masks_backbones_and_interpolant():
+    import torch
+    from flydream.generate import gen13b as G
+
+    rng = np.random.default_rng(0)
+    m = G.sample_masks(500, rng)
+    assert m.shape == (500, 8) and (m.sum(1) == 0).mean() < 0.15          # the unconditional share is small
+    assert G.named_mask("dir_c").tolist() == [0, 0, 1, 0, 0, 0, 1, 0] and G.named_mask("t5").sum() == 4
+    vids = torch.rand(6, 8, 721).half(); maps = torch.randn(6, 8, 8, 721).half()
+    for kind, kw in (("hexresnet", dict(width=16, depth=1)), ("sit", dict(width=16, depth=1, heads=2))):
+        mdl = G.build(kind, frames=8, **kw)
+        v = mdl(vids[:2].float(), torch.tensor([0.1, 0.9]), maps[:2].float(), torch.ones(2, 8))
+        assert v.shape == (2, 8, 721) and torch.isfinite(v).all()
+        r = G.train(mdl, vids, maps, steps=3, batch=2, lr=1e-3, warmup=1, log_every=3, log=lambda s: None)
+        assert r["history"][-1]["step"] == 3
+        x = G.sample(mdl, maps[:2].float(), torch.ones(2, 8), steps=2, guidance=2.0)
+        assert x.shape == (2, 8, 721) and x.min() >= 0 and x.max() <= 1

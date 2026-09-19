@@ -189,7 +189,8 @@ def task_weights(cells: list[np.ndarray], n_nodes: int, device, weights: list[np
 def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: float, state, steps: int, lr: float,
                  tv: float, plateau_steps: int = 0, plateau_tol: float = 0.0, plateau_floor: float = 1e-3,
                  log_every: int = 10, time_weight: torch.Tensor | None = None,
-                 cell_weights: list[np.ndarray | None] | None = None) -> tuple[torch.Tensor, np.ndarray, int]:
+                 cell_weights: list[np.ndarray | None] | None = None,
+                 init: torch.Tensor | None = None) -> tuple[torch.Tensor, np.ndarray, int]:
     """B independent inversions in one pass: `targets` (B, T, n_nodes), task b
     read on `cells[b]`. Returns the videos (B, T, H), the fit trace (steps, B)
     and the number of steps run. Stops early when every task's fit changed by
@@ -197,11 +198,12 @@ def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: flo
     its first fit once the fit is that small: Mi4 at 3e-5 of its start still
     moved 10 % per 20 steps) over the last `plateau_steps` steps (ROADMAP
     item 10'; on the 2026-09-19 ladder this rule stops at step 127 of 150
-    with every fit within 2.4 % of its step-150 value)."""
+    with every fit within 2.4 % of its step-150 value). `init` (B, T, H) starts
+    the videos elsewhere than grey (13B: several random starts of one state)."""
     B, T = targets.shape[:2]
     dev = device_of(net)
     H = net.stimulus.n_input_elements if hasattr(net.stimulus, "n_input_elements") else 721
-    video = torch.full((B, T, H), 0.5, device=dev).requires_grad_(True)
+    video = (torch.full((B, T, H), 0.5, device=dev) if init is None else init.to(dev).float().clone()).requires_grad_(True)
     opt = torch.optim.Adam([video], lr=lr)
     nb = torch.as_tensor(neighbour_index(H), dtype=torch.long, device=dev)
     valid = nb >= 0

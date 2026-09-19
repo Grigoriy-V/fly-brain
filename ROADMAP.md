@@ -19,8 +19,8 @@ and only from the transplanted weights; one substrate (MaleCNS) at a time;
 one artefact per message with its text first (`AGENTS.md`, "Artefacts for
 the human").
 
-**Current approved step:** 9, then 11 → 12 → 13 in order; each build starts
-on the human's word.
+**Current approved step:** 13B (design approved 2026-09-20); 9, 11, 12 and
+13A are done. Each priced run starts on the human's word.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -186,22 +186,25 @@ One item at a time; the human's word starts each. Order: **13**; then the paused
     `reports/2026-09-19_step13a_amortised_inversion.md` §Round trip on 11-12.
     Open option, not a gate for 13B: more CNN epochs via `--resume`.
 
-    **13B, the generative decoder** (only after 13A shows a measured
-    dependence on the state in `deep`): `state → a distribution of
-    compatible videos` — one state is compatible with many inputs — via a
-    small latent, `state + z → video`; candidates, none chosen yet (the
-    human, 2026-09-19): a conditional VAE, a normalising flow, or a
-    conditional diffusion / flow-matching model on the 721-column frames
-    (a small DiT over columns as tokens) — the modern generative
-    architectures fit here, not in 13A, because 13A measures a
-    deterministic dependence on the state and a stochastic model cannot be
-    compared with the inversion by r. The choice is made on 13A's numbers:
-    the weaker the decoder that already reads the state, the less a strong
-    prior can add without hiding it (the round trip decides). Every
-    sample goes round the trip and reports distance(state′, target). The
-    latent is the "parameters, not a copy" the human asked for; edited
-    states (item 12) are inputs like any other. Perceptual quality is not
-    a score here; the round trip is.
+    **13B, the generative decoder** (approved 2026-09-20; design
+    `reports/2026-09-19_step13b_design.md`, revision 2):
+    `deep state (T4a-d + T5a-d) + type mask + z → conditional flow model →
+    video → frozen brain → compatibility`. Only the 8 T4/T5 channels
+    (early/all were 13A's controls); SiT-style linear interpolant (flow
+    matching) as the objective, the backbone (hex-temporal ResNet vs SiT
+    transformer over the 721 columns) chosen by a 200-step benchmark;
+    structured type masks in training (full / T4 / T5 / one type / one
+    direction / random subset / unconditional) for classifier-free guidance
+    and "knobs"; all 40 frames at once; no brain-consistency term in the
+    first version. Order, each run on its own word: (a) multimodality of the
+    inversion from several random starts (≈ $0.05) — decides whether sample
+    spread is a goal; (b) benchmark (≈ $0.04); (c) training ≤ $0.50, with
+    the optimised loop the design lists; (d) samples + round trip (≈ $0.05).
+    Scores: median round trip over seeds (main), best, spread, r to the
+    clip; the conditioning-strength test (same z: true / shuffled / zero
+    state) is mandatory; the inversion is the reference, not a target to
+    beat. Tests: held-out clips, item-12 edits and mixes, single-type
+    prompts, eye noise and neuron noise, shuffled-state control.
 
 **Paused in this branch (the human, 2026-09-19: "не сейчас"):**
 
