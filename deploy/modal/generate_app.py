@@ -680,6 +680,140 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     return summary
 
 
+def _bench_step_ms(R, model, states, *, steps: int, warmup: int, batch: int, seed: int,
+                   host_sync: bool, foreach_ema: bool, net=None) -> float:
+    """One timed training loop, milliseconds per step. The flags isolate the
+    two places `prior17.train` pays for being written step-at-a-time:
+    `host_sync` keeps its `loss.item()` (a device synchronisation every step),
+    `foreach_ema` replaces the per-parameter EMA loop with two fused kernels.
+    Everything else — data on the device, AMP fp16 with a GradScaler, fused
+    AdamW, clipping — is the real loop (`research_notes/...
+    /single_gpu_throughput.md`: 56.4 ms/step against a 15-23 ms floor)."""
+    import time
+
+    import numpy as np
+    import torch
+
+    dev = states.device
+    rng = np.random.default_rng(seed)
+    torch.manual_seed(seed)
+    net = net if net is not None else model
+    params = list(model.parameters())
+    opt = torch.optim.AdamW(params, lr=3e-4, betas=(0.9, 0.99), weight_decay=0.01, fused=True)
+    scaler = torch.amp.GradScaler("cuda", enabled=True)
+    shadow = [p.detach().clone() for p in params]
+    acc, t0 = torch.zeros((), device=dev), None
+    for step in range(warmup + steps):
+        if step == warmup:                                           # compile and cuDNN warmup are not timed
+            torch.cuda.synchronize(); t0 = time.time()
+        idx = torch.as_tensor(rng.integers(0, len(states), batch), device=dev)
+        x1 = states[idx].float()
+        with torch.autocast("cuda", dtype=torch.float16, enabled=True):
+            loss = R.loss_fn(net, x1)
+        opt.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward()
+        scaler.unscale_(opt)
+        torch.nn.utils.clip_grad_norm_(params, 1.0)
+        scaler.step(opt); scaler.update()
+        with torch.no_grad():
+            if foreach_ema:
+                torch._foreach_mul_(shadow, 0.999)
+                torch._foreach_add_(shadow, params, alpha=0.001)
+            else:
+                for s, p in zip(shadow, params):
+                    s.mul_(0.999).add_(p.detach(), alpha=0.001)
+        acc = acc + (loss.item() if host_sync else loss.detach())
+    torch.cuda.synchronize()
+    return round((time.time() - t0) / steps * 1000.0, 2)
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
+def bench17(steps: int = 60, warmup: int = 15, batch: int = 32, batches: str = "64,128,256", width: int = 128,
+            depth: int = 4, heads: int = 4, seed: int = 0, sources: str = "all",
+            maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18",
+            compile_mode: str = "reduce-overhead") -> dict:
+    """Where 18.3's 56.4 ms/step goes. Three measurements in one container:
+    (a) the loop's own two step-at-a-time costs, isolated one at a time;
+    (b) the same loop across batches, so the affine fit separates the fixed
+    per-step cost from the per-sample one; (c) `torch.compile`, which is what
+    the note names for the launch-bound symptom. No checkpoint is written and
+    nothing on the volume is touched — this only measures."""
+    import numpy as np
+    import torch
+    from flydream.generate import prior17 as R
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    _, m, _, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+    print(f"train {tuple(m.shape)} on GPU in {time.time() - t0:.0f} s", flush=True)
+
+    def fresh():                                                     # every variant starts from the same weights
+        torch.manual_seed(seed)
+        return R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads).to(dev).train()
+
+    rows = []
+
+    def run_one(label, *, batch_, host_sync, foreach_ema, compiled=""):
+        model = fresh()
+        net = model
+        if compiled:
+            net = torch.compile(model, mode=compiled)
+        ms = _bench_step_ms(R, model, m, steps=steps, warmup=warmup, batch=batch_, seed=seed,
+                            host_sync=host_sync, foreach_ema=foreach_ema, net=net)
+        rows.append({"variant": label, "batch": batch_, "host_sync": host_sync, "foreach_ema": foreach_ema,
+                     "compile": compiled, "ms_per_step": ms, "samples_per_s": round(batch_ / ms * 1000.0, 1)})
+        print(f"  {label:28s} batch {batch_:4d}  {ms:7.2f} ms/step  {rows[-1]['samples_per_s']:8.1f} samples/s",
+              flush=True)
+        del model, net
+        torch.cuda.empty_cache()
+        return ms
+
+    with GpuSampler() as gpu:
+        print(f"a) the loop's own costs at batch {batch}", flush=True)
+        base = run_one("base (18.3's loop)", batch_=batch, host_sync=True, foreach_ema=False)
+        run_one("no loss.item()", batch_=batch, host_sync=False, foreach_ema=False)
+        run_one("foreach EMA", batch_=batch, host_sync=True, foreach_ema=True)
+        best = run_one("both", batch_=batch, host_sync=False, foreach_ema=True)
+        lean = best <= base
+        print(f"b) batches {batches} on the {'leaner' if lean else 'original'} loop", flush=True)
+        for b in [int(x) for x in batches.split(",") if x.strip()]:
+            try:
+                run_one(f"both, batch {b}", batch_=b, host_sync=not lean, foreach_ema=lean)
+            except torch.cuda.OutOfMemoryError:                       # the card's limit is a measurement too
+                rows.append({"variant": f"both, batch {b}", "batch": b, "ms_per_step": None, "note": "CUDA OOM"})
+                print(f"  batch {b:4d}: CUDA OOM", flush=True)
+                torch.cuda.empty_cache()
+                break
+        if compile_mode:
+            print(f"c) torch.compile(mode={compile_mode!r}) at batch {batch}", flush=True)
+            t_c = time.time()
+            try:
+                run_one(f"compile {compile_mode}", batch_=batch, host_sync=not lean, foreach_ema=lean,
+                        compiled=compile_mode)
+                rows[-1]["compile_warmup_s"] = round(time.time() - t_c, 1)
+            except Exception as e:                                    # a compile failure must not lose (a) and (b)
+                rows.append({"variant": f"compile {compile_mode}", "batch": batch, "ms_per_step": None,
+                             "note": f"{type(e).__name__}: {e}"[:300]})
+                print(f"  compile failed: {type(e).__name__}: {e}"[:300], flush=True)
+
+    fit = {}
+    pts = [(r["batch"], r["ms_per_step"]) for r in rows
+           if r.get("ms_per_step") and r["variant"].startswith("both") and not r.get("compile")]
+    if len(pts) >= 2:                                                # ms = fixed + per_sample * batch
+        b_, y_ = np.array([p[0] for p in pts], float), np.array([p[1] for p in pts], float)
+        slope, inter = np.polyfit(b_, y_, 1)
+        fit = {"fixed_ms": round(float(inter), 2), "per_sample_ms": round(float(slope), 4),
+               "fixed_share_at_32": round(float(inter / (inter + slope * 32)), 3), "points": len(pts)}
+        print(f"affine fit: {inter:.2f} ms fixed + {slope:.4f} ms per sample "
+              f"({fit['fixed_share_at_32']:.0%} of a batch-32 step is fixed cost)", flush=True)
+    out = {"rows": rows, "fit": fit, "baseline_18_3_ms": 56.4, "steps": steps, "warmup": warmup,
+           "n_train": int(m.shape[0]), "shape": list(m.shape[1:]), "gpu": GPU, "gpu_utilisation": gpu.mean,
+           "cpu": 1, "memory_mb": 12288, "seconds_worker": round(time.time() - t0, 1)}
+    print(f"bench17 done in {out['seconds_worker']} s, GPU utilisation {gpu.mean}", flush=True)
+    return out
+
+
 def _nn_stream(arr, keep, qf, chunk: int = 512):
     """Nearest row of `arr[keep]` to each centred query row of `qf` (N, D):
     (bank index, correlation, normalised squared distance). Streamed in
