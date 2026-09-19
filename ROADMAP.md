@@ -373,15 +373,40 @@ prior**. So:
    here) because corpus states move twice as fast and 16 temporal
    coefficients are tight for them. K = 24-32 lowers it; maps ≈ $0.05 plus a
    training run ≈ $0.22. The only option with an unambiguous answer.
-2. **Capacity**: 1.4 M parameters on 13,555 states; width 192-256 ≈ $0.4-0.9.
-   The shape of the loss curve (a fast drop and a long tail) fits a capacity
-   limit as well as it fits an unfinished run.
-3. **More steps**: validation was still falling at 20,000 (0.5165 at 14.5k →
+2. **The learning rate** (added 2026-09-20 from the research, see the report
+   below): ours is 3e-4 at batch 32 where DiT/SiT, EDM and Lipman et al. all
+   use 1e-4 at batches of 256-4096 — **8.5-24× above either extrapolation** of
+   that anchor down to our batch. It is the only parameter of our
+   configuration that sits that far from every reference found, and it acts on
+   the prior's own 0.074. A paired run (1e-4 vs 3e-4, same batch and steps)
+   settles it for ≈ $0.22.
+3. **Classes** (added the same day): ~101 UCF101 classes at ~123 clips each are
+   already in the corpus and unused. The one clean conditioning-alone ablation
+   (same net, same budget, no guidance either side) is FID 26.21 → 10.94.
+   The small-data objection (conditioning hurts below ≈ 5,000 images) is below
+   our 12,411. ≈ $0.22. The risk is ours alone: no study covers a label only
+   loosely coupled to the signal, which is our case.
+4. **Capacity**: 1.4 M parameters on 13,555 states; width 192-256 ≈ $0.4-0.9.
+   *Reading corrected 2026-09-20:* five independent lines (DiT's params/example
+   ratio, EDM2-XS's, the absent upturn in our validation curve, the
+   depth-to-width transition, Hyper-DP3) say growing is **safe**, and none says
+   capacity is the cause. A cheap no-risk check, not the leading suspect.
+5. **More steps**: validation was still falling at 20,000 (0.5165 at 14.5k →
    0.5064 at 20k), but by 2 % over 5,500 steps and decelerating — the cheapest
    check (≈ $0.66 to 60k), not the most likely cause.
+6. **Free, local, no GPU**: an MMD permutation test (validated at 5-10 samples
+   per group), the same checks in a PCA-32 feature space (rankings stable at
+   N = 50) and Carlini's neighbourhood-relative threshold in place of our
+   arbitrary correlation cutoff.
 Also measured and usable now: the path between two real states in noise space
 scores 0.050-0.066, better than sampling from scratch — a practical route to
 new-but-reachable video that needs no further training.
+**A bound on our own claim**, from the same research: nearest-neighbour
+distance tests do not detect instance-level memorisation, so 18.3's +0.35
+against a real clip's +0.55 means "not a near-copy", never "not memorised".
+Sources, prices and the research's own cost:
+`reports/2026-09-20_research_video_generation_and_training.md`, notes in
+`research_notes/2026-09-20_video_generation_and_training/`.
 
 ## Current state of the system
 

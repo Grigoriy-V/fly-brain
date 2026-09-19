@@ -94,7 +94,13 @@ And the trip through noise and back, with the mixtures on the sphere:
 - **The run is not converged**: validation was still falling at 20k steps.
 - **Novelty is measured, not claimed**: +0.35 against a real clip's +0.55 says
   the samples are not copies of training videos; it does not say they are
-  scenes of a new kind.
+  scenes of a new kind. *Bound added 2026-09-20 from the literature
+  (`reports/2026-09-20_research_video_generation_and_training.md` §6):*
+  nearest-neighbour distance tests are known not to detect instance-level
+  memorisation (van den Burg & Williams, NeurIPS 2021), so this number means
+  **"not a near-copy"** and never "not memorised"; the threshold itself is ours
+  and arbitrary, where Carlini et al.'s neighbourhood-relative form is
+  adoptable as is.
 
 ## Where the remaining error sits
 
