@@ -30,8 +30,11 @@ ARMS = [
     ("corpus_dct16_w192_c", "3e-4, 20k, ширина 192", "w192"),
     ("corpus_dct16_cls_c", "классы", "classes"),
     ("corpus_dct32_c", "K=32", "K32"),
+    ("corpus_dct16_w192_lr1e3_c", "1e-3, 20k, ширина 192", "w192lr"),
+    ("corpus_dct32_w192_c", "K=32, ширина 192", "K32w"),
 ]
-COLOUR = {"w128": "#1f77b4", "w192": "#2ca02c", "classes": "#e377c2", "K32": "#8c564b"}
+COLOUR = {"w128": "#1f77b4", "w192": "#2ca02c", "classes": "#e377c2", "K32": "#8c564b",
+          "w192lr": "#17becf", "K32w": "#bcbd22"}
 
 
 def main(argv=None) -> int:

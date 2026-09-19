@@ -27,6 +27,8 @@ ARMS = [
     ("corpus_dct16_60k_c", "60 000 шагов", True, "#9467bd"),
     ("corpus_dct32_c", "K=32", False, "#8c564b"),
     ("corpus_dct16_cls_c", "классы", False, "#e377c2"),
+    ("corpus_dct16_w192_lr1e3_c", "ширина 192 + lr 1e-3", True, "#17becf"),
+    ("corpus_dct32_w192_c", "K=32 на ширине 192", False, "#bcbd22"),
 ]
 
 
