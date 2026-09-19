@@ -1086,7 +1086,8 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
          sample17_run: bool = False, samples17: int = 16, sources17: str = "all", dct17: int = 0,
          name17: str = "state_flow", maps_file17: str = "gen13b/maps_deep.npz", run17: str = "pairs13",
          pairs18_run: bool = False, maps18_run: bool = False, videos18: str = "corpus18/videos.npz",
-         out18: str = "pairs18", gen18: str = "gen18", held18: str = "", mem18: int = 16384):
+         out18: str = "pairs18", gen18: str = "gen18", held18: str = "", mem18: int = 16384,
+         sim_batch18: int = 64):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -1099,8 +1100,10 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
     if pairs18_run:                                                  # ROADMAP 18.1: the corpus through the frozen brain
-        print(f"pairs18 on {GPU}: {videos18} -> states on /runs/{out18}, held-out labels: {held18 or '(none)'}")
-        r = pairs13.remote(videos_file=videos18, model=model, frames=45, held_scenes=held18, val_fraction=0.05, out=out18)
+        print(f"pairs18 on {GPU}: {videos18} -> states on /runs/{out18}, batch {sim_batch18}, "
+              f"held-out labels: {held18 or '(none)'}")
+        r = pairs13.remote(videos_file=videos18, model=model, frames=45, held_scenes=held18, val_fraction=0.05,
+                           sim_batch=sim_batch18, out=out18)
         d = root / "data" / out18
         d.mkdir(parents=True, exist_ok=True)
         (d / "manifest_summary.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
