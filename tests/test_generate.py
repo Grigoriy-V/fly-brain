@@ -281,3 +281,31 @@ def test_prior17_refine_endpoints():
     assert np.allclose(same, st, atol=1e-5)                      # t0 = 1: the state comes back untouched
     part = R.refine(model, meta, st, t0=0.5, steps=20, generator=torch.Generator().manual_seed(0))
     assert part.shape == st.shape and np.isfinite(part).all() and not np.allclose(part, st)
+
+
+def test_prior17_noise_inversion_and_slerp():
+    import torch
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(0)
+    model = R.build(frames=6, k=2, width=16, depth=1, heads=2)
+    R.train(model, torch.randn(8, 6, 2, 721).half(), steps=5, batch=4, lr=1e-2, warmup=1,
+            log_every=5, log=lambda s: None)                                   # a flow that actually moves a point
+    meta = {"frames": 6, "k": 2, "dct_k": 0}
+    x0 = torch.randn(2, 6, 2, 721, generator=torch.Generator().manual_seed(0))
+    x1 = R.integrate(model, x0.clone(), steps=8)
+    assert not torch.allclose(x1, x0, atol=1e-4)
+    def rel(a, b):
+        return float((a - b).norm() / b.norm())
+
+    back = R.invert(model, x1.clone(), steps=8, fixed_point=3)
+    assert rel(back, x0) < 1e-3                                                # noise -> state -> the same noise
+    assert rel(R.invert(model, x1.clone(), steps=8, fixed_point=1), x0) > rel(back, x0)   # the fixed point earns it
+    st = R.from_noise(model, meta, R.to_noise(model, meta, x1.numpy(), steps=8), steps=8)
+    assert rel(torch.as_tensor(st), x1) < 1e-3                                 # state -> noise -> the same state
+    rng = np.random.default_rng(0)
+    a = rng.standard_normal((1, 6, 2, 721)).astype(np.float32)
+    b = rng.standard_normal((1, 6, 2, 721)).astype(np.float32)
+    assert np.allclose(R.slerp(a, b, 0.0), a, atol=1e-4) and np.allclose(R.slerp(a, b, 1.0), b, atol=1e-4)
+    mid = R.slerp(a, b, 0.5)
+    assert abs(np.linalg.norm(mid) - np.linalg.norm(a)) / np.linalg.norm(a) < 0.05   # the radius survives the mix

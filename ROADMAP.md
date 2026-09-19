@@ -215,9 +215,23 @@ denser state set (17').
 
 **17.3 The prior as a control surface** (local, $0, only after 17.2 passes).
 Two parts, and only the first is defined today:
-- **Defined:** interpolation between two samples in the prior's noise, and
-  local variations around one sample — both are ordinary sampling with a
-  shared or perturbed z, and they cost nothing once 17.1 exists.
+- **Defined, and measured 2026-09-20** (local CPU, 35 s, $0,
+  `flydream/generate/noise17.py`, `prior17.invert` / `to_noise` / `slerp`):
+  the prior's flow runs backwards, so the noise a path is drawn through is not
+  limited to states the prior sampled — a **real** clip's state has its own
+  noise. The inversion is exact (noise → state → noise, r 0.99998 with four
+  fixed-point iterations per step; the explicit backward step loses a quarter
+  of the vector), a clip's state survives the trip at r 0.96 with round trip
+  0.072 / 0.191 against 0.023 / 0.038 for the real states, and the noises of
+  two clips mixed on the sphere give a monotone morph (r to A +0.96 → +0.41,
+  to B +0.37 → +0.96) whose every point stays reachable (0.17-0.22 against
+  1.585 for a shuffled state). The midpoint is the farthest of the row from
+  the training set (nearest training video +0.59 against +0.99 / +0.96 at the
+  ends). It also gives the first *coverage* number: a real state's noise sits
+  at ‖ε‖²/D = 1.07 and 1.29 where a Gaussian is 1.000 ± 0.014, an unreachable
+  state at 4.16 — the prior is near, not on, the real states.
+  `reports/2026-09-20_step17_3b_noise_inversion.md`,
+  `reports/figures/2026-09-20_malecns_prior17b_noise.gif`.
 - **Not defined, to be designed and tested as its own task:** pulling an
   off-manifold state (14.0's random state, the hand-written stripe, later a
   spontaneous state from item 16) onto the learned manifold. An unconditional

@@ -74,15 +74,42 @@ def loss_fn(model: nn.Module, x1: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
+def integrate(model: nn.Module, x: torch.Tensor, *, steps: int = 20, t0: float = 0.0, t1: float = 1.0) -> torch.Tensor:
+    """Euler integration of dx/dt = v(x, t) from `t0` to `t1` — the sampler's
+    own map, written once so that sampling, refining and the inversion below
+    all use the same discretisation."""
+    n = max(1, int(round(steps * (t1 - t0))))
+    for i in range(n):
+        t = torch.full((len(x),), t0 + (t1 - t0) * i / n, device=x.device)
+        x = x + model(x, t) * (t1 - t0) / n
+    return x
+
+
+@torch.no_grad()
+def invert(model: nn.Module, x: torch.Tensor, *, steps: int = 20, fixed_point: int = 3) -> torch.Tensor:
+    """The inverse of `integrate` over the whole interval: the noise a point came from.
+
+    The forward step is x_{i+1} = x_i + v(x_i, t_i)/steps. Given x_{i+1}, the
+    point before it solves x_i = x_{i+1} − v(x_i, t_i)/steps; the step is small,
+    so a few fixed-point iterations starting at x_{i+1} reach it.
+    `fixed_point=1` is the plain explicit backward step, and the difference
+    between the two shows up in the reconstruction, which is measured."""
+    for i in reversed(range(steps)):
+        t = torch.full((len(x),), i / steps, device=x.device)
+        y = x
+        for _ in range(max(1, fixed_point)):
+            y = x - model(y, t) / steps
+        x = y
+    return x
+
+
+@torch.no_grad()
 def sample(model: nn.Module, n: int, *, frames: int = 40, k: int = 8, columns: int = 721, steps: int = 20,
            device=None, generator: torch.Generator | None = None) -> torch.Tensor:
     """(n, T, K, 721) states drawn from the prior, in 13B's conditioning units."""
     dev = device or next(model.parameters()).device
     x = torch.randn(n, frames, k, columns, device=dev, generator=generator)
-    for i in range(steps):
-        t = torch.full((n,), i / steps, device=dev)
-        x = x + model(x, t) / steps
-    return x
+    return integrate(model, x, steps=steps)
 
 
 @torch.no_grad()
@@ -172,6 +199,32 @@ def from_dct(c, d):
     return np.einsum("kt,bkcn->btcn", d, c)
 
 
+def _dct_parts(meta: dict, device):
+    """(k, matrix, coefficient mean, coefficient sd) or (0, …) for a frames prior."""
+    k = int(meta.get("dct_k", 0))
+    if not k:
+        return 0, None, None, None
+    cm = torch.as_tensor(np.array(meta["coef_mean"], np.float32), device=device)[None, :, :, None]
+    cs = torch.as_tensor(np.array(meta["coef_std"], np.float32), device=device)[None, :, :, None]
+    return k, dct_matrix(int(meta["time_frames"]), k), cm, cs
+
+
+def to_model_space(meta: dict, states, device) -> torch.Tensor:
+    """(N, 40, 8, 721) states in 13B's units -> what the prior actually models
+    (the same array for a frames prior; z-scored DCT coefficients for 17.1b)."""
+    x = torch.as_tensor(np.asarray(states, np.float32), device=device)
+    k, dm, cm, cs = _dct_parts(meta, device)
+    return (to_dct(x, dm) - cm) / cs if k else x
+
+
+def from_model_space(meta: dict, x: torch.Tensor) -> np.ndarray:
+    """The inverse of `to_model_space`, back to 13B's conditioning units."""
+    k, dm, cm, cs = _dct_parts(meta, x.device)
+    if k:
+        x = from_dct(x * cs + cm, dm)
+    return x.cpu().numpy().astype(np.float32)
+
+
 @torch.no_grad()
 def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, device=None,
                   generator: torch.Generator | None = None) -> np.ndarray:
@@ -179,13 +232,43 @@ def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, devi
     the plain one samples frames directly, the DCT one samples coefficients,
     undoes their per-coefficient scaling and transforms back to frames."""
     dev = device or next(model.parameters()).device
-    k = int(meta.get("dct_k", 0))
     x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator)
-    if not k:
-        return x.cpu().numpy().astype(np.float32)
-    cm = torch.as_tensor(np.array(meta["coef_mean"], np.float32), device=dev)[None, :, :, None]
-    cs = torch.as_tensor(np.array(meta["coef_std"], np.float32), device=dev)[None, :, :, None]
-    return from_dct(x * cs + cm, dct_matrix(int(meta["time_frames"]), k)).cpu().numpy().astype(np.float32)
+    return from_model_space(meta, x)
+
+
+@torch.no_grad()
+def to_noise(model: nn.Module, meta: dict, states, *, steps: int = 20, fixed_point: int = 3, device=None) -> np.ndarray:
+    """A state -> the noise the prior would have drawn it from (ODE inversion).
+
+    The prior is a deterministic map from N(0, I) to states; run backwards it
+    gives every real state its own noise, which is what makes the noise space
+    navigable — two states can be mixed there, and how far a state sits from
+    the typical radius √D says whether the prior covers it at all."""
+    dev = device or next(model.parameters()).device
+    x = to_model_space(meta, states, dev)
+    return invert(model, x, steps=steps, fixed_point=fixed_point).cpu().numpy().astype(np.float32)
+
+
+@torch.no_grad()
+def from_noise(model: nn.Module, meta: dict, noise, *, steps: int = 20, device=None) -> np.ndarray:
+    """The forward direction of `to_noise`: given noise, the state it produces."""
+    dev = device or next(model.parameters()).device
+    x = torch.as_tensor(np.asarray(noise, np.float32), device=dev)
+    return from_model_space(meta, integrate(model, x, steps=steps))
+
+
+def slerp(a: np.ndarray, b: np.ndarray, alpha: float) -> np.ndarray:
+    """Spherical interpolation per sample, flattened: the path between two
+    noises that keeps the radius Gaussian noise concentrates on (a straight
+    line would shrink it by up to 1/√2 and leave the prior's typical set)."""
+    x, y = np.asarray(a, np.float32), np.asarray(b, np.float32)
+    fx, fy = x.reshape(len(x), -1), y.reshape(len(y), -1)
+    nx = np.linalg.norm(fx, axis=1, keepdims=True); ny = np.linalg.norm(fy, axis=1, keepdims=True)
+    om = np.arccos(np.clip((fx / nx * fy / ny).sum(1, keepdims=True), -1, 1))
+    s = np.where(om < 1e-6, 1.0, np.sin(om) + 1e-12)
+    w1 = np.where(om < 1e-6, 1 - alpha, np.sin((1 - alpha) * om) / s)
+    w2 = np.where(om < 1e-6, alpha, np.sin(alpha * om) / s)
+    return (w1 * fx + w2 * fy).reshape(x.shape).astype(np.float32)
 
 
 @torch.no_grad()
@@ -200,22 +283,9 @@ def refine(model: nn.Module, meta: dict, states: np.ndarray, *, t0: float = 0.6,
     mechanism for bringing an off-manifold state onto the learned manifold
     (ROADMAP 17.3), and it is measured, not assumed."""
     dev = device or next(model.parameters()).device
-    k = int(meta.get("dct_k", 0))
-    x1 = torch.as_tensor(np.asarray(states, np.float32), device=dev)
-    if k:
-        dm = dct_matrix(int(meta["time_frames"]), k)
-        cm = torch.as_tensor(np.array(meta["coef_mean"], np.float32), device=dev)[None, :, :, None]
-        cs = torch.as_tensor(np.array(meta["coef_std"], np.float32), device=dev)[None, :, :, None]
-        x1 = (to_dct(x1, dm) - cm) / cs
+    x1 = to_model_space(meta, states, dev)
     eps = torch.randn(x1.shape, device=dev, generator=generator)
-    x = (1 - t0) * eps + t0 * x1
-    n_steps = max(1, int(round(steps * (1 - t0))))
-    for i in range(n_steps):
-        t = torch.full((len(x),), t0 + (1 - t0) * i / n_steps, device=dev)
-        x = x + model(x, t) * (1 - t0) / n_steps
-    if k:
-        x = from_dct(x * cs + cm, dm)
-    return x.cpu().numpy().astype(np.float32)
+    return from_model_space(meta, integrate(model, (1 - t0) * eps + t0 * x1, steps=steps, t0=t0, t1=1.0))
 
 
 def from_maps(maps: np.ndarray, layout, n_cells: int) -> np.ndarray:
