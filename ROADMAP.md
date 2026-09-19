@@ -98,6 +98,25 @@ claim is about novelty and diversity of video, not about compatibility, and
 the report says so. These numbers are what every 17.2 result is read against.
 Local CPU, $0, no new training code — only a sampling and scoring script.
 
+*17.0 status (2026-09-20), measured, local CPU 35 s, $0:* unconditional 13B
+already makes video that is not in the training set — the nearest of the 6,725
+training videos sits at r +0.53 (max +0.63), where a genuine held-out clip's
+nearest sits at +0.52 (max +0.85), and the samples are as unlike each other as
+real clips are (pairwise r ≈ 0 for both). The novelty metric was checked on
+the generator itself: 4 of 4 state-conditioned samples land on their own
+source clip (r 0.94-0.99). What comes out is the prior's moving texture, not a
+scene: twice the frame-to-frame change of a real clip (0.038 vs 0.017), darker
+and flatter (mean 0.34 / sd 0.13 vs 0.41 / 0.16), no edges or objects. The
+states are reachable by construction and about 1.5× the per-type energy of
+real clips', with the same sign pattern; the downward-motion bias (T4d in 15
+of 16) is the stimulus set's, not the generator's (12 of 16 real clips too).
+Pairwise state correlation separates nothing at this level (0.95 vs 0.92), so
+17.2 measures state novelty as the distance to the nearest training state
+instead. `reports/2026-09-20_step17_0_unconditional_baseline.md`,
+`reports/figures/2026-09-20_malecns_baseline17.gif`. What this leaves for
+17.1: not "make a new video" — that is answered — but a state you can choose,
+interpolate and edit, and an entry point for a state from elsewhere.
+
 **17.1 The prior (training).** Flow matching over states, not a VAE: the same
 linear interpolant and the same `SiTColumns` backbone as 13B
 (`flydream/generate/gen13b.py`), with the state as the data (8 T4/T5 types ×

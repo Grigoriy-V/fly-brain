@@ -191,3 +191,24 @@ def test_gen13b_masks_backbones_and_interpolant():
         assert r["history"][-1]["step"] == 3
         x = G.sample(mdl, maps[:2].float(), torch.ones(2, 8), steps=2, guidance=2.0)
         assert x.shape == (2, 8, 721) and x.min() >= 0 and x.max() <= 1
+
+
+def test_baseline17_novelty_metrics():
+    from flydream.generate import baseline17 as B
+
+    rng = np.random.default_rng(0)
+    bank_v = rng.random((5, 6, 721)).astype(np.float32)
+    q = np.stack([bank_v[2], bank_v[4] + 0.001 * rng.random((6, 721))])      # a copy and a near-copy
+    bank, query = B.flat(bank_v, 4), B.flat(q, 4)
+    idx, r, d = B.nearest(query, bank)
+    assert idx.tolist() == [2, 4]
+    assert r[0] > 0.999 and d[0] < 1e-9                                      # an exact copy: r = 1, distance 0
+    assert r[1] > 0.99 and 0 < d[1] < 0.01
+    skipped = B.nearest(query, bank, skip=idx)[0]                            # leave-one-out picks something else
+    assert (skipped != idx).all()
+    c = B.pairwise_corr(bank)
+    assert c.shape == (5, 5) and np.allclose(np.diag(c), 1.0) and np.allclose(c, c.T)
+    t = B.triu_mean(c)
+    assert t["median"] <= t["max"] and -1 <= t["mean"] <= 1
+    assert np.allclose(B.flat(bank_v, 4).mean(1), 0, atol=1e-5)              # rows are centred
+    assert B.flat(bank_v, 4).shape == (5, 4 * 721)
