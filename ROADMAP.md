@@ -368,7 +368,8 @@ spent.
 `reports/2026-09-20_step18_4_throughput_and_learning_rate.md`,
 `reports/figures/2026-09-20_malecns_check18.gif`,
 `..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
-`..._arms18.png`.
+`..._arms18.png`, `..._scaling18.png`, `..._classcmp18.gif`,
+`..._new_video18_w192.gif`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
 model and the same code move the gate 0.142 → 0.095 and the coverage 1.290 →

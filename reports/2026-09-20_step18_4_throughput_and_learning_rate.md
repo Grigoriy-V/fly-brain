@@ -5,7 +5,8 @@ two the research produced, run as arms of one sweep against a single control.
 Code `deploy/modal/generate_app.py::{bench17, dct_maps, train17}`,
 `flydream/generate/prior17.py` (compile, class conditioning),
 `flydream/generate/samples17.py` (a label per sample); figures
-`tools/fig_bench17.py`, `tools/fig_lr18.py`, `tools/fig_arms18.py`.
+`tools/fig_bench17.py`, `tools/fig_lr18.py`, `tools/fig_arms18.py`,
+`tools/fig_scaling18.py`.
 **Cost: $1.93 on ten Modal containers**; every gate below is local CPU, $0.
 Checkpoints on `flydream-runs:/prior18/`, local copies in `data/prior18/`.
 
@@ -145,6 +146,41 @@ for K = 16 — and the gate gets **5.9× worse** (0.527 against 0.090). At width
 dimension makes it relatively smaller still; its own error swamps everything
 the floor gives back. K is worth revisiting **after** capacity, not instead of
 it.
+
+## 18.4f The scaling view — our points do not fall on one diagonal
+
+The human, on seeing the sweep: the shape recalls an LLM training plot, where
+a change of variable puts everything on one straight line. Plotted the way
+those are — loss against compute `C = 6·N·B·S`, log-log — the seven arms say
+no, and the way they fail is the finding (`tools/fig_scaling18.py`, $0, from
+runs already paid for).
+
+**Three arms sit at the same compute and are 20 % apart.** The control, 6e-4
+and 1e-3 differ only in learning rate: same N, same batch, same steps, so
+`C = 5.29e12` for all three, and validation 0.5052 / 0.4264 / 0.4225. In the
+LLM plots this variation is absent because the rate is tuned per point; ours is
+not, so compute alone cannot be the x-axis here.
+
+**Width leaves the line; length stays on it.** Fit a power law through the four
+width-128 arms — slope −0.096 on validation, −0.089 on the gate, which is the
+familiar range — and extrapolate to width 192's compute:
+
+| | compute | predicted | measured | |
+|---|---|---|---|---|
+| validation | 1.01e13 | 0.4225 | **0.2977** | **−30 %** |
+| round trip | 1.01e13 | 0.0765 | **0.034** | **−56 %** |
+
+The 60,000-step arm has **1.6× more compute** than width 192 and is worse on
+both (0.4046 and 0.074). So at equal or greater compute, parameters beat steps
+here — the same shape as Chinchilla's finding that a fixed budget has an
+optimal split between model and data, with us on the under-parameterised side
+of it. That is also why K = 32 sits far *above* the line: it adds target
+dimension without adding capacity.
+
+**What this is not.** Seven points over a 3× range of compute, one seed each,
+with the learning rate untuned per point; scaling laws are fitted over four to
+six orders of magnitude. The fitted line is a ruler for reading the width-192
+residual off, not a law, and the exponent should not be quoted as one.
 
 ## 18.4e Classes — the one published precedent that did not transfer
 
