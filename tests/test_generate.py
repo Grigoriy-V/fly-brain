@@ -268,3 +268,16 @@ def test_prior17_dct_matrix_and_sample_states():
             "coef_mean": np.zeros((16, 3)).tolist(), "coef_std": np.ones((16, 3)).tolist()}
     s = R.sample_states(model, meta, 2, steps=2, generator=torch.Generator().manual_seed(0))
     assert s.shape == (2, 40, 3, 721) and np.isfinite(s).all()                         # back in frames
+
+
+def test_prior17_refine_endpoints():
+    import torch
+    from flydream.generate import prior17 as R
+
+    model = R.build(frames=6, k=2, width=16, depth=1, heads=2)
+    meta = {"frames": 6, "k": 2, "dct_k": 0}
+    st = np.random.default_rng(0).standard_normal((2, 6, 2, 721)).astype(np.float32)
+    same = R.refine(model, meta, st, t0=1.0, steps=20, generator=torch.Generator().manual_seed(0))
+    assert np.allclose(same, st, atol=1e-5)                      # t0 = 1: the state comes back untouched
+    part = R.refine(model, meta, st, t0=0.5, steps=20, generator=torch.Generator().manual_seed(0))
+    assert part.shape == st.shape and np.isfinite(part).all() and not np.allclose(part, st)

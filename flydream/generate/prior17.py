@@ -188,6 +188,36 @@ def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, devi
     return from_dct(x * cs + cm, dct_matrix(int(meta["time_frames"]), k)).cpu().numpy().astype(np.float32)
 
 
+@torch.no_grad()
+def refine(model: nn.Module, meta: dict, states: np.ndarray, *, t0: float = 0.6, steps: int = 20, device=None,
+           generator: torch.Generator | None = None) -> np.ndarray:
+    """A real state, taken to noise level `t0` and finished by the prior.
+
+    The state-space analogue of image-to-image: x_t = (1−t₀)·ε + t₀·x₁ in the
+    model's own space, then the flow is integrated from t₀ to 1. t₀ = 1 returns
+    the state itself, t₀ = 0 is an unconditional sample; in between the prior
+    keeps the coarse structure and rewrites the rest. This is the candidate
+    mechanism for bringing an off-manifold state onto the learned manifold
+    (ROADMAP 17.3), and it is measured, not assumed."""
+    dev = device or next(model.parameters()).device
+    k = int(meta.get("dct_k", 0))
+    x1 = torch.as_tensor(np.asarray(states, np.float32), device=dev)
+    if k:
+        dm = dct_matrix(int(meta["time_frames"]), k)
+        cm = torch.as_tensor(np.array(meta["coef_mean"], np.float32), device=dev)[None, :, :, None]
+        cs = torch.as_tensor(np.array(meta["coef_std"], np.float32), device=dev)[None, :, :, None]
+        x1 = (to_dct(x1, dm) - cm) / cs
+    eps = torch.randn(x1.shape, device=dev, generator=generator)
+    x = (1 - t0) * eps + t0 * x1
+    n_steps = max(1, int(round(steps * (1 - t0))))
+    for i in range(n_steps):
+        t = torch.full((len(x),), t0 + (1 - t0) * i / n_steps, device=dev)
+        x = x + model(x, t) * (1 - t0) / n_steps
+    if k:
+        x = from_dct(x * cs + cm, dm)
+    return x.cpu().numpy().astype(np.float32)
+
+
 def from_maps(maps: np.ndarray, layout, n_cells: int) -> np.ndarray:
     """(N, T, K, 721) maps -> (N, T, cells) states, the inverse of
     `learned.to_maps` (a bijection for the columnar T4/T5 types: one cell per

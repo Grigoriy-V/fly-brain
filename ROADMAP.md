@@ -228,6 +228,17 @@ Two parts, and only the first is defined today:
   same component as the 17.1 fallback). Which one, and whether the result is
   still reachable by the brain, is measured before this is called a
   projection; item 16 depends on the answer, so it is not assumed here.
+  *First evidence (2026-09-20, local CPU, $0, `flydream/generate/clip17.py`,
+  `prior17.refine`):* the partial-noising route works on a real state — clip A
+  (the face clip of items 8-14) taken to noise level t and finished by the
+  17.1b prior gives round trip 0.054 / 0.093 / 0.134 at t = 0.8 / 0.6 / 0.3
+  with the video still correlating +0.97 / +0.95 / +0.88 to the clip (the real
+  state: 0.023 at r +0.99; a pure sample: 0.145 at r −0.17). So the prior can
+  rewrite a state by a chosen amount and keep it reachable. It is *not* yet
+  shown to pull an **off-manifold** state (14.0's noise, the hand-written
+  stripe, item 16's spontaneous activity) onto the manifold — that is the
+  measurement 17.3 still needs.
+  `reports/figures/2026-09-20_malecns_prior17b_clipA.gif`.
 
 **17.4 Report and artefacts.** `reports/<date>_step17_brain_state_prior.md`
 with the runs and the controls, 17.0's baseline beside 17.2's samples in one
