@@ -410,12 +410,23 @@ def _deep_layout(manifest, columns):
 
 
 @app.function(image=image, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=2, memory=12288, timeout=60 * MINUTES)
-def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz") -> dict:
+def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz", stats_from: str = "", dct_k: int = 0,
+            dct_out: str = "", dct_frames: int = 40) -> dict:
     """13B data, CPU: the pairs13 shards -> (N, T, 8, 721) float16 maps of the
     T4/T5 types (z-scored per type over the training split), the videos and
-    the split, one file on /runs/<out>. The GPU functions start from it."""
+    the split, one file on /runs/<out>. The GPU functions start from it.
+
+    Item 18 adds two arguments. `stats_from` takes the per-type mean and sd of
+    an existing maps file instead of computing new ones — the corpus states
+    must be on **13B's** scale, or 13B is handed conditioning it was never
+    trained to read and the check of 18.2(b) fails for a trivial reason.
+    `dct_k` also writes the compact file the prior trains on: the first `k`
+    temporal DCT coefficients of the first `dct_frames` frames, z-scored per
+    coefficient over the training split (17.1b's representation, precomputed
+    here because a corpus-sized maps file no longer fits a T4 as float32)."""
     import numpy as np
     from flydream.generate import learned as L
+    from flydream.generate import prior17 as R
     from flydream.generate.gen13b import DEEP
 
     t0 = time.time()
@@ -432,25 +443,54 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz") -> dict:
     split = manifest["split"]
     tr = np.isin(index, split["train"])
     k = x.shape[2]
-    s1 = np.zeros(k); s2 = np.zeros(k); n = 0
-    for i in range(0, tr.sum(), 256):
-        xb = x[tr][i:i + 256].astype(np.float32)
-        s1 += xb.sum((0, 1, 3)); s2 += (xb ** 2).sum((0, 1, 3)); n += xb.shape[0] * xb.shape[1] * xb.shape[3]
-    mean = (s1 / n).astype(np.float32); std = (np.sqrt(np.maximum(s2 / n - mean ** 2, 0)) + 1e-6).astype(np.float32)
+    if stats_from:
+        zs = np.load(Path(RUNS) / stats_from)
+        mean, std = zs["mean"].astype(np.float32), zs["std"].astype(np.float32)
+        print(f"  per-type scale taken from {stats_from}: mean {np.round(mean, 3).tolist()}", flush=True)
+    else:
+        s1 = np.zeros(k); s2 = np.zeros(k); n = 0
+        for i in range(0, tr.sum(), 256):
+            xb = x[tr][i:i + 256].astype(np.float32)
+            s1 += xb.sum((0, 1, 3)); s2 += (xb ** 2).sum((0, 1, 3)); n += xb.shape[0] * xb.shape[1] * xb.shape[3]
+        mean = (s1 / n).astype(np.float32); std = (np.sqrt(np.maximum(s2 / n - mean ** 2, 0)) + 1e-6).astype(np.float32)
     for i in range(0, len(x), 256):
         x[i:i + 256] = ((x[i:i + 256].astype(np.float32) - mean[None, None, :, None]) / std[None, None, :, None]).astype(np.float16)
     outp = Path(RUNS) / out
     outp.parent.mkdir(parents=True, exist_ok=True)
     np.savez(outp, maps=x, videos=y, index=index, mean=mean, std=std,
              train=np.array(split["train"]), val=np.array(split["val"]), test=np.array(split["test"]))
+    r = {"n": int(len(x)), "maps": list(x.shape), "gb": round(outp.stat().st_size / 1e9, 2),
+         "stats_from": stats_from or None, "cpu": 2, "memory_mb": 12288}
+    if dct_k:                                                        # the compact file the prior trains on
+        tf = min(int(dct_frames), x.shape[1])
+        dmat = R.dct_matrix(tf, int(dct_k))
+        c = np.empty((len(x), int(dct_k), k, x.shape[3]), np.float16)
+        for i in range(0, len(x), 256):
+            c[i:i + 256] = R.to_dct(x[i:i + 256, :tf].astype(np.float32), dmat).astype(np.float16)
+        s1 = np.zeros((dct_k, k)); s2 = np.zeros((dct_k, k)); n = 0
+        idx_tr = np.where(tr)[0]
+        for i in range(0, len(idx_tr), 256):
+            cb = c[idx_tr[i:i + 256]].astype(np.float32)
+            s1 += cb.sum((0, 3)); s2 += (cb ** 2).sum((0, 3)); n += cb.shape[0] * cb.shape[3]
+        cm = (s1 / n).astype(np.float32); cs = (np.sqrt(np.maximum(s2 / n - cm ** 2, 0)) + 1e-6).astype(np.float32)
+        for i in range(0, len(c), 256):
+            c[i:i + 256] = ((c[i:i + 256].astype(np.float32) - cm[None, :, :, None]) / cs[None, :, :, None]).astype(np.float16)
+        dp = Path(RUNS) / (dct_out or f"{out.rsplit('/', 1)[0]}/maps_dct{dct_k}.npz")
+        dp.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(dp, maps=c, index=index, mean=mean, std=std, coef_mean=cm, coef_std=cs,
+                 time_frames=np.array(tf), dct_k=np.array(int(dct_k)),
+                 train=np.array(split["train"]), val=np.array(split["val"]), test=np.array(split["test"]))
+        r["dct_file"] = str(dp.relative_to(RUNS)); r["dct_shape"] = list(c.shape)
+        r["dct_gb"] = round(dp.stat().st_size / 1e9, 2)
+        print(f"  DCT-{dct_k} over {tf} frames: {c.shape}, {r['dct_gb']} GB", flush=True)
     runs_volume.commit()
-    r = {"n": int(len(x)), "maps": list(x.shape), "gb": round(outp.stat().st_size / 1e9, 2), "seconds": round(time.time() - t0, 1), "cpu": 2, "memory_mb": 12288}
+    r["seconds"] = round(time.time() - t0, 1)
     print(json.dumps(r), flush=True)
     return r
 
 
 def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train", limit: int = 0,
-               with_videos: bool = True, sources: str = "all"):
+               with_videos: bool = True, sources: str = "all", run: str = "pairs13"):
     """(videos, maps) float16 tensors of one split on `device`, plus the index.
     `with_videos=False` leaves the videos on the volume (17.1 trains on the
     states alone and the card need not hold them). `sources="sintel"` keeps
@@ -463,14 +503,19 @@ def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train"
     z = np.load(Path(RUNS) / file)
     keep = np.isin(z["index"], z[subset])
     if sources != "all":
-        n_s = int(json.loads((Path(RUNS) / "pairs13" / "manifest.json").read_text(encoding="utf-8"))["n_sintel"])
+        n_s = int(json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["n_sintel"])
         keep &= (z["index"] < n_s) if sources == "sintel" else (z["index"] >= n_s)
     idx = np.where(keep)[0]
     if limit:
         idx = idx[:limit]
-    v = torch.as_tensor(z["videos"][idx][:, :40], device=device) if with_videos else None
-    m = torch.as_tensor(z["maps"][idx][:, :40], device=device)
-    return v, m, z["index"][idx], {"mean": z["mean"], "std": z["std"]}
+    dct = "coef_mean" in z.files                                     # item 18: the maps file is already compact
+    v = torch.as_tensor(z["videos"][idx][:, :40], device=device) if with_videos and not dct else None
+    m = torch.as_tensor(z["maps"][idx] if dct else z["maps"][idx][:, :40], device=device)
+    stats = {"mean": z["mean"], "std": z["std"]}
+    if dct:
+        stats |= {"coef_mean": z["coef_mean"], "coef_std": z["coef_std"],
+                  "time_frames": int(z["time_frames"]), "dct_k": int(z["dct_k"])}
+    return v, m, z["index"][idx], stats
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
@@ -540,7 +585,8 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
 def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
-            seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow") -> dict:
+            seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
+            maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13") -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -557,12 +603,16 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
 
     dev = torch.device("cuda")
     t0 = time.time()
-    _, m, _, stats = _load_maps(dev, with_videos=False, sources=sources)
-    _, mv, _, _ = _load_maps(dev, subset="val", limit=256, with_videos=False, sources=sources)
+    _, m, _, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+    _, mv, _, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False, sources=sources, run=run)
     print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s "
           f"({m.element_size() * m.nelement() / 1e9:.1f} GB)", flush=True)
     time_frames, coef_mean, coef_std = int(m.shape[1]), None, None
-    if dct_k:
+    if "coef_mean" in stats:                                         # item 18: already compact on the volume
+        dct_k, time_frames = int(stats["dct_k"]), int(stats["time_frames"])
+        coef_mean, coef_std = stats["coef_mean"], stats["coef_std"]
+        print(f"maps file is DCT-{dct_k} over {time_frames} frames, coefficients z-scored on the volume", flush=True)
+    elif dct_k:
         dmat = R.dct_matrix(time_frames, dct_k)
         m = R.to_dct(m.float(), dmat)
         mv = R.to_dct(mv.float(), dmat)
@@ -1022,7 +1072,9 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
          steps13b: int = 6000, batch13b: int = 32, width13b: int = 64, depth13b: int = 6, compile13b: bool = False,
          train17_run: bool = False, steps17: int = 20000, batch17: int = 32, width17: int = 128, depth17: int = 4,
          sample17_run: bool = False, samples17: int = 16, sources17: str = "all", dct17: int = 0,
-         name17: str = "state_flow"):
+         name17: str = "state_flow", maps_file17: str = "gen13b/maps_deep.npz", run17: str = "pairs13",
+         pairs18_run: bool = False, maps18_run: bool = False, videos18: str = "corpus18/videos.npz",
+         out18: str = "pairs18", gen18: str = "gen18", held18: str = ""):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -1034,11 +1086,32 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
+    if pairs18_run:                                                  # ROADMAP 18.1: the corpus through the frozen brain
+        print(f"pairs18 on {GPU}: {videos18} -> states on /runs/{out18}, held-out labels: {held18 or '(none)'}")
+        r = pairs13.remote(videos_file=videos18, model=model, frames=45, held_scenes=held18, val_fraction=0.05, out=out18)
+        d = root / "data" / out18
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "manifest_summary.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        print(json.dumps(r, indent=1)[:1200])
+        print(f"done in {time.time() - t0:.0f} s")
+        return
+    if maps18_run:                                                   # the maps on 13B's scale, plus the compact file
+        k = dct17 or 16
+        print(f"maps18 on CPU (2 cores, 12 GB): /runs/{out18} shards -> {gen18}/maps_deep.npz and maps_dct{k}.npz, "
+              f"per-type scale from gen13b/maps_deep.npz")
+        r = maps13b.remote(run=out18, out=f"{gen18}/maps_deep.npz", stats_from="gen13b/maps_deep.npz",
+                           dct_k=k, dct_out=f"{gen18}/maps_dct{k}.npz")
+        d = root / "data" / gen18
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "maps.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        print(json.dumps(r, indent=1))
+        print(f"done in {time.time() - t0:.0f} s")
+        return
     if train17_run:
         print(f"train17 on {GPU}: state flow {width17}x{depth17}, {steps17} steps, batch {batch17}, "
-              f"sources {sources17}, DCT {dct17 or 'off'} -> {name17}.pt")
+              f"sources {sources17}, DCT {dct17 or 'off'}, maps {maps_file17} -> {name17}.pt")
         r = train17.remote(steps=steps17, batch=batch17, width=width17, depth=depth17, seed=seed,
-                           sources=sources17, dct_k=dct17, name=name17)
+                           sources=sources17, dct_k=dct17, name=name17, maps_file=maps_file17, run=run17)
         d = root / "data" / "prior17"
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{name17}_train.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
