@@ -449,8 +449,11 @@ def maps13b(run: str = "pairs13", out: str = "gen13b/maps_deep.npz") -> dict:
     return r
 
 
-def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train", limit: int = 0):
-    """(videos, maps) float16 tensors of one split on `device`, plus the index."""
+def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train", limit: int = 0,
+               with_videos: bool = True):
+    """(videos, maps) float16 tensors of one split on `device`, plus the index.
+    `with_videos=False` leaves the videos on the volume (17.1 trains on the
+    states alone and the card need not hold them)."""
     import numpy as np
     import torch
 
@@ -459,7 +462,7 @@ def _load_maps(device, file: str = "gen13b/maps_deep.npz", subset: str = "train"
     idx = np.where(keep)[0]
     if limit:
         idx = idx[:limit]
-    v = torch.as_tensor(z["videos"][idx][:, :40], device=device)
+    v = torch.as_tensor(z["videos"][idx][:, :40], device=device) if with_videos else None
     m = torch.as_tensor(z["maps"][idx][:, :40], device=device)
     return v, m, z["index"][idx], {"mean": z["mean"], "std": z["std"]}
 
@@ -526,6 +529,213 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
     (outdir / f"{kind}_train.json").write_text(json.dumps(summary), encoding="utf-8")
     runs_volume.commit()
     print(f"train13b done: {r['seconds']} s, GPU utilisation {gpu.mean}", flush=True)
+    return summary
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
+def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
+            seed: int = 0, out: str = "prior17") -> dict:
+    """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
+    was conditioned on (`prior17.train`), no condition of its own; validation
+    loss every 500 steps; checkpoint with EMA weights on
+    /runs/<out>/state_flow.pt. One T4, the states alone on the card."""
+    import torch
+    from flydream.generate import prior17 as R
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    _, m, _, stats = _load_maps(dev, with_videos=False)
+    _, mv, _, _ = _load_maps(dev, subset="val", limit=256, with_videos=False)
+    print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s "
+          f"({m.element_size() * m.nelement() / 1e9:.1f} GB)", flush=True)
+    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads)
+    n_par = sum(p.numel() for p in model.parameters())
+    print(f"state flow: {n_par} parameters", flush=True)
+    with GpuSampler() as gpu:
+        r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, log_every=100,
+                    log=lambda s_: print(s_, flush=True), val=mv, val_every=500)
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
+            "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
+            "mean": stats["mean"].tolist(), "std": stats["std"].tolist()}
+    R.save(outdir / "state_flow.pt", model, r["ema"], meta)
+    summary = {**meta, "history": r["history"], "seconds": r["seconds"], "seconds_worker": round(time.time() - t0, 1),
+               "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 12288}
+    (outdir / "state_flow_train.json").write_text(json.dumps(summary), encoding="utf-8")
+    runs_volume.commit()
+    print(f"train17 done: {r['seconds']} s, GPU utilisation {gpu.mean}", flush=True)
+    return summary
+
+
+def _nn_stream(arr, keep, qf, chunk: int = 512):
+    """Nearest row of `arr[keep]` to each centred query row of `qf` (N, D):
+    (bank index, correlation, normalised squared distance). Streamed in
+    chunks so the bank is never copied beside itself."""
+    import numpy as np
+
+    qn = qf / (np.linalg.norm(qf, axis=1, keepdims=True) + 1e-12)
+    best_r = np.full(len(qf), -np.inf, np.float32); best_i = np.zeros(len(qf), np.int64); best_d = np.zeros(len(qf), np.float32)
+    for s in range(0, len(keep), chunk):
+        ids = keep[s:s + chunk]
+        x = np.asarray(arr[ids], np.float32).reshape(len(ids), -1)
+        x -= x.mean(1, keepdims=True)
+        xn = x / (np.linalg.norm(x, axis=1, keepdims=True) + 1e-12)
+        r = (qn @ xn.T).astype(np.float32)
+        j = r.argmax(1); v = r[np.arange(len(qf)), j]
+        upd = np.where(v > best_r)[0]
+        if len(upd):
+            best_r[upd] = v[upd]; best_i[upd] = ids[j[upd]]
+            best_d[upd] = ((qf[upd] - x[j[upd]]) ** 2).sum(1) / ((qf[upd] ** 2).sum(1) + 1e-12)
+    return best_i, best_r, best_d
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=8192, timeout=40 * MINUTES)
+def sample17(model: str = "malecns", ckpt: str = "prior17/state_flow.pt", gen_ckpt: str = "gen13b/sit.pt",
+             n_samples: int = 16, n_clips: int = 8, sample_steps: int = 20, seed: int = 0, out: str = "prior17") -> dict:
+    """17.2: `prior -> state -> 13B -> video -> frozen brain -> state'`, and the
+    gates. Round trip against the sampled state, novelty of the state and of
+    the video against the training split, diversity of both, and the direction
+    the brain reads. Every control is rebuilt here, in this path: a held-out
+    clip's own state, white and structured noise in the types, a shuffled clip
+    state — so all the numbers of the table share one scale."""
+    import numpy as np
+    import torch
+    from flydream.decode import pairs as P
+    from flydream.generate import gen13b as G
+    from flydream.generate import learned as L
+    from flydream.generate import prior17 as R
+    from flydream.generate.gen13b import DEEP
+    from flydream.generate.invert import GpuSampler, load_network
+    from flydream.generate.pairs13 import simulate_states
+    from flydream.generate.prompts14 import Deep, direction_energy
+    from flydream.generate.roundtrip13 import build_states, round_trip
+
+    t0 = time.time()
+    dev = torch.device("cuda")
+    torch.manual_seed(seed); np.random.seed(seed)
+    root = Path(RUNS) / "pairs13"
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    columns = json.loads(Path(f"{DATA}/pairs13/columns.json").read_text(encoding="utf-8"))
+    d = Deep(manifest, columns)
+    net = load_network(model)
+    _, index = P.type_index(net.connectome)
+    dt, t_pre, margin, frames = manifest["dt"], manifest["t_pre"], 5, 40
+    T = frames + margin
+    prior, pmeta = R.load(Path(RUNS) / ckpt, dev)
+    gen, gmeta = G.load(Path(RUNS) / gen_ckpt, dev)
+    mean = np.array(gmeta["mean"], np.float32); std = np.array(gmeta["std"], np.float32)
+    built = build_states(net, index, frames=frames, margin=margin, dt=dt, t_pre=t_pre, seed=seed)
+    sa = next(s for s in built if s["name"] == "clip_A")
+    w0, w1 = sa["window"]
+    ta = sa["target"][:, w0:w1, :][:, :, d.cells_all].cpu().numpy().astype(np.float32)
+    var_ref = {t: float(ta[0][:, d.pos[t]].var()) + 1e-6 for t in DEEP}      # 13B's and item 14's normalisation
+    print(f"model, prior ({pmeta['parameters']} par) and 13B loaded in {time.time() - t0:.0f} s", flush=True)
+
+    # --- the states to render: the prior's samples and the controls, all in 13B's conditioning units ---
+    z = np.load(Path(RUNS) / "gen13b/maps_deep.npz")
+    idx_all = z["index"]
+    tr = np.where(np.isin(idx_all, z["train"]))[0]
+    te = np.where(np.isin(idx_all, z["test"]))[0][:n_clips]
+    maps_all = z["maps"]                                                    # one 4.9 GB copy, reused for the bank below
+    clip_maps = maps_all[te][:, :frames].astype(np.float32)
+    g = torch.Generator(device=dev).manual_seed(2000 + seed)
+    with torch.no_grad():
+        prior_states = R.sample(prior, n_samples, frames=frames, k=len(DEEP), steps=sample_steps, device=dev,
+                                generator=g).cpu().numpy().astype(np.float32)
+    rng = np.random.default_rng(seed)
+    ring = L.ring_index(1)
+    white = rng.standard_normal((frames, len(DEEP), 721)).astype(np.float32)
+    sm = white.copy()
+    for _ in range(5):                                                      # ~100 ms in time, one hex ring in space
+        sm = 0.5 * sm + 0.5 * np.concatenate([sm[:1], sm[:-1]], 0)
+        sm = np.nanmean(np.where(ring[None, None] >= 0, sm[:, :, np.clip(ring, 0, None)], np.nan), -1)
+    sm = (sm - sm.mean((0, 2), keepdims=True)) / (sm.std((0, 2), keepdims=True) + 1e-6)
+    jobs = {f"prior_{k}": prior_states[k] for k in range(n_samples)}
+    jobs.update({f"clip_{int(idx_all[i])}": clip_maps[j] for j, i in enumerate(te)})
+    jobs["noise_white"] = white
+    jobs["noise_structured"] = sm.astype(np.float32)
+    jobs["shuffled_clip"] = clip_maps[0][:, :, rng.permutation(721)]
+    names = list(jobs)
+    kinds = {n: ("prior" if n.startswith("prior") else "clip" if n.startswith("clip") else "control") for n in names}
+
+    # --- 13B renders them all, z shared across the states of a chunk ---
+    cond = torch.as_tensor(np.stack([jobs[n] for n in names]), device=dev)
+    mask = torch.ones(len(names), len(DEEP), device=dev)
+    with GpuSampler() as gpu:
+        vids = []
+        with torch.no_grad():
+            for i in range(0, len(names), 8):
+                gg = torch.Generator(device=dev).manual_seed(1000 + seed)
+                vids.append(G.sample(gen, cond[i:i + 8], mask[i:i + 8], steps=sample_steps, generator=gg).cpu().numpy())
+        videos = np.concatenate(vids).astype(np.float32)
+        print(f"{len(videos)} videos rendered in {time.time() - t0:.0f} s", flush=True)
+
+        # --- the frozen brain: the round trip against the state that was asked for ---
+        target_raw = np.stack([R.from_maps(R.unscale(jobs[n][None], mean, std), d.layout, len(d.cells_all))[0] for n in names])
+        rts = round_trip(net, videos, target_raw, d.cells_all, d.type_of, DEEP, dt, t_pre, margin, (0, frames), var_ref)
+        vids_m = np.concatenate([videos, np.repeat(videos[:, -1:], margin, 1)], 1).astype(np.float16)
+        st_back = simulate_states(net, vids_m, d.cells_all, dt, t_pre, 16).astype(np.float32)
+        st_grey = simulate_states(net, np.full((1, T, 721), 0.5, np.float16), d.cells_all, dt, t_pre, 1).astype(np.float32)[0]
+        print(f"round trips in {time.time() - t0:.0f} s", flush=True)
+
+    # --- novelty: the nearest training state and the nearest training video ---
+    def centred(x):
+        f = np.asarray(x, np.float32).reshape(len(x), -1)
+        return f - f.mean(1, keepdims=True)
+
+    q_states = centred(np.stack([jobs[n] for n in names]))
+    i_s, r_s, d_s = _nn_stream(maps_all, tr, q_states)
+    del q_states, maps_all, clip_maps
+    vids_all = z["videos"]
+    q_vids = centred(videos)
+    i_v, r_v, d_v = _nn_stream(vids_all, tr, q_vids)
+    print(f"nearest neighbours over {len(tr)} training clips in {time.time() - t0:.0f} s", flush=True)
+
+    def pw(x):
+        n = x / (np.linalg.norm(x, axis=1, keepdims=True) + 1e-12)
+        c = n @ n.T
+        iu = np.triu_indices(len(c), 1)
+        return {"mean": float(c[iu].mean()), "max": float(c[iu].max())}
+
+    sel = {k: [i for i, n in enumerate(names) if kinds[n] == k] for k in ("prior", "clip")}
+    diversity = {f"videos_{k}": pw(q_vids[v]) for k, v in sel.items() if len(v) > 1}
+    diversity.update({f"states_{k}": pw(centred(np.stack([jobs[names[i]] for i in v]))) for k, v in sel.items() if len(v) > 1})
+
+    scores = {}
+    for i, n in enumerate(names):
+        de_v = direction_energy(st_back[i], st_grey, d)
+        de_s = direction_energy(R.from_maps(R.unscale(jobs[n][None], mean, std), d.layout, len(d.cells_all))[0], st_grey, d)
+        scores[n] = {"kind": kinds[n], "round_trip": float(rts[i]),
+                     "state_nn_r": float(r_s[i]), "state_nn_distance": float(d_s[i]), "state_nn_index": int(idx_all[i_s[i]]),
+                     "video_nn_r": float(r_v[i]), "video_nn_distance": float(d_v[i]), "video_nn_index": int(idx_all[i_v[i]]),
+                     "direction_state": de_s["T4_argmax"], "direction_video": de_v["T4_argmax"],
+                     "video_mean": float(videos[i].mean()), "video_sd": float(videos[i].std()),
+                     "frame_to_frame": float(np.abs(np.diff(videos[i], axis=0)).mean())}
+        print(f"  {n:<16} {kinds[n]:<7} rt {scores[n]['round_trip']:.3f}  state nn r {scores[n]['state_nn_r']:+.2f}"
+              f"  video nn r {scores[n]['video_nn_r']:+.2f}  dir {de_s['T4_argmax']}->{de_v['T4_argmax']}", flush=True)
+
+    def group(k, q):
+        v = [scores[n][q] for n in names if kinds[n] == k]
+        return {"median": float(np.median(v)), "min": float(np.min(v)), "max": float(np.max(v))}
+
+    summary = {"ckpt": ckpt, "gen_ckpt": gen_ckpt, "n_samples": n_samples, "n_clips": n_clips, "frames": frames,
+               "sample_steps": sample_steps, "seed": seed, "prior": {k: pmeta[k] for k in ("width", "depth", "steps", "parameters")},
+               "bank": {"train": int(len(tr))},
+               "gates": {k: {q: group(k, q) for q in ("round_trip", "state_nn_r", "video_nn_r")} for k in ("prior", "clip")},
+               "diversity": diversity, "scores": scores, "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 8192,
+               "seconds": round(time.time() - t0, 1)}
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    arrays = {f"video__{n}": videos[i] for i, n in enumerate(names)}
+    arrays.update({f"T4a__{n}": R.from_maps(R.unscale(jobs[n][None], mean, std), d.layout, len(d.cells_all))[0][:, d.pos["T4a"]]
+                   for n in names})
+    arrays.update({f"nnvideo__{n}": np.asarray(vids_all[i_v[i]][:frames], np.float32) for i, n in enumerate(names)})
+    np.savez_compressed(outdir / "samples17.npz", **arrays)
+    (outdir / "samples17.json").write_text(json.dumps(summary), encoding="utf-8")
+    runs_volume.commit()
+    print(f"sample17 done in {time.time() - t0:.0f} s, GPU utilisation {gpu.mean}", flush=True)
     return summary
 
 
@@ -782,7 +992,9 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
          train13_run: bool = False, epochs: int = 12, pairs13_videos_run: bool = False, epochs_cnn: int = -1,
          resume: str = "", roundtrip13_run: bool = False, maps13b_run: bool = False, bench13b_run: bool = False,
          train13b_run: bool = False, multi_init13b_run: bool = False, sample13b_run: bool = False, kind: str = "hexresnet",
-         steps13b: int = 6000, batch13b: int = 32, width13b: int = 64, depth13b: int = 6, compile13b: bool = False):
+         steps13b: int = 6000, batch13b: int = 32, width13b: int = 64, depth13b: int = 6, compile13b: bool = False,
+         train17_run: bool = False, steps17: int = 20000, batch17: int = 32, width17: int = 128, depth17: int = 4,
+         sample17_run: bool = False, samples17: int = 16):
     """`--dream-sources eye_noise,flash,dark_after,neuron_noise` runs item 11
     instead of the clip ladder; `--mix-clips 3,10` runs item 12."""
     root = Path(__file__).resolve().parents[2]
@@ -794,6 +1006,32 @@ def main(model: str = "flow/0000/000", sample: int = 3, frames: int = -1, margin
                   plateau_steps=GEN.get("plateau_steps", 0), plateau_tol=GEN.get("plateau_tol", 0.0),
                   plateau_floor=GEN.get("plateau_floor", 1e-3))
     t0 = time.time()
+    if train17_run:
+        print(f"train17 on {GPU}: state flow {width17}x{depth17}, {steps17} steps, batch {batch17}")
+        r = train17.remote(steps=steps17, batch=batch17, width=width17, depth=depth17, seed=seed)
+        d = root / "data" / "prior17"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "state_flow_train.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        h = r["history"]
+        print(json.dumps({k: v for k, v in r.items() if k not in ("history", "mean", "std")}, indent=1)[:1500])
+        print(f"loss {h[0]['loss']:.4f} -> {h[-1]['loss']:.4f}, val {h[-1].get('val_loss')}")
+        print(f"done in {time.time() - t0:.0f} s; GPU utilisation {r['gpu_utilisation']}")
+        return
+    if sample17_run:
+        print(f"sample17 on {GPU}: {samples17} states from the prior -> 13B -> brain, with the controls")
+        r = sample17.remote(model=model, n_samples=samples17, seed=seed)
+        d = root / "data" / "prior17"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "samples17.json").write_text(json.dumps(r, indent=1), encoding="utf-8")
+        for k, v in r["gates"].items():
+            print(f"{k:>6}: round trip {v['round_trip']['median']:.3f} ({v['round_trip']['min']:.3f}-{v['round_trip']['max']:.3f})"
+                  f"  state nn r {v['state_nn_r']['median']:+.2f}  video nn r {v['video_nn_r']['median']:+.2f}")
+        for n in ("noise_white", "noise_structured", "shuffled_clip"):
+            c = r["scores"][n]
+            print(f"{n:>16}: round trip {c['round_trip']:.3f}  state nn r {c['state_nn_r']:+.2f}")
+        print(json.dumps(r["diversity"], indent=1))
+        print(f"done in {time.time() - t0:.0f} s; GPU utilisation {r['gpu_utilisation']}")
+        return
     if maps13b_run or bench13b_run or train13b_run or multi_init13b_run or sample13b_run:
         d = root / "data" / "gen13b"
         d.mkdir(parents=True, exist_ok=True)

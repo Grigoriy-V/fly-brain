@@ -212,3 +212,40 @@ def test_baseline17_novelty_metrics():
     assert t["median"] <= t["max"] and -1 <= t["mean"] <= 1
     assert np.allclose(B.flat(bank_v, 4).mean(1), 0, atol=1e-5)              # rows are centred
     assert B.flat(bank_v, 4).shape == (5, 4 * 721)
+
+
+def test_prior17_state_flow_shapes_and_training():
+    import torch
+    from flydream.generate import prior17 as R
+
+    model = R.build(frames=6, k=3, width=16, depth=1, heads=2)
+    x = torch.randn(2, 6, 3, 721)
+    v = model(x, torch.tensor([0.2, 0.8]))
+    assert v.shape == x.shape and torch.isfinite(v).all()
+    assert torch.allclose(v, torch.zeros_like(v))                         # adaLN-Zero: the fresh model outputs zero
+    states = torch.randn(8, 6, 3, 721).half()
+    r = R.train(model, states, steps=3, batch=2, lr=1e-3, warmup=1, log_every=3, log=lambda s: None,
+                val=states[:2], val_every=3)
+    assert r["history"][-1]["step"] == 3 and "val_loss" in r["history"][-1]
+    g = torch.Generator().manual_seed(0)
+    s = R.sample(model, 2, frames=6, k=3, steps=2, generator=g)
+    assert s.shape == (2, 6, 3, 721) and torch.isfinite(s).all()
+    s2 = R.sample(model, 2, frames=6, k=3, steps=2, generator=torch.Generator().manual_seed(0))
+    assert torch.allclose(s, s2)                                          # same z, same state
+
+
+def test_prior17_map_state_roundtrip():
+    from flydream.generate import learned as L
+    from flydream.generate import prior17 as R
+
+    manifest = {"type_of_cell": ["T4a"] * 4 + ["T4b"] * 4}
+    columns = {"column_of_cell": {"T4a": [0, 1, 2, 3], "T4b": [3, 2, 1, 0]}}
+    layout = L.channel_layout(manifest, columns, ["T4a", "T4b"])
+    st = np.arange(2 * 3 * 8, dtype=np.float16).reshape(2, 3, 8)
+    maps = L.to_maps(st, layout, 2)
+    assert maps.shape == (2, 3, 2, 721)
+    back = R.from_maps(maps, layout, 8)
+    assert np.allclose(back, st.astype(np.float32))                       # the columnar scatter is a bijection
+    mean = np.array([1.0, -2.0], np.float32); std = np.array([2.0, 0.5], np.float32)
+    raw = R.unscale((maps - mean[None, None, :, None]) / std[None, None, :, None], mean, std)
+    assert np.allclose(raw, maps.astype(np.float32), atol=1e-4)
