@@ -131,6 +131,13 @@ batch 32) carries over. A local CPU smoke of the code and the loader first
 Fallback if the samples fail the gates: an autoencoder over states plus a flow
 in its latent (§6 of the human's document), not a prettier picture.
 
+*17.1 status (2026-09-20), measured, one T4 1,170 s, ≈ $0.23:* `SiTStates`
+128 × 4, 1,428,032 parameters, 20k steps at batch 32 on the 6,725 training
+states, GPU utilisation 99.2 %, cpu 1 / 12 GB; loss 1.741 → 0.754, validation
+1.038 → 0.776 and flat from ~12k steps. The checkpoint is
+`flydream-runs:/prior17/state_flow.pt` (and `data/prior17/`).
+`reports/2026-09-20_step17_state_prior.md`.
+
 **17.2 Sampling and the gates.** Sampled states → 13B (full mask, s = 1,
 20 Euler steps) → video → frozen brain → state′, all samples batched into one
 pass on the card. Measured per sample:
@@ -154,6 +161,33 @@ a held-out clip as the reachable reference, white and structured noise in the
 types (14.0's construction), a shuffled clip state, and 17.0's unconditional
 samples as the "no state at all" row. Local CPU if sampling and the round trips
 fit in minutes as they did in item 14 ($0); otherwise one T4 pass, ≈ $0.05.
+
+*17.2 status (2026-09-20), measured, local CPU 41 s, $0:* **the main gate
+fails.** 16 sampled states give a round trip of 1.19 (1.06-1.37) where a
+held-out clip's own state gives 0.006-0.061 and a *shuffled* clip state 1.77
+(white noise 2.19, structured noise 3.04) — a sampled state is not a reachable
+state, so novelty (+0.12 against a real clip's +0.68) and diversity (states
+0.32 against 0.72) do not count for anything yet. Measured causes: not the
+sampler (50/100 Euler steps give 1.34/1.40), not the plumbing (a real state
+through the same path gives 0.006); the samples are too white — temporal
+lag-1 0.56 against 0.99, ring-1 0.34 against 0.80, cross-type coupling 0.16
+against 0.35 — and the velocity field is right near the data (denoising a real
+state at t = 0.9: r 0.993, structure 0.98/0.79) and mean-like away from it
+(t = 0.1: r 0.615, structure 0.52/0.37), so a trajectory from pure noise never
+enters the structured region. `reports/2026-09-20_step17_state_prior.md`,
+`reports/figures/2026-09-20_malecns_prior17.gif`. **State novelty against the
+full training set is still unmeasured** (the states live in the 5.5 GB
+`maps_deep.npz` on the volume; `sample17` in the Modal app measures it there,
+≈ $0.10) — it is pointless until a sample passes the round trip.
+
+**The human's decision, nothing started:** (1) more capacity, same design
+(width 192-256 or depth 6; ≈ $0.4-0.9 per run, which touches or breaks the
+$0.50 rule); (2) the documented fallback — compress the state and put the flow
+in the compact space (a small autoencoder, or a fixed temporal-DCT basis that
+matches the measured smoothness and needs no fitting), cheaper per run and
+aimed at the measured cause; (3) stop the prior line, keep 17.0 as the answer
+to "video without a source clip" and spend the next money on item 16 or on a
+denser state set (17').
 
 **17.3 The prior as a control surface** (local, $0, only after 17.2 passes).
 Two parts, and only the first is defined today:
