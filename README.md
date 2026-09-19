@@ -67,7 +67,7 @@ AGENTS.md / CLAUDE.md         how work is done here, by a person or an agent
 ROADMAP.md                    the only plan
 DECISIONS.md                  approved durable choices and why
 ISSUES.md                     observed defects
-docs/                         PROJECT_MAP (system shape), OPERATIONS_MAP (data, Modal, runs)
+docs/                         PROJECT_MAP (system shape), OPERATIONS_MAP (data, Modal, runs), ARTEFACTS (how a result is delivered), ideas/ (the owner's own notes)
 reports/                      evidence, dated; research reports; runs.jsonl
 research_notes/               literature notes behind each research report
 data/                         (not committed) connectome tables, stimuli, activity, checkpoints

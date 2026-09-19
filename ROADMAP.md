@@ -1,389 +1,331 @@
 # Roadmap
 
-**Updated:** 2026-09-19
+**Updated:** 2026-09-20.
 
-**Project status:** the deliverable is a working generator of clips from
-the model's internal states ("что снится мухе" is the title; the human,
-2026-09-18 night: not a paper, an ML product). Steps 1 (data), 2 (model
-zero on MaleCNS), 4 (the decoder ladder) and 8 (the generator by encoder
-inversion) are done at their minimal shape; the generator exists on both
-brains as the check "state → the clip that caused it". Current branch:
-**dreams and visual data** — states no clip caused, manipulated states, a
-learned generator. Everything that is not on that branch is kept in
-"Beyond the branch" so it is not lost. Research behind the plan:
-`reports/Коннектом мухи и план проекта.md`.
+This file alone owns current direction, order and authorization. Rules:
+`AGENTS.md` and `docs/ARTEFACTS.md`. System: `docs/PROJECT_MAP.md`.
+Operations: `docs/OPERATIONS_MAP.md`. Durable choices: `DECISIONS.md`.
+Defects: `ISSUES.md` (not a plan, authorizes nothing). Evidence: `reports/`.
 
-**Rules of the day (DECISIONS 2026-09-18 night):** local CPU by default;
-Modal only for a GPU-bound job or a ≥4× gain; a training run within $0.50
-and only from the transplanted weights; one substrate (MaleCNS) at a time;
-one artefact per message with its text first (`AGENTS.md`, "Artefacts for
-the human").
+## Where the project stands
 
-**Current approved step:** none. Steps 13B and 14 are measured and closed;
-item 16 is a draft, deferred until the human resumes its discussion. Fine-tuning
-MaleCNS (3') remains paused. Each priced run starts on the human's word.
+The chain `video → frozen brain → T4/T5 state → generator → video → frozen
+brain` works and is measured end to end: model zero on the MaleCNS export
+(step 2), the decodability ladder (4), encoder inversion (8-12), the learned
+decoder 13A, the conditional flow generator 13B, and item 14 on what can and
+cannot be prompted. The generator reads a state in one pass at a round trip of
+0.031 against the inversion's 0.009 and a shuffled-state control of 0.96.
 
-Observed defects are in `ISSUES.md`, which is not a plan and authorizes
-nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
-system and operations; `AGENTS.md` holds execution rules; `DECISIONS.md`
-preserves approved durable choices. This file alone owns current work, order
-and authorization.
+What is missing is a **source of states**. Every state so far came from a
+video, so the system can only return video it was given; numbers put into the
+T4/T5 types by hand are not states the brain can reach (14.0: round trip
+1.9-2.3 against 0.03 for a clip, control 19).
 
-## Current state
+## Current track: new video without a source video
+
+The human, 2026-09-20: "я ставлю чёткую задачу: я хочу получать новые видео".
+Learn the distribution of reachable T4/T5 states, sample it from noise, render
+with 13B, verify with the frozen brain:
+
+```text
+noise → state prior → T4/T5 state → 13B → video → frozen brain → round trip
+```
+
+The human's design documents for this track:
+`docs/ideas/brain_state_prior_new_video_generation.md` and
+`docs/ideas/full_project_architecture_brain_to_video.md`.
+
+This is not the dream chapter: the source of the state is an artificial prior,
+not the brain's own activity. The dream source inside the model (item 16)
+stays deferred, and the prior built here is what a spontaneous state will
+later be projected through.
+
+## Current approved step: 17, the brain-state prior
+
+Goal: videos that exist in no clip, made from sampled states, at the round
+trip of a real clip. Nothing here retrains 13B, changes the frozen brain or
+needs a new export.
+
+The **track and the goal are the human's** (2026-09-20, approved in words).
+The shape below (flow over states rather than a VAE first, the gates, the
+order) is the agent's design from the human's documents; it stands until the
+human says otherwise, and each priced run starts on the human's word with the
+price stated first.
+
+**17.1 The prior (training).** Flow matching over states, not a VAE: the same
+linear interpolant and the same `SiTColumns` backbone as 13B
+(`flydream/generate/gen13b.py`), with the state as the data (8 T4/T5 types ×
+40 frames on 721 columns, z-scored per type) and no condition. Training data
+is already on the volume — the 9,468 state maps of 13A/13B
+(`flydream-runs:/gen13b/maps_deep.npz`, stored as 9,468 × 45 × 8 × 721 and
+cropped to 40 frames on load as 13B does), split by scene exactly as 13B split
+them, so a sample can be compared against held-out states. The optimised loop
+of 13B (data on the GPU in fp16, AMP, fused AdamW, warmup + cosine, EMA 0.999,
+batch 32) carries over. A local CPU smoke of the code and the loader first
+($0); then one T4 run, ~20k steps, ≈ 1,100 s, ≈ $0.22, inside the $0.50 cap.
+Fallback if the samples fail the gates: an autoencoder over states plus a flow
+in its latent (§6 of the human's document), not a prettier picture.
+
+**17.2 Sampling and the gates.** Sampled states → 13B (full mask, s = 1,
+20 Euler steps) → video → frozen brain → state′, batched in one pass.
+Measured per sample:
+- **round trip** of the sample, the main gate, against 13B on held-out clips
+  (0.031), raw noise in the types (1.9 / 2.3) and the shuffled-state control
+  (19);
+- **nearest neighbour** to the training states (correlation and normalised
+  distance): a sample that reproduces a training state is not a new state;
+- **diversity**: pairwise correlation between sampled states and between their
+  videos, on the scale of the pairwise correlation of real clips' states;
+- **what the brain reads**: the T4 direction energy after the round trip
+  (`prompts14.direction_energy`), so a sample is described by the motion it
+  carries.
+Controls in the same table: a held-out clip (the reachable reference), white
+and structured noise in the types (14.0), a shuffled clip state, and 13B with
+the unconditional mask (z only, no state) as the picture of "no state at all".
+Local CPU if sampling and the round trips fit in minutes as they did in item
+14 ($0); otherwise one T4 pass, ≈ $0.05.
+
+**17.3 The prior as a control surface** (local, $0, only after 17.2 passes).
+Interpolation between two samples in noise, variations around one state, and
+the projection of an unreachable state onto the prior's manifold (the 14.0
+random state and the hand-written stripe pushed through the prior before 13B).
+This is the part item 16 will reuse.
+
+**17.4 Report and artefacts.** `reports/<date>_step17_brain_state_prior.md`
+with the runs and the controls; `reports/runs.jsonl` per measured outcome; row
+clips per `docs/ARTEFACTS.md`: state map / video / what the brain read, the
+round trip and the nearest-neighbour distance under each, the control states
+as a second row with their own maps.
+
+**What counts as done.** (1) Sampled states' round trip within a few times a
+held-out clip's 0.031 and at least tenfold below the noise states; (2) the
+nearest-neighbour distance shows they are not copies; (3) samples differ from
+each other; (4) the clips are watchable. A beautiful clip without (1) is the
+13B prior's texture, not a brain state (14.0 measured exactly that).
+
+**Limits stated in the report, not discovered by the reader.** The prior
+learns the distribution of *our* clips (Sintel's 23 scenes with flyvis's
+augmentations, plus 13A's procedural stimuli), so a "new" state is new inside
+that distribution; and 13B's own amortisation gap (0.031 against the
+inversion's 0.009) bounds how compatible any sample's video can be.
+
+**17', more states — not approved, after 17's gates only.** The human's
+document §16: 100k+ clips covering translation, rotation, looming, optic flow,
+several local motions, occlusion and dynamic textures, to cover the reachable
+manifold more densely, then the prior (and possibly 13B) retrained on them.
+
+## Current state of the system
 
 - **Data:** MaleCNS v1.0 core files and the FlyVis 1.2.0 ensemble under
   `data/` with hashes in `data/manifest.json`; the right optic lobe exported
-  as `data/ol/filters_R_w5wk50m500oc.json` (60 types, 677 type pairs,
-  31,526 neurons, 1.39 M edges; weak-pair exception, outputs restricted to
-  the 18 columnar types); Sintel under `data/flyvis/SintelDataSet`.
-  Settings in `config.toml [data]`.
-- **Model:** model zero (`flydream/model/zero.py`): FlyVis's network on the
+  as `data/ol/filters_R_w5wk50m500oc.json` (60 types, 677 type pairs, 31,526
+  neurons, 1.39 M edges; weak-pair exception, outputs restricted to the 18
+  columnar types); Sintel under `data/flyvis/SintelDataSet`. Settings in
+  `config.toml [data]`.
+- **Model:** model zero (`flydream/model/zero.py`), FlyVis's network on the
   MaleCNS export with a member's parameters transplanted by type, gain
   rescaled to total input per target and capped (v9: DSI 0.152 against
-  FlyVis's 0.391, flash polarity and direction at or above FlyVis, stable
-  on three members). Not trained on MaleCNS; training is paused (3').
-- **Decoders:** `flydream/decode/`: ridge per cell type (penalty chosen on
-  held-out scenes; float32 SVD), hex-conv head, metrics, raster, the map
-  driver, the lag sweep, the ensemble aggregation (beyond the branch). The
-  window is part of the measurement (ISS-0004), consecutive lags only
-  (ISS-0006).
-- **Generator:** `flydream/generate/invert.py`: encoder inversion — a
-  20 × 721 video optimised through the frozen network to reproduce one
-  stage's state (Adam, TV prior, grey start); `run_ladder` for all stages
-  in one model load; `deploy/modal/generate_app.py` runs it on a T4
-  (10 stages in ~10 min, ~$0.10); `flydream/generate/figures.py` and the
-  two-input figures of 2026-09-19 draw it; the window is `frames + margin`
-  (40 + 5), so the last shown frames are constrained (item 9, done).
-- **Compute:** the owner's machine (32 cores, 102 GB, CPU) for everything
-  that fits in hours; Modal T4 (`flydream-train`, `flydream-decode`,
-  `flydream-generate`) for GPU-bound jobs; `tools/modal_watch.py` to watch.
-- **Measurement:** decoder ladders at 0 and 80 ms on both brains
-  (`reports/figures/2026-09-19_decoder_ladders_flyvis_vs_malecns.gif`); the
-  generator recovers clips 3 and 10 from every stage with r 0.92-1.00 on
-  both brains (`2026-09-19_*_generator_two_inputs.*`,
-  `2026-09-19_generator_forest_flyvis_vs_malecns.gif`). Training priced:
-  batch 16 saturates a T4 at 14 samples/s, `stats_relu` gives 1.17×
-  (`reports/2026-09-18_step3_training_options.md`). Tests: 77 offline
-  passed on 2026-09-19.
+  FlyVis's 0.391, flash polarity and direction at or above FlyVis, stable on
+  three members). Not trained on MaleCNS; training is paused (3').
+- **Decoders:** `flydream/decode/` — ridge per cell type, hex-conv head,
+  metrics, raster, the map driver, the lag sweep, the ensemble aggregation
+  (beyond the track). The window is part of the measurement (ISS-0004),
+  consecutive lags only (ISS-0006).
+- **Generator:** `flydream/generate/` — `invert.py` (encoder inversion, the
+  reference answer), `gen13b.py` (the conditional flow generator, checkpoint
+  `data/gen13b/sit.pt` and `flydream-runs:/gen13b/sit.pt`), `roundtrip13.py`
+  (the round trip on built states), `prompts14.py` (random, edited and
+  composed states, the closed loop).
+- **Compute:** the owner's machine (32 cores, 102 GB, CPU) for everything that
+  fits in hours; Modal T4 (`flydream-train`, `flydream-decode`,
+  `flydream-generate`) for GPU-bound work; `tools/modal_watch.py` to watch.
+- **Tests:** 77 offline tests passing (2026-09-20, 23 s), no download, no
+  Modal, no credential.
+- **Spend recorded in `reports/runs.jsonl`:** $3.35 in total, of which 13A
+  ≈ $1.61 (the pairs, the three decoders, the round trip on 11-12) and 13B
+  ≈ $0.42; item 14 ran locally at $0.
 
 ## Done
 
 - **Research: the landscape and the plan** (2026-09-18).
-  `reports/Коннектом мухи и план проекта.md`; how connectome models are
-  trained and sped up: `reports/Обучение коннектомных сетей и ускорение.md`.
-- **The records** (2026-09-18): this file, `AGENTS.md`, `DECISIONS.md`,
-  `ISSUES.md`, `docs/`.
-- **1, the data step** (2026-09-18): MaleCNS core files and the FlyVis
-  ensemble fetched with a manifest; the type bridge (61/65); home columns
-  from neuPrint column ROIs; hex axes aligned to FlyVis; filters exported in
-  FlyVis shape (0.869 of FlyVis type pairs, Spearman 0.752, sign agreement
-  0.951); weak-pair exception and columnar outputs so the reference task
-  runs. `reports/2026-09-18_step1_data.md`, ISS-0001, ISS-0002, ISS-0005.
+  `reports/Коннектом мухи и план проекта.md`; training and speed-up of
+  connectome models: `reports/Обучение коннектомных сетей и ускорение.md`.
+- **The records** (2026-09-18): `ROADMAP.md`, `AGENTS.md`, `DECISIONS.md`,
+  `ISSUES.md`, `docs/`; `docs/ARTEFACTS.md` split out 2026-09-20.
+- **1, data** (2026-09-18): MaleCNS core files and the FlyVis ensemble with a
+  manifest; the type bridge (61/65); home columns from neuPrint column ROIs;
+  hex axes aligned to FlyVis; the export in FlyVis shape (0.869 of FlyVis type
+  pairs, Spearman 0.752, sign agreement 0.951); the weak-pair exception and
+  columnar outputs. `reports/2026-09-18_step1_data.md`; ISS-0001, ISS-0002,
+  ISS-0005.
 - **2, model zero** (2026-09-18): FlyVis dynamics on the MaleCNS right lobe
-  with transplanted parameters; the transplant corrected to preserve total
-  input per target with a cap (ISS-0003): DSI 0.152 (v9) against FlyVis's
-  0.391, flash polarity and direction at or above FlyVis, stable on three
-  members. `reports/2026-09-18_step2_model_zero.md`, §9 of the step-4 report.
-- **4, the decoder ladder** (2026-09-18/19): ridge per cell type with the
-  time-shuffle and sample-shuffle controls; the first stage curve withdrawn
-  by its own audit (ISS-0004: the order depends on the decoder's window);
-  even-spaced lags alias the frame hold (ISS-0006); closed at the minimal
-  shape — ladders at 0 and 80 ms on both brains, one member, one split.
+  with transplanted parameters, corrected to preserve total input per target
+  with a cap (ISS-0003). DSI 0.152 (v9) against FlyVis's 0.391, flash polarity
+  and direction at or above FlyVis, three members stable.
+  `reports/2026-09-18_step2_model_zero.md`.
+- **4, the decoder ladder** (2026-09-18/19): ridge per cell type with
+  time-shuffle and sample-shuffle controls; the first stage curve withdrawn by
+  its own audit (ISS-0004), even-spaced lags alias the frame hold (ISS-0006);
+  closed at the minimal shape, ladders at 0 and 80 ms on both brains.
   `reports/2026-09-18_step4_decoder_stack.md`.
-- **8, the generator by encoder inversion** (2026-09-19): a video optimised
-  through the frozen network reproduces one stage's state; from every
-  stage, including T4/T5 alone, the clip that caused the state comes back
-  (r 0.92-1.00) and a state from another clip gives that other clip; on a
-  T4 in minutes. Figures `reports/figures/2026-09-19_*generator*`.
+- **8, the generator by encoder inversion** (2026-09-19): from every stage,
+  T4/T5 alone included, the clip that caused the state comes back (r
+  0.92-1.00); a state from another clip gives that other clip; minutes on a
+  T4. Figures `reports/figures/2026-09-19_*generator*`.
 - **9, the window's end constrained** (2026-09-19): the generator fits
-  `frames + margin` (config [generate]: 40 + 5) and shows `frames`; the
-  margin is the next chunk of the scene. The end-of-clip blur is gone
-  (last-frame r T5a 0.66 → 0.92, T4+T5 0.80 → 1.00), mean r unchanged
-  (0.93-1.00), whole 0.8 s clip. One T4 ladder, ≈ $0.17.
-  `reports/2026-09-19_step9_window_margin.md`,
-  `reports/figures/2026-09-19_malecns_generator_two_inputs_40f.gif`.
-- **10', the ladder batched** (2026-09-19): all 20 tasks of a ladder in
-  one pass, per-task masked loss; 948 s → 176 s on a T4 (7.5× on the
-  optimisation), 66 % utilisation, videos identical to batch 1; a plateau
-  stop with a floor. A ladder of one clip ≈ $0.05. §"Item 10'" of
+  `frames + margin` (40 + 5) and shows `frames`; last-frame r T5a 0.66 → 0.92,
+  T4+T5 0.80 → 1.00, mean r unchanged. ≈ $0.17.
   `reports/2026-09-19_step9_window_margin.md`.
-- **11, dreams-lite** (2026-09-19): the generator on states no clip
-  caused — noise into the eye, a flash, the dark after a clip, noise inside
-  the neurons — from every stage beside a shuffled-state control, one
-  batch per source on a T4 (≈ $0.15). Eye noise comes back (r 0.91-1.00,
-  Tm5a 0.53, T5a 0.31; control ≈ 0); the flash by its timing without
-  texture; a faint after-image for a few dark frames from L3 onward;
-  internal noise as quiet ripple. The shuffled state is explained by
-  diagonal stripes from Mi4/Tm9/T4a — the wiring's own texture.
-  `reports/2026-09-19_step11_dreams_lite.md`,
-  `reports/figures/2026-09-19_malecns_dream_*.gif`.
-- **12, manipulated states** (2026-09-19): per-type normalised loss, 15
-  tasks in one T4 batch (≈ $0.05). Gain edits of one type leave the clip
+- **10', the ladder batched** (2026-09-19): 20 tasks in one pass with a
+  per-task masked loss, 948 s → 176 s on a T4 (7.5×), 66 % utilisation,
+  identical videos; a ladder ≈ $0.05. Same report, §"Item 10'".
+- **11, dreams-lite** (2026-09-19): inversion of states no clip caused — noise
+  into the eye, a flash, the dark after a clip, noise inside the neurons —
+  beside a shuffled-state control, ≈ $0.15. Eye noise comes back (r 0.91-1.00;
+  Tm5a 0.53, T5a 0.31; control ≈ 0); the flash by its timing without texture;
+  a faint after-image for a few dark frames from L3 onward; internal noise as
+  quiet ripple; the shuffled state draws the wiring's own diagonal stripes.
+  `reports/2026-09-19_step11_dreams_lite.md`.
+- **12, manipulated states** (2026-09-19): per-type normalised loss, 15 tasks
+  in one T4 batch (≈ $0.05). Gain edits of one type leave the clip in place
   (r_A 0.95-1.00) with a residual 2,000-8,000× the control's — unreachable
-  states; the mix of T4a states is the state of the mixed video (r 0.99 at
-  α = 0.5, monotone in α); hybrids are a contest that T4/T5 win
-  (0.51/0.62 and 0.88/0.15). The three-source hybrid waits for a balanced
-  readout. `reports/2026-09-19_step12_manipulated_states.md`,
-  `reports/figures/2026-09-19_malecns_mix_{C,A,B}.gif`.
-- **3, training priced** (2026-09-18): T4 smoke, packing, batch sweep and
-  the Codex session's optimisation benchmark; the reference schedule
-  (~$10-15 per member) is over budget and was withdrawn; what remains is
-  3' below. `reports/2026-09-18_step3_training_options.md`,
+  states; a mix of T4a states is the state of the mixed video (r 0.99 at
+  α = 0.5, monotone in α); hybrids are a contest T4/T5 win.
+  `reports/2026-09-19_step12_manipulated_states.md`.
+- **13A, amortised inversion** (2026-09-20): pairs from the frozen brain
+  (Sintel plus procedural stimuli), three input conditions, linear
+  hex-temporal and CNN decoders against the inversion. Deep: linear r 0.93 /
+  round trip 0.036, CNN 0.96 / 0.029, inversion 1.00 / 0.009 — the deep state
+  reads out in one pass and the nonlinearity matters only there. On the 16
+  states of 11-12: reachable states within 2-4× of the inversion and 100-300×
+  below the shuffled control; on unreachable ones every method's error is
+  large and the decoders diverge from the inversion.
+  `reports/2026-09-19_step13a_amortised_inversion.md`.
+- **13B, the conditional flow generator** (2026-09-20): design
+  `reports/2026-09-19_step13b_design.md` (revision 2), result
+  `reports/2026-09-20_step13b_generative_decoder.md`. No multimodality at the
+  full deep state (8 random starts → one solution); SiT backbone at 0.057
+  s/step; SiT 128 × 4 trained 20k steps, val 0.0100, $0.22; held-out clips
+  median round trip 0.031 / r 0.966 (control 0.96); the knobs work (T4 only
+  0.033, T5 only 0.112, T4a only 0.309 with seed spread appearing there);
+  guidance > 1 hurts; the conditioning-strength test passes (r 0.03 / 0.10);
+  gain edits are answered by the prior, as with the CNN.
+- **14, what can be prompted** (2026-09-20, local CPU, $0):
+  `reports/2026-09-20_step14_controllable_generator.md`. Random states give
+  the prior's texture (1.9 / 2.3 against control 19 and clip 0.03); the
+  direction channels are not knobs (swaps, rotation, time reversal,
+  amplification: 0.7-9.6 with the motion unchanged); compositions of brain
+  states by region are reachable and render as asked (0.06-0.15, the brain
+  reads the composite direction back); a hand-written T4a stripe is ignored;
+  the closed loop from a clip drifts — every pass compatible (0.02-0.05) but
+  r to the clip 0.99 → 0.26 in 11 passes — and noise is a fixed point. This
+  step is why item 17 exists.
+- **3, training priced** (2026-09-18): T4 smoke, packing, batch sweep,
+  optimisation benchmark; batch 16 saturates a T4 at 14 samples/s,
+  `stats_relu` 1.17×; the reference schedule (~$10-15 per member) is over
+  budget and withdrawn. `reports/2026-09-18_step3_training_options.md`,
   `reports/2026-09-18_training_optimization_bench.md`.
 
-## Completed generator branch: steps 13 and 14
+## Paused in this track
 
-The measurements and remaining limitations of these steps are recorded below.
-No further build on this branch is approved at present.
-
-13. **Level C, a learned generator — in two layers** (the human and a
-    second agent's review, 2026-09-19; the goal stays the human's: "видео
-    ген модель, которая работает от состояния мозга, а не от шума + клип
-    енкодеров"). A small deterministic network trained on reachable pairs
-    is an *amortised inversion*, not a dreamer: outside the reachable set
-    a pretty output proves nothing, so the state's contribution is
-    measured before any prior is added.
-
-    **13A, amortised inversion (deterministic).**
-    - *Pairs* the frozen brain makes: video → state, video is the truth by
-      construction. Videos: Sintel with flyvis's geometric augmentations
-      **plus procedural stimuli** (moving edges, bars, gratings, dots,
-      optic flow, noise, flashes, drifting textures, mixtures) — the
-      count is unbounded, the diversity is the stimulus distribution, and
-      20k rotated Sintel clips are still 23 scenes. 10-20k clips of 40 + 5
-      frames, one T4 pass (≈ $0.3); split by scene and by stimulus class,
-      whole classes held out.
-    - *Three input conditions, one architecture:* `early` (L1 + L3), `deep`
-      (T4a-d + T5a-d) — **the one that matters for the project** — and
-      `all` (the ladder's 14 types) as the upper bound.
-    - *Three models on the same data:* a **linear hex-temporal decoder**
-      with shared weights (type × neighbouring columns × temporal taps →
-      luminance at the column; not a flattened ridge), a small nonlinear
-      hex + temporal CNN (T4, ≈ $0.3-0.5, the three conditions in one
-      batch), and the item-8 Adam inversion as the ceiling. Answers
-      whether a nonlinear learned inverse is needed at all.
-    - *Scores.* Held-out clips: r to the video. States with no video (11,
-      12): **the round trip** `state → generator → video → frozen brain →
-      state′` and its compatibility error beside the *same* error of the
-      Adam inversion (the best reachable answer); agreement with the
-      inversion; stability across models and seeds; the shuffled-state
-      control; how much the output depends on the state rather than the
-      learned prior. The inversion's residual is kept as the signal
-      "no input explains this state" and is never hidden by a picture.
-    - *Deliverable:* per state, columns inversion / linear / CNN × the
-      three conditions, r where a video exists and the round-trip error
-      under every column.
-
-    *13A status (2026-09-20), measured, complete:* data and the three
-    conditions on held-out scenes and classes — deep: linear r 0.93 / round
-    trip 0.036, CNN 0.96 / 0.029, inversion 1.00 / 0.009; the deep state
-    reads out in one pass, the nonlinearity matters only there; the learned
-    models sit hundredths of r below the inversion, with a larger round-trip
-    error (the amortisation gap). The round trip on the 16 states of 11-12
-    (rebuilt on the worker): on reachable states (clips, whole-state mixes,
-    the dreams) the decoders' round trip is within 2-4× of the inversion's
-    (deep CNN 0.006-0.022 vs 0.001-0.008) and 100-300× below the
-    shuffled-state control (≈ 3); on unreachable states (gain edits, hybrids)
-    every method's error is large and the decoders diverge from the
-    inversion (deep, T4a × 0.5: linear 2.4, CNN 0.5, inversion 0.2).
-    `reports/2026-09-19_step13a_amortised_inversion.md` §Round trip on 11-12.
-    Open option, not a gate for 13B: more CNN epochs via `--resume`.
-
-    **13B, the generative decoder** (approved 2026-09-20; design
-    `reports/2026-09-19_step13b_design.md`, revision 2):
-    `deep state (T4a-d + T5a-d) + type mask + z → conditional flow model →
-    video → frozen brain → compatibility`. Only the 8 T4/T5 channels
-    (early/all were 13A's controls); SiT-style linear interpolant (flow
-    matching) as the objective, the backbone (hex-temporal ResNet vs SiT
-    transformer over the 721 columns) chosen by a 200-step benchmark;
-    structured type masks in training (full / T4 / T5 / one type / one
-    direction / random subset / unconditional) for classifier-free guidance
-    and "knobs"; all 40 frames at once; no brain-consistency term in the
-    first version. Order, each run on its own word: (a) multimodality of the
-    inversion from several random starts (≈ $0.05) — decides whether sample
-    spread is a goal; (b) benchmark (≈ $0.04); (c) training ≤ $0.50, with
-    the optimised loop the design lists; (d) samples + round trip (≈ $0.05).
-    Scores: median round trip over seeds (main), best, spread, r to the
-    clip; the conditioning-strength test (same z: true / shuffled / zero
-    state) is mandatory; the inversion is the reference, not a target to
-    beat. Tests: held-out clips, item-12 edits and mixes, single-type
-    prompts, eye noise and neuron noise, shuffled-state control.
-
-    *13B status (2026-09-20), measured:* (a) no multimodality at the full
-    deep state (8 random starts → one solution); (b) SiT backbone, 0.057
-    s/step; (c) SiT 128 × 4, 20k steps, val 0.0100, ≈ $0.22; (d) held-out
-    clips: median round trip 0.031 / r 0.966 (13A CNN 0.029 / 0.960,
-    inversion 0.009), control 0.96; knobs work (T4 only 0.033, T5 only
-    0.112, T4a only 0.309 with seed spread appearing there); guidance > 1
-    hurts; on gain edits the prior wins as with the CNN (0.29-1.47 vs
-    inversion 0.19-0.86); the strength test passes (r 0.03 / 0.10).
-    `reports/2026-09-20_step13b_generative_decoder.md`. Open options, none
-    started: a brain-consistency term on x̂₁, a wider model / compile,
-    prompts written by hand without a clip.
-
-**14, four cheap tests that turn 13B from a decoder into a controllable
-generator** (the human, 2026-09-20, `docs/ideas/fly_brain_next_3_experiments.md`
-plus the random-state test; to close the stage before item 16 and the
-write-up). All on the trained 13B generator and the frozen brain, no
-training; the round trip is the score, the shuffled state the control,
-and the direction of motion in a generated video is read by the brain
-itself (T4/T5 energy per direction after the round trip).
-- **14.0 Random state.** The 8 T4/T5 types set to noise (per-cell white
-  at the clip's mean/sd; and a structured variant, smoothed in time and
-  over the lattice) → 13B → video → round trip. The human: "мне всё
-  равно, если это не будет работать, надо посмотреть, что получим".
-- **14.1 Counterfactual edits.** Swaps and rotations of the direction
-  channels (T4a↔T4c, all four rotated by 90°: reachable by the lattice's
-  symmetry), left/right half from two clips, one direction amplified.
-- **14.2 Prompts without a video.** States assembled from the brain's
-  own responses to procedural stimuli (motion right/left/up, expansion,
-  rotation) by regions of the eye — conflict of directions, motion in a
-  window only — beside one state written by hand (a T4a stripe).
-- **14.3 Closed loop.** state → 13B → video → brain → state′ → … for 12
-  iterations from random / hand-written / edited / neuron-noise starts:
-  round trip and change per iteration; fixed points of the pair
-  generator + brain, not attractors of the brain.
-Local CPU where it fits (sampling is seconds), the round trips on Modal
-only if ≥ 4× faster; ≈ $0.1-0.2 in total. Report + one row-clip per test.
-*14 status (2026-09-20), measured, local CPU, $0:* random states give the
-prior's texture (round trip 1.9 / 2.3 vs control 19, clip 0.03); the
-direction channels are not knobs (swaps, rotation, time reversal,
-amplification: 0.7-9.6, motion unchanged); compositions of brain states by
-region are reachable and render as asked (0.06-0.15, the brain reads the
-composite direction back); a hand-written T4a stripe is ignored (grey);
-the closed loop from a clip drifts: every pass compatible (round trip
-0.02-0.05) but r to the clip 0.99 → 0.26 in 11 passes (clip B → 0.10);
-unreachable starts jump to a reachable state in one pass, noise is a
-fixed point. `reports/2026-09-20_step14_controllable_generator.md`.
-Stage closed for the write-up.
-
-
-**Paused in this branch (the human, 2026-09-19: "не сейчас"):**
-
-- **3', fine-tuning MaleCNS from the transplanted weights.** Not from
-  scratch, not the reference schedule. Within $0.50 on Modal: two members ×
-  1,200 iterations at batch 16 with `--variant stats_relu` (1-core
-  container), checkpoints at 0/900/1200, validated like model zero (DSI,
-  flash, direction) — enough to see whether training moves the biology;
-  or 25,000 iterations for the same money on a cheaper provider (Vast.ai
-  T4 ~$0.07/h) if the human opens one. Bought only if the generator on
-  model zero turns out visibly worse than on FlyVis, or when the human
-  wants a trained MaleCNS model. Commands and prices:
-  `reports/2026-09-18_step3_training_options.md` §5б.
+- **3', fine-tuning MaleCNS from the transplanted weights** (the human,
+  2026-09-19: "не сейчас"). Within $0.50: two members × 1,200 iterations at
+  batch 16 with `--variant stats_relu`, checkpoints at 0/900/1200, validated
+  like model zero. Bought only if a generator on model zero turns out visibly
+  worse than on FlyVis, or when the human wants a trained MaleCNS model.
+  Commands and prices: `reports/2026-09-18_step3_training_options.md` §5б.
 - **10, a dense MaleCNS export: every type on all 721 columns.** Types with
-  fewer than 721 cells (15 of 33 output types; Tm5a 251 at [3,1]) tiled
-  onto the empty columns with the type's shared filters, FlyVis's
-  one-cell-per-column assumption in place of the data's count; removes the
-  Tm5a/T5a lattice in the pictures; every artefact from it says which cells
-  were tiled in. A day of local work; not a priority (cosmetic).
-- **A 64×64 / 128×128 raster of the hexals** for the outputs (a rescale of
-  the 721 values, no information added); the honest picture. Minutes.
+  fewer than 721 cells tiled onto the empty columns with the type's shared
+  filters; removes the Tm5a/T5a lattice from the pictures; every artefact says
+  which cells were tiled in. A day of local work, cosmetic.
+- **A 64×64 / 128×128 raster of the hexals** for the outputs: a rescale of the
+  721 values, no information added. Minutes.
 
-## Beyond the branch (kept, not on the path)
+## Beyond the track
 
-Work that is not part of dreams and visual data. Nothing here is refuted or
-cancelled; it waits for the human's word.
+Kept, not on the path; nothing here is refuted, and each waits for the
+human's word.
 
+- **16, the dream source inside the model** — the brain produces T4/T5 states
+  with no video and 13B turns them into video. Design (draft)
+  `reports/2026-09-20_step16_dream_source_design.md`: 16.1 structured
+  spontaneous drive into model zero as is; 16.2 close the optic-lobe loops the
+  export filter dropped (LPi, Dm, Pm, TmY16/19a, Y — 25 % of the synapses onto
+  the ladder, and 91 % of T4/T5's output goes to types model zero lacks), with
+  stability and validation as gates; 16.3 central-brain drive. **Status
+  2026-09-20: not yet fully formed, not yet fully discussed** (the human).
+  The human's revision `docs/ideas/step16_dream_source_revised.md` is the
+  companion to that report and takes precedence where they differ (parameters
+  as ranges with a sensitivity sweep, sign from neurotransmitter annotations;
+  loops ON/OFF and shuffled-topology controls; 16.1 is an artificial-drive
+  baseline, not "the brain generated the state"; result levels A/B/C).
+  Deferred; the discussion resumes on the human's word before any build.
+  Item 17 feeds it: a spontaneous state can be projected through the prior
+  before it reaches 13B.
 - **5, both eyes, every column, the missing biophysics.** ~880 columns per
-  eye and the left eye; photoreceptor temporal filter with
-  luminance-dependent speed, R1-6 gap junctions, contrast adaptation, each
-  validated (Pang et al. 2024, Drews et al. 2020). Needed for HDRI / 360°
-  input and two-eyed behaviour, not for clips.
-- **6, the central brain and the state knobs** — the human's "как муха
-  отреагировала бы на виз-данные": LC types, optic glomeruli, the central
-  complex from MaleCNS in one model; trained on a behavioural task (looming,
-  tracking) or fitted to whole-brain data (DANDI 000727); knobs: octopamine
-  gain, R5 slow-wave gating, mean luminance. Gives reflexes and the drive
-  for smarter dreams. A large item: new export, training beyond $0.50,
-  validation. Reading for it: whole-brain spiking implementations (Shiu et
-  al. 2024, community ports), `research_notes/`.
-- **7, dreams, the full protocol** (the rigorous form of item 11): decoding
-  in the dark against the stimulus history; internally generated activity
-  with the fraction of variance in the stimulus subspace measured before
-  anything is decoded and a shuffled-connectivity control; most-compatible
-  stimulus with its compatibility score. The second paper's material.
-- **Paper-grade rigour:** the ensemble map (ten members × five splits;
-  `tools/map_local.py`, `deploy/modal/decode_app.py`,
-  `flydream.decode.ensemble`), per-type nulls, subset curves, the
-  consecutive-lag four-window sweep on more than one member, from-scratch
-  training controls, validation against the 26 physiology studies, the
-  reference training schedule. Code exists and is tested; measurements
-  stopped 2026-09-18 night.
-- **The connectome as a computational substrate** (an image generator or a
-  language model made of fly wiring). Parked 2026-09-18 ("я бы начал не с
-  LLM"); if revisited, a degree-preserving shuffled connectome must do
-  measurably worse or nothing was shown.
-- **14, colour as an ML task** (the human, 2026-09-19). FlyVis reads one
+  eye and the left eye; photoreceptor temporal filter with luminance-dependent
+  speed, R1-6 gap junctions, contrast adaptation, each validated (Pang et al.
+  2024, Drews et al. 2020). Needed for HDRI / 360° input and two-eyed
+  behaviour, not for clips.
+- **6, the central brain and the state knobs:** LC types, optic glomeruli, the
+  central complex from MaleCNS in one model; trained on a behavioural task or
+  fitted to whole-brain data (DANDI 000727); knobs — octopamine gain, R5
+  slow-wave gating, mean luminance. A large item: new export, training beyond
+  $0.50, validation.
+- **7, dreams, the full protocol** (the rigorous form of item 11): decoding in
+  the dark against the stimulus history; internally generated activity with
+  the fraction of variance in the stimulus subspace measured before anything
+  is decoded, and a shuffled-connectivity control.
+- **Deeper than T4/T5 with generic dynamics:** the human's note
+  `docs/ideas/malecns_shiu_lif_baseline_idea.md` — MaleCNS wiring with
+  Shiu-style LIF dynamics as a baseline that reaches LPi/VS/HS, the visual
+  projection neurons and the central brain, with the FlyVis-based model kept
+  as the calibrated visual reference. Unapproved, unpriced; it collides with
+  DECISIONS 2026-09-18 on the model class, so it needs that decision revisited
+  first.
+- **Multi-level conditioning of the generator** (the human's architecture
+  document §13): early, deep and central states together as the condition
+  instead of T4/T5 alone. After 17 and after a deeper model exists.
+- **C, colour as an ML task** (the human, 2026-09-19; recorded as "14" that
+  day, renamed here to avoid the collision with step 14). FlyVis reads one
   luminance in all eight photoreceptor types and has no colour pathway;
   MaleCNS has the types (R7p/y, R8p/y, Dm8a/b, Dm9) but no parameters to
-  transplant. Task: give the model a UV/blue/green input and learn the
-  colour pathway's parameters on a task or a fit; until then colour in
-  outputs is a display overlay from the source clip and says so. Weeks,
-  training beyond $0.50; beyond the branch.
-- **15, HDRI / 360° panoramas as the stimulus source and training data**
-  (the human, 2026-09-19). A virtual fly camera inside a panorama (Poly
-  Haven, CC0, thousands free) rendered onto the 721 ommatidia with its
-  orientation as a parameter: unlimited clips with exact optic flow from
-  rotations — the reference task's training signal, against Sintel's 23
-  scenes. Translation needs scenes with depth (3D environments); HDR range
-  needs item 5's luminance adaptation, otherwise the panorama is tone-mapped
-  to 0..1. A day for the renderer; then the stimulus set for 11/12 and the
-  data for 3'. Beyond the branch until the renderer exists, then it joins it.
-- **16, the dream source inside the model** — reformulated by the human
-  2026-09-20 ("источник мозговой активности внутри модели"; the one task
-  after 13B): the brain must produce T4/T5 states with no video, 13B turns
-  them into video. Design `reports/2026-09-20_step16_dream_source_design.md`
-  (draft): 16.1 structured spontaneous drive into model zero as is; 16.2
-  close the optic-lobe loops the export filter dropped (LPi, Dm, Pm, TmY16/19a,
-  Y — 25 % of the synapses onto the ladder and 91 % of T4/T5's output go to
-  types model zero lacks), stability and validation as gates; 16.3 central
-  brain drive. Original note (2026-09-19) kept below.
-  **Status 2026-09-20: not yet fully formed, not yet fully discussed** (the
-  human). The human's revision `docs/ideas/step16_dream_source_revised.md`
-  is the companion to the design report and takes precedence where they
-  differ (parameters of the added types as ranges with a sensitivity sweep,
-  sign from neurotransmitter annotations; loops ON/OFF and shuffled-topology
-  controls; 16.1 is an artificial-drive baseline, not "the brain generated
-  the state"; result levels A/B/C). Deferred; the discussion resumes on
-  the human's word before any build.
-  (the human, 2026-09-19: "чтобы сам мозг стал нейронной моделью-генератором";
-  "вернёмся к ней позже"). Items 8-13 generate *beside* the brain: an
-  optimiser or a separate network turns a state into a video. The
-  alternative is inside it: the MaleCNS export carries top-down and
-  between-layer feedback edges that model zero, shaped like FlyVis
-  (feed-forward, input → output), does not use. Connect them, drive the
-  deep types (T4/T5, or a manipulated state from item 12) and read the
-  picture off the early layers (L1/L3 are the video to r 0.99 for the
-  ridge decoder) — no second model, the wiring itself makes the image, as
-  in the biological account of dreaming. Before building: count the
-  feedback edges onto the ladder's types in the export and their weight;
-  a network with feedback must be checked for stability at dt 0.02 (a
-  spectral or a long-run test) before any picture is read. Deliverable:
-  one clip beside the item-8 inversion of the same state and a
-  shuffled-feedback control (same edges, permuted targets). Beyond the
-  branch until 13A is measured.
+  transplant. Until then colour in an output is a display overlay from the
+  source clip and says so.
+- **15, HDRI / 360° panoramas as the stimulus source** (the human,
+  2026-09-19): a virtual fly camera inside a panorama (Poly Haven, CC0)
+  rendered onto the 721 ommatidia with its orientation as a parameter —
+  unlimited clips with exact optic flow from rotations, against Sintel's 23
+  scenes. A day for the renderer; it would serve 17' directly.
+- **Paper-grade rigour:** the ensemble map (ten members × five splits), per-type
+  nulls, subset curves, the consecutive-lag sweep on more than one member,
+  from-scratch training controls, validation against the 26 physiology
+  studies, the reference training schedule. Code exists and is tested;
+  measurements stopped 2026-09-18 night.
+- **The connectome as a computational substrate** (an image generator or a
+  language model made of fly wiring). Parked 2026-09-18; if revisited, a
+  degree-preserving shuffled connectome must do measurably worse or nothing
+  was shown.
 - **One-liners, recorded only:** the three-connectome comparison (FlyVis,
-  FlyWire, MaleCNS on one map); a second training objective; the embodied
-  loop (the model as the eyes of a MuJoCo fly); inversion on real
-  recordings (Pang et al. 2024); a MaleCNS LIF brain with a FlyVis front
-  end; photoreceptor columns from lamina cartridges; the left optic lobe
-  export; colour (R7/R8, Dm8/Dm9 — FlyVis reads one luminance; MaleCNS has
-  the types); a 360° input path; the fitted-dynamics parameter source;
-  ablations on model zero (CT1 restored, ISS-0002); per-target / per-pair
-  filter normalisation (measured unstable at step 1; `"src"` stands).
+  FlyWire, MaleCNS on one map); a second training objective; the embodied loop
+  (the model as the eyes of a MuJoCo fly); inversion on real recordings (Pang
+  et al. 2024); photoreceptor columns from lamina cartridges; the left optic
+  lobe export; the fitted-dynamics parameter source; ablations on model zero
+  (CT1 restored, ISS-0002); per-target / per-pair filter normalisation
+  (measured unstable at step 1; `"src"` stands).
 
 ## How this file is kept
 
 - **Only approved work.** A conclusion the human has not approved in words is
-  a draft and belongs in `reports/`, not here.
+  a draft and belongs in `reports/`, or stays in `docs/ideas/` if it is the
+  human's own note.
 - **State and order, not reasoning.** No options, comparisons, prices or
   research; those go to `reports/`, durable choices to `DECISIONS.md`.
 - **One entry per item, a few lines, plus links.** Evidence lives in the
   report it links to and is not summarized twice.
 - **Done is a list of outcomes**, not a history of how they were reached.
-- **Queue is an order, not a list.** Unfinished work returns as its own queue
-  item instead of staying as a caveat inside a closed one.
-- **Two groups outside the queue:** "Paused in this branch" for dreams /
-  visual-data work the human stopped for now; "Beyond the branch" for
-  everything else, kept so it is not lost.
+- **Unfinished work returns as its own item**, never as a caveat inside a
+  closed one.
+- **Two groups outside the track:** "Paused in this track" for work on this
+  track the human stopped for now, "Beyond the track" for everything else.
 - **Short beats complete.** If this file needs a table of contents, cut it.

@@ -29,6 +29,8 @@ says what replaced it.
 | 2026-09-18 | A transplanted gain preserves total input per target cell, is capped, and a capped pair is an export defect | standing |
 | 2026-09-18 | A decodability number is reported over a lag sweep, several ensemble members and several splits, against a per-type null | standing |
 | 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
+| 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, with the round trip and the nearest-neighbour distance as the gates | standing |
+| 2026-09-20 | `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan | standing |
 
 ---
 
@@ -380,3 +382,68 @@ generator) as the current step and a "Parked" entry listing the rigour;
 local CPU is the default, Modal only for a GPU or a ≥4× gain, a training run
 within $0.50 and only from the transplant; the running ensemble map was
 stopped, the consecutive-lag sweep of member 000 finishes item 4.
+
+## 2026-09-20 — The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, with the round trip and the nearest-neighbour distance as the gates
+
+Decision (the human, 2026-09-20, in words: "я ставлю чёткую задачу: я хочу
+получать новые видео"; design documents
+`docs/ideas/brain_state_prior_new_video_generation.md` and
+`docs/ideas/full_project_architecture_brain_to_video.md`): the project's
+current track is to generate video **without a source clip**, by learning the
+distribution of reachable T4/T5 states, sampling it from noise and rendering
+the sample with the existing 13B generator through the frozen brain:
+`noise → state prior → T4/T5 state → 13B → video → frozen brain → round trip`.
+The first prior is a flow-matching model over states on 13B's own interpolant
+and `SiTColumns` backbone, not a VAE; an autoencoder plus a latent flow is the
+fallback if its samples fail the gates. The gates are the round trip of the
+sample (against a held-out clip, raw noise in the types and the shuffled-state
+control) and the distance to the nearest training state; diversity between
+samples is reported beside them. Roadmap item 17.
+
+Why: item 14 measured that numbers put into the eight T4/T5 types by hand are
+not states the brain can reach (round trip 1.9-2.3 against 0.03 for a clip and
+19 for a shuffled state), so the generator could only ever return video it had
+been given. The missing component is a source of states, and it is the
+cheapest one available: the 9,468 states are already on the volume, 13B and
+the frozen brain stay untouched, and the run fits the $0.50 training cap. A
+VAE over 230k values per state is the human's own documented fallback (§6),
+and a flow over states reuses code that is already measured, so it is both
+faster to build and closer to the human's stated preference for modern
+architectures.
+
+Consequences: `ROADMAP.md` item 17 with its sub-steps and gates is the current
+approved step, each priced run on the human's word; the round trip becomes the
+unit of evidence on this track (`docs/PROJECT_MAP.md`, Boundaries); novelty is
+reported as a nearest-neighbour distance, never as an impression
+(`AGENTS.md`, Primary principle); "dream" language stays out of this track,
+because the source of the state is an artificial prior — the dream source
+inside the model (item 16) is a separate, deferred item that will reuse this
+prior to project a spontaneous state onto the reachable manifold. Extends
+2026-09-18 ("the generative inverse model is the deliverable"): the
+deliverable now includes the source of the state, not only the inverse.
+
+## 2026-09-20 — `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan
+
+Decision (the human, 2026-09-20): `AGENTS.md` is the file of working rules and
+carries the project's description in four lines at most; how a result is
+delivered to the human moves out of it into `docs/ARTEFACTS.md`, which is
+canonical and as binding; the compute-and-money rules are grouped in one
+section instead of being spread over "How to work" and "Human gates"; and
+`docs/ideas/` is where the human's own notes and drafts live — input to a
+step, never a plan, and never rewritten by an agent.
+
+Why: the rules file had grown a project summary, a reference list and the
+artefact scheme, so a reader looking for a rule read three paragraphs of
+context first, and the artefact scheme — the part that is corrected most often
+— was buried inside it. Keeping the human's notes in `docs/ideas/` untouched
+separates what the human wrote from what an agent concluded, which is the
+distinction `DECISIONS.md` exists to protect.
+
+Consequences: `AGENTS.md` shrank to rules with pointers; `docs/ARTEFACTS.md`
+is new and is listed in `AGENTS.md` Context as always-read; references in code
+and settings to the old section names were updated (`config.toml`,
+`flydream/generate/invert.py`, `flydream/decode/ensemble.py`,
+`tools/fig_generator_two_inputs.py`); `CLAUDE.md` and `README.md` list the new
+document. No rule was weakened, added or removed in the move; the artefact
+rules gained only the layout for a state that no video caused, which item 14
+had already required in practice.

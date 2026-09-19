@@ -9,7 +9,7 @@ real score with its two controls from the same run, forms the frame component
 (real − time-shuffle) and the scene component (time-shuffle − sample-shuffle),
 and reports the median with the 10th–90th percentile over the (member, split)
 pairs: the ensemble spread the contract asks for beside every number
-(AGENTS.md, "A result is a number beside its control"). Writes
+(AGENTS.md, "A result comes with one control, not five"). Writes
 `by_type_window.csv` (every run), `summary.csv` (median and interval per type
 and window), `by_stage.csv`, and the figure `reports/figures/<tag>.png`: the
 frame component per type at the reported windows, ordered by stage, interval

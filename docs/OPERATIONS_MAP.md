@@ -1,10 +1,13 @@
 # Operations Map
 
 Configuration, data locations, Modal, and how a run is started and read
-back. Not a roadmap. **State on 2026-09-19:** data, model zero, the
-decoder ladder, encoder inversion, the learned 13A/13B decoders and the
-item-14 prompt experiments are measured; the three Modal apps are set up. Each section
-below names where its facts live so a later reader finds one place per fact.
+back. Not a roadmap. **State on 2026-09-20:** data, model zero, the decoder
+ladder, encoder inversion, the learned 13A decoders, the 13B conditional flow
+generator and the item-14 prompt experiments are measured; the three Modal
+apps are set up. The current track (item 17, a prior over T4/T5 states) will
+run in the same `flydream-generate` app, from the state maps already on
+`flydream-runs:/gen13b/`. Each section below names where its facts live so a
+later reader finds one place per fact.
 
 ## Machine and environment
 
@@ -210,6 +213,49 @@ no existing experiment is overwritten. Estimates and remaining gate:
 The T4 app returns the recovered videos in its result (hundreds of KB) and
 writes them under `data/generate/<tag>/`; nothing large is downloaded. The
 model argument is a flyvis NetworkView name or `malecns[:member]`.
+
+## Commands (13A, 13B, 14 — the generator track)
+
+One app, `flydream-generate` (`deploy/modal/generate_app.py`), one flag per
+stage on its local entrypoint. Every line below starts a **priced** worker and
+needs the human's word first; `--dry`-style planning does not exist here, so
+the price is stated in the message that asks.
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'          # the Modal CLI cannot print Cyrillic otherwise
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --pairs13-videos-run           # CPU 2/6 GB: render Sintel + procedural videos to the volume
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --pairs13-run                  # T4 cpu1/4GB: videos -> states (13A pairs), sharded on the volume
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --train13-run --epochs 12      # T4 cpu2/12GB: 13A linear + CNN, three conditions in one batch
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --roundtrip13-run              # T4 cpu1/4GB: the round trip of the 16 states of items 11-12
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --maps13b-run                  # CPU 2/12 GB: pairs13 shards -> gen13b/maps_deep.npz (5.5 GB, 9,468 states)
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --bench13b-run --batch13b 32   # T4 cpu1/12GB: 200 steps per backbone (hexresnet OOMs at batch 32, sit 0.057 s/step)
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --train13b-run --kind sit --steps13b 20000 --batch13b 32 --width13b 128 --depth13b 4   # T4 cpu1/12GB, 1,117 s, $0.22
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --sample13b-run --kind sit     # T4 cpu1/8GB: samples, masks, guidance, the round trip and the strength test
+.venv\Scripts\python.exe -m modal run deploy/modal/generate_app.py --multi-init13b-run            # T4 cpu1/6GB: the inversion from 8 random starts (13B question (a))
+.venv\Scripts\python.exe -m flydream.generate.prompts14 --ckpt data/gen13b/sit.pt                 # item 14, local CPU, ~100 s, $0
+.venv\Scripts\python.exe tools\fig_gen13b_pick.py --run data/gen13b                               # the row clips of 13B
+.venv\Scripts\python.exe tools\fig_prompts14.py --run data/prompts14                              # the row clips of item 14
+```
+
+Each of those writes its JSON summary under `data/<stage>/` locally and keeps
+the large arrays on the volume. Volume layout for this track
+(`flydream-runs`): `/pairs13/` (videos and the state shards), `/train13/<cond>_<kind>.pt`
+(13A decoders), `/roundtrip13/`, `/gen13b/maps_deep.npz` (5.5 GB, the training
+states of 13B and of item 17), `/gen13b/sit.pt` (the trained generator, EMA
+weights), `/gen13b/{sit_train,bench,multi_init,samples}.*`. Locally the same
+runs appear as `data/{pairs13,train13,roundtrip13,gen13b,prompts14}/`, all
+gitignored.
+
+Two operational traps of this track, both hit on 2026-09-20: a Modal volume
+path in a Git Bash command needs `MSYS_NO_PATHCONV=1` or the leading `/` is
+rewritten into a Windows path; and `flyvis` sets a CUDA default device on
+import, so a `torch.Generator` made on the CPU inside a GPU worker raises —
+build random inits with numpy and move them.
+
+Item 17 (the state prior) trains from `/gen13b/maps_deep.npz` with the same
+backbone and loop as 13B, so it enters this app as one more flag beside
+`--train13b-run`; its runs and prices are in `ROADMAP.md` and will be recorded
+here once measured.
 
 The learned 13B model is in `data/gen13b/sit.pt`; its measured samples and
 metrics are in `data/gen13b/` and

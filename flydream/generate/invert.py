@@ -243,7 +243,7 @@ def invert_batch(net, targets: torch.Tensor, cells: list[np.ndarray], *, dt: flo
 
 class GpuSampler:
     """Mean GPU utilisation over a run, from nvidia-smi every few seconds (a
-    number the report states beside the batch, AGENTS "Human gates")."""
+    number the report states beside the batch, AGENTS "Compute and money")."""
 
     def __init__(self, every: float = 2.0):
         import shutil as _sh

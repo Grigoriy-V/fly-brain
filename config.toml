@@ -113,7 +113,7 @@ dt = 0.02
 t_pre = 1.0
 # Tasks per pass on the card (every stage's inversion and its control are
 # one task each; a ten-stage ladder is 20). 0 = all at once. A card is used
-# to the full (AGENTS "Human gates"); lower it only when memory is the limit.
+# to the full (AGENTS "Compute and money"); lower it only when memory is the limit.
 batch = 0
 # Stop when every task's fit changed by less than plateau_tol (relative) over
 # the last plateau_steps steps; 0 disables. R1 was flat from step 50 of 150

@@ -9,7 +9,7 @@ Reads `data/generate/<prefix>_<stage>_s<sample>/recovered.npz` (written by
 clip itself and the videos inverted from its state; row B is the wrong-target
 control of the same runs, shown with its own input (the control clip named
 in meta.json), so the control is a second input row and not a footer
-(AGENTS "Artefacts for the human"). Writes a PNG (one frame) and a GIF (the
+(docs/ARTEFACTS.md). Writes a PNG (one frame) and a GIF (the
 whole clip, every frame, 8 fps: 40 frames at 20 ms are 0.8 s of the fly's
 time shown 6× slower). This is the ad-hoc drawing of 2026-09-19 made
 permanent (ROADMAP item 9).

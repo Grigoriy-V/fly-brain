@@ -3,14 +3,19 @@
 The conceptual map of the **current implementation** of What Does a Fly Dream
 Of?: components, ownership and data flows. Not a roadmap or a history.
 `docs/OPERATIONS_MAP.md` has data locations, configuration and commands,
-`ROADMAP.md` has current work, `DECISIONS.md` the reasons behind the
-boundaries below, `reports/` the evidence.
+`ROADMAP.md` has current work, `AGENTS.md` and `docs/ARTEFACTS.md` the rules,
+`DECISIONS.md` the reasons behind the boundaries below, `reports/` the
+evidence.
 
-**State on 2026-09-19:** data, model zero, the decoder ladder, encoder
-inversion, the learned 13A/13B decoders and the item-14 prompt experiments
-are measured. The three Modal apps support training, decoding and generation.
-MaleCNS fine-tuning is paused; an internal source of spontaneous states is a
-deferred draft (item 16). The current order and approvals live in `ROADMAP.md`.
+**State on 2026-09-20:** data, model zero, the decoder ladder, encoder
+inversion, the learned 13A decoders, the 13B conditional flow generator and
+the item-14 prompt experiments are measured. The three Modal apps support
+training, decoding and generation. Every state the generator has ever been
+given came from a video; the current track (item 17) adds the missing piece,
+a learned prior over reachable T4/T5 states so a state can be **sampled from
+noise** — that component does not exist yet. MaleCNS fine-tuning is paused; an
+internal source of spontaneous states is a deferred draft (item 16). The
+current order and approvals live in `ROADMAP.md`.
 
 ## System at a glance
 
@@ -35,16 +40,26 @@ deferred draft (item 16). The current order and approvals live in `ROADMAP.md`.
                     ▼                           ▼
         ┌──────────────────────────┐   ┌────────────────────────┐
         │ flydream.decode (built)  │   │ flydream.generate      │
-        │ pairs → ridge / hexconv  │   │ (built): invert, the   │
-        │ metrics, hexraster, map, │   │ video that reproduces  │
-        │ figures, sweep, ensemble │   │ a stage's state; the   │
-        └─────────┬────────────────┘   │ T4 app; figures        │
-                  │                    └───────────┬────────────┘
+        │ pairs → ridge / hexconv  │   │ (built): invert, 13B    │
+        │ metrics, hexraster, map, │   │ flow generator, round   │
+        │ figures, sweep, ensemble │   │ trip, prompts; T4 app   │
+        └─────────┬────────────────┘   └───────────┬────────────┘
+                  │                                │
                   └──────────────┬─────────────────┘
                                  ▼
           data/decode/<run>/ (map.csv, pairs.npz, meta.json)
+          data/gen13b/ + data/prompts14/ (states, samples, scores)
           reports/figures/ + reports/<date>_<step>.md + reports/runs.jsonl
           deploy/modal/ (training, decoding and generation apps)
+```
+
+The generator loop, and the one piece of it that does not exist yet:
+
+```text
+video ─→ frozen brain ─→ T4/T5 state ─┬─→ 13B (built) ─→ video ─→ frozen brain
+                                      │                              │
+noise ─→ state prior (item 17, NOT    │                              ▼
+         BUILT) ────────────────────→─┘                     round trip / controls
 ```
 
 ## Components and owners
@@ -104,10 +119,19 @@ deferred draft (item 16). The current order and approvals live in `ROADMAP.md`.
   `run_ladder` does every stage in one model load; `figures.py` draws the
   ladder and the clip; `clip_from_sintel` takes the clip from the dataset
   so no pairs file is needed. Settings in `config.toml [generate]` include
-  frames and the end margin. `gen13b.py` implements the learned
-  conditional flow decoder from eight T4/T5 types and a type mask;
-  `prompts14.py` evaluates random, edited and composed states and the
-  generator-brain loop. See the 13A, 13B and 14 reports linked in `ROADMAP.md`.
+  frames and the end margin.
+  `learned.py` holds the shared hex machinery (`ring_index`) and 13A's linear
+  and CNN decoders; `gen13b.py` is the conditional flow generator — the SiT
+  linear interpolant, the structured type masks, the two backbones
+  (`HexResNet`, `SiTColumns`), the optimised training loop with EMA, and
+  `sample` with classifier-free guidance; `roundtrip13.py` builds the states
+  of items 11-12 and scores the round trip `state → generator → video →
+  frozen brain → state′` per type against a reference variance;
+  `prompts14.py` evaluates random, edited, region-composed and hand-written
+  states, reads the direction the brain finds in a generated video
+  (`direction_energy`) and runs the closed generator-brain loop. The item-17
+  prior over states will reuse `gen13b`'s interpolant and backbone; it is not
+  written yet. See the 13A, 13B and 14 reports linked in `ROADMAP.md`.
 - **Train** (`flydream/train/`, built 2026-09-18): `member.py` composes
   flyvis's own solver from its Hydra config on a connectome export
   (`--init` a transplanted state, `--variant stats_relu` the two measured
@@ -166,6 +190,12 @@ This 30-iteration test does not establish equal long-run convergence. Evidence:
 - Every map row carries its controls; a report that shows a number without
   them is a defect (`ISSUES.md`). A number read from one ensemble member,
   one split or one lag window is a draft, not a result.
+- The unit of evidence on the generator track is the **round trip** of a
+  generated video through the frozen brain, reported beside the same number
+  for a real clip and for a state known to be unreachable (a shuffled state,
+  noise in the types). A state that was not caused by a video is additionally
+  reported with its distance to the nearest training state, so "new" is a
+  measurement and not an impression (`AGENTS.md`).
 - Third-party mappings enter through `flydream.data` with a check against
   the source and a listed residue, never by copying a table in.
 - Subagent output (`research_notes/`) is data the project agent checks
