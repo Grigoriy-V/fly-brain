@@ -664,7 +664,7 @@ def sample13b(model: str = "malecns", ckpt: str = "gen13b/hexresnet.pt", n_seeds
     cells_deep = np.concatenate([index[t] for t in DEEP])
 
     def maps_of(st):                                                     # (1,T,cells) -> (1,T,8,721) z-scored torch
-        x = torch.as_tensor(L.to_maps(st.astype(np.float16), layout, len(DEEP)).astype(np.float32), device=dev)
+        x = torch.as_tensor(L.to_maps(st.astype(np.float16), layout, len(DEEP)).astype(np.float32), device=dev)[:, :frames]
         return (x - mean) / std
 
     # --- the jobs: (key, maps, mask, guidance, seed) ---
@@ -688,7 +688,7 @@ def sample13b(model: str = "malecns", ckpt: str = "gen13b/hexresnet.pt", n_seeds
     st_sh[:, :, pos] = ta[:, :, pos[perm]]
     add("clip_A", "full", 1.0, [0], tag="strength_true")
     add("clip_A", "full", 1.0, [0], maps=maps_of(st_sh), tag="strength_shuffled")
-    add("clip_A", "full", 1.0, [0], maps=torch.zeros(1, T, 8, 721, device=dev), tag="strength_zero")
+    add("clip_A", "full", 1.0, [0], maps=torch.zeros(1, frames, 8, 721, device=dev), tag="strength_zero")
     add("clip_A", "full", 1.0, seeds, maps=maps_of(st_sh), tag="control_shuffled")
     states["control_shuffled"] = st_sh; refs["control_shuffled"] = refs["clip_A"]
     states["strength_shuffled"] = st_sh; states["strength_zero"] = ta; states["strength_true"] = ta
@@ -708,7 +708,7 @@ def sample13b(model: str = "malecns", ckpt: str = "gen13b/hexresnet.pt", n_seeds
                 cond = torch.cat([c[2] for c in chunk]).float()
                 mask = torch.as_tensor(np.stack([c[3] for c in chunk]), device=dev)
                 # z per job from its seed: draw each job's noise with its own generator, then integrate together
-                x0 = torch.stack([torch.randn(T, 721, device=dev, generator=torch.Generator(device=dev).manual_seed(1000 + c[5])) for c in chunk])
+                x0 = torch.stack([torch.randn(frames, 721, device=dev, generator=torch.Generator(device=dev).manual_seed(1000 + c[5])) for c in chunk])
                 vid = _sample_from(gen, x0, cond, mask, sample_steps, g)
                 for c, v in zip(chunk, vid.cpu().numpy()):
                     videos[c[0]] = v[:frames]
