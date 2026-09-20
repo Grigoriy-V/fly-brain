@@ -310,8 +310,8 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
             yb = torch.where(drop, torch.full_like(yb, int(model.n_classes)), yb)
         if couple == "random":
             eb = None
-        elif couple == "file":
-            eb = couple_eps[idx].float()
+        elif couple == "file":                                       # пары могут лежать на CPU
+            eb = couple_eps[idx.to(couple_eps.device)].to(dev, non_blocking=True).float()
         else:
             eb = fixed_noise(idx, x1.shape[1:], dev, seed)
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):

@@ -829,7 +829,10 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         z = np.load(Path(RUNS) / couple_file)
         if not np.array_equal(np.asarray(z["index"]), np.asarray(idx_tr)):
             raise ValueError("the coupling file was inverted from a different subset of the maps")
-        couple_eps = torch.as_tensor(z["eps"], device=dev)
+        # Держим пары в оперативной памяти, а не на карте: 13 555 x 92 288
+        # это 2,33 ГБ в fp16 рядом с такими же картами, и на T4 после этого не
+        # остаётся места. На карту едет только батч — 32 x 92 288 = 5,9 МБ.
+        couple_eps = torch.as_tensor(z["eps"])
         # 18.23: scaling by the per-axis sd fixes the marginal and leaves the
         # cloud elongated - measured, radius 302.7 +- 25.4 where a Gaussian in
         # D dimensions sits at sqrt(D) +- 0.71, i.e. 36x too wide. Putting
