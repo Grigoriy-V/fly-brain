@@ -364,6 +364,7 @@ spent.
 | 18.4e classes | 110 labels (101 UCF101 + 9 procedural kinds), DiT-style label embedding: **no effect**, 0.098 against 0.090, inside the spread. The published precedent (conditioning alone, FID 26.21 → 10.94) does not transfer — the research note named the reason in advance: no study covers a label only loosely coupled to the signal. One T4, 845 s, ≈ $0.17. |
 | 18.5a **width 192 + lr 1e-3** | the two levers of 18.4 run together: gate **0.0224** against a DCT-16 floor of **0.0209**, validation 0.2480. The prior's own share falls 0.0133 → **0.0015**, below what 16 samples resolve — the two medians are indistinguishable, which is the claim, not "solved". On validation the levers **multiply to within 0.4 %** (×0.836 · ×0.589 predicts 0.2490). Novelty holds +0.452 (clip +0.554). **Consequence: no model-side lever can move the round trip at DCT-16.** One T4, 1,180 s, utilisation 95.8 %, ≈ $0.23. |
 | 18.5b **K = 32 at width 192** | capacity is **not** what K = 32 lacked: the K=32/K=16 ratio is 5.9× at width 128 and **6.6×** at width 192 — it did not shrink, which refutes 18.4d's capacity reading. Both improve absolutely (0.527 → **0.224**) and novelty recovers +0.12 → +0.35. Measured alternative, offered as a hypothesis: per-coefficient z-scoring gives the top 16 of 32 coefficients **50 % of the loss** while they carry **0.45 % of the state energy** (112× over-weighting; 14× at K = 16). One T4, 1,229 s, utilisation 96.6 %, ≈ $0.25. |
+| 18.6 **the loss weight** | 18.5b's hypothesis **confirmed**: weighting the loss by `sd^1` across the coefficient axis takes K = 32 at width 192 from **0.2243 to 0.0346, 6.5×**, while the unweighted validation moves 2.4 % (0.7360 → 0.7185) — by validation alone this reads as a null result. `sd^2` (the raw state space) was rejected before spending: it gives coefficient 0 80.4 % of the loss and an effective K of 1.54 of 32. **Not** done: K = 32's floor 0.0115 stays out of reach, own share 0.0231 against 0.0015 for K = 16, and **K = 16 remains better overall (0.0224)**. Two changes at once (weight and rate); the rate alone was predicted at 0.147 before the run. One T4, 1,215 s, utilisation 96.5 %, ≈ $0.25. |
 
 `reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
 `reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
@@ -371,7 +372,8 @@ spent.
 `reports/2026-09-20_step18_5_width_and_the_representation_floor.md`,
 `reports/figures/2026-09-20_malecns_check18.gif`,
 `..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
-`..._arms18.png`, `..._scaling18.png`, `..._width18.png`, `..._classcmp18.gif`,
+`..._arms18.png`, `..._scaling18.png`, `..._width18.png`, `..._weight18.png`,
+`..._classcmp18.gif`,
 `..._new_video18_w192.gif`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
@@ -389,9 +391,11 @@ prior**. So:
    what binds — 18.5a's 0.0224 sits on the 0.0209 of DCT-16 — but raising K
    costs more than the floor it buys, and the open lead is the loss weighting
    (the top half of the K = 32 coefficients takes 50 % of the loss for 0.45 %
-   of the energy), not a bigger model. K = 40 needs no run: the time axis is
-   40 frames, and K = 32's floor (0.0115) is already below a real clip's own
-   round trip (0.0119).
+   of the energy), not a bigger model — **measured 2026-09-20 (18.6): that
+   weighting is worth 6.5× at the gate**, and K = 32 still does not beat
+   K = 16 (0.0346 against 0.0224), so the lower floor remains out of reach.
+   K = 40 needs no run: the time axis is 40 frames, and K = 32's floor
+   (0.0115) is already below a real clip's own round trip (0.0119).
 2. ~~**The learning rate**~~ — **closed by measurement 2026-09-20 (18.4b)**.
    The research flagged our 3e-4 at batch 32 as 8.5-24× above the
    extrapolation of DiT/SiT's 1e-4 @ 256. Run as a paired arm, nothing else

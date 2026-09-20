@@ -138,3 +138,73 @@ is 40 frames, so K = 40 is the complete orthonormal basis and the ceiling of
 that axis, and at K = 32 the floor (0.0115) is already below a real clip's own
 round trip (0.0119). There is nothing left to buy with more coefficients; the
 problem is what we do with the ones we have.
+
+## 18.6 The coefficient weight — the hypothesis holds, and validation would have missed it
+
+Option 1 above, run at the human's word and at the rate 18.4c settled: K = 32,
+width 192, **lr 1e-3**, loss weighted by `sd^1` across the coefficient axis
+(`prior17.loss_fn(..., w)`, `train17(loss_weight_p=)`). 20,000 steps, batch
+32, seed 0, one T4, 1,215 s at 96.5 % utilisation, **$0.25**.
+
+**Why `sd^1` and not the energy `sd^2` the option named.** Measured on the
+corpus before spending anything: at `sd^2` — the weighting that matches the
+raw state space exactly — coefficient 0 alone takes **80.4 %** of the loss and
+the effective number of coefficients falls to **1.54 of 32**. That objective
+is "learn the mean level", which forfeits precisely what K = 32 was bought
+for. `sd^1` is the geometric middle: the tail's share of the loss goes 50 % →
+**9.4 %**, effective K 7.16.
+
+| weight | tail 16-31's share of the loss | coefficient 0's share | effective K |
+|---|---|---|---|
+| `sd^0` (equal, as before) | 50.00 % | 3.1 % | 32.00 |
+| **`sd^1` (this arm)** | **9.41 %** | 33.5 % | 7.16 |
+| `sd^2` (raw state space) | 0.45 % | 80.4 % | 1.54 |
+
+### The result
+
+| K = 32, width 192 | validation (unweighted) | **round trip** |
+|---|---|---|
+| equal weight, 3e-4 | 0.7360 | 0.2243 |
+| **`sd^1`, lr 1e-3** | **0.7185** | **0.0346** |
+| | −2.4 % | **6.5× better** |
+
+**18.5b's hypothesis is confirmed.** Equal weighting was the thing holding
+K = 32 down, and correcting it recovers a factor of 6.5 at the gate. Novelty
+improves with it, +0.346 → +0.401.
+
+**Attribution, stated before the run.** This arm changes two things at once,
+the weight and the rate, so the split is not measured. The reading registered
+in advance, from 18.5a's multiplicativity: the rate alone would have bought
+≈0.147. Measured 0.0346 is **4.2× beyond that**, which makes the rate an
+implausible carrier of the effect — but it is an argument, not the companion
+arm, which was offered at $0.25 and not run.
+
+**What it did not do.** K = 32's own floor is 0.0115 and the arm lands at
+0.0346, so its own share is **0.0231** against **0.0015** for K = 16 at the
+same width — fifteen times larger. **K = 16 remains the better representation
+(0.0224 against 0.0346).** The lower floor is still not reachable; the
+weighting stopped the tail from poisoning the rest, it did not make the tail
+learnable.
+
+### Two things this changes about earlier readings
+
+**18.5b's "capacity is not what K = 32 lacked" was measured under the broken
+weighting, and must be read that way.** It is correct as stated — capacity
+does not fix the equal-weighting pathology — but it does not rule out capacity
+paying at K = 32 now that the pathology is gone. That question is reopened
+and unmeasured.
+
+**The unweighted validation loss would have called this a null result.** It
+moved 2.4 %; the gate moved 6.5×. The dissociation is by design, since the
+weight deliberately makes the training objective differ from the yardstick,
+and keeping validation unweighted is what made the comparison legible at all.
+It is nonetheless the third time in item 18 that the loss and the gate
+disagree in direction or in size, and the first time the gate is the one
+bringing good news.
+
+### Still open
+
+`p` is now a demonstrated lever with two points — `sd^0` → 0.2243,
+`sd^1` → 0.0346 — and nothing between 1 and 1.5 has been tried. Whether
+width pays at K = 32 under the corrected weighting is also unmeasured. Neither
+is started.
