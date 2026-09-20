@@ -995,9 +995,15 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
                     log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
                     labels=labels, val_labels=val_labels, coef_weight=cw, label_drop=label_drop,
                     couple=couple, couple_eps=couple_eps)
+    if r.get("best_ema") is not None:                                 # 19.2: отгружаем лучший снимок, а не последний
+        r["ema"].shadow = r["best_ema"]
+        print(f"checkpoint from step {r['best_step']} (val {r['best_val']:.4f}), not the last "
+              f"({r['history'][-1].get('val_loss', float('nan')):.4f}); {r['nan_steps']} steps carried nan",
+              flush=True)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "n": int(m.shape[3]),
+            "best_step": r.get("best_step"), "best_val": r.get("best_val"), "nan_steps": r.get("nan_steps"),
             "latent_tokens": latent_tokens, "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,

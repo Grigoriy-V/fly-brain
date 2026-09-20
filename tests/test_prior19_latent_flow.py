@@ -57,3 +57,30 @@ def test_one_training_step_on_a_latent_sized_batch():
     m = R.build(frames=16, k=8, n=16, width=32, depth=2, heads=2)
     r = R.train(m, states, steps=3, batch=8, lr=1e-3, log_every=100, log=lambda *_: None)
     assert len(r["history"]) >= 1 and np.isfinite(r["history"][-1]["loss"])
+
+
+def test_a_latent_checkpoint_saves_and_loads_at_its_own_token_count(tmp_path):
+    """The bug this pins: `build` learned about `n`, the sampler learned about
+    it, and `load` did not — so a 16-token checkpoint came back as 721."""
+    m = R.build(frames=16, k=8, n=16, width=32, depth=2, heads=2)
+    ema = R.EMA(m)
+    path = tmp_path / "flow.pt"
+    R.save(path, m, ema, {"kind": "sit_states", "frames": 16, "k": 8, "n": 16,
+                          "width": 32, "depth": 2, "heads": 2})
+    back, meta = R.load(path, torch.device("cpu"))
+    assert back.n == 16 and meta["n"] == 16
+    x = torch.randn(2, 16, 8, 16)
+    assert back(x, torch.rand(2)).shape == x.shape
+
+
+def test_training_returns_the_best_validation_snapshot_not_the_last():
+    """19.2 shipped a checkpoint from past the best point; this pins the fix."""
+    torch.manual_seed(0)
+    states, val = torch.randn(32, 16, 8, 16), torch.randn(16, 16, 8, 16)
+    m = R.build(frames=16, k=8, n=16, width=32, depth=2, heads=2)
+    r = R.train(m, states, steps=6, batch=8, lr=1e-3, log_every=2, val=val, val_every=2,
+                log=lambda *_: None)
+    seen = [h["val_loss"] for h in r["history"] if "val_loss" in h]
+    assert r["best_val"] == min(seen) and r["best_step"] > 0
+    assert r["best_ema"] is not None and len(r["best_ema"]) == len(list(m.parameters()))
+    assert r["nan_steps"] == 0

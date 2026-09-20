@@ -304,6 +304,11 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     ema = EMA(model)
     hist, t0 = [], time.time()
     run_loss, run_n = 0.0, 0
+    # 19.2 отгрузил чекпойнт хуже того, что модель проходила на 12 500 шаге:
+    # валидация дошла до дна и поползла вверх, а сохранялось последнее. Теперь
+    # лучший снимок весов EMA держится рядом и возвращается вместе с последним.
+    best = {"val": float("inf"), "step": 0, "ema": None}
+    nan_steps = 0
     for step in range(steps):
         idx = torch.as_tensor(rng.integers(0, len(states), batch), device=dev)
         x1 = states[idx].float()
@@ -325,15 +330,22 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt); scaler.update(); sched.step()
         ema.update(model)
-        run_loss += loss.item(); run_n += 1
+        lv = loss.item()
+        nan_steps += int(lv != lv)                                   # GradScaler такие шаги пропускает; считаем их
+        run_loss += lv; run_n += 1
         if (step + 1) % log_every == 0 or step == steps - 1:
             rec = {"step": step + 1, "loss": run_loss / run_n, "lr": sched.get_last_lr()[0], "seconds": round(time.time() - t0, 1)}
             if val is not None and ((step + 1) % val_every == 0 or step == steps - 1):
                 rec["val_loss"] = validate(model, ema, val, batch=batch, use_amp=use_amp, labels=val_labels)
+                if rec["val_loss"] < best["val"]:
+                    best = {"val": rec["val_loss"], "step": step + 1,
+                            "ema": [t.detach().clone() for t in ema.shadow]}
             hist.append(rec); run_loss, run_n = 0.0, 0
             log(f"  step {step + 1:5d}  loss {rec['loss']:.4f}" + (f"  val {rec['val_loss']:.4f}" if "val_loss" in rec else "")
                 + f"  lr {rec['lr']:.2e}  {rec['seconds']:.0f}s")
-    return {"history": hist, "ema": ema, "seconds": round(time.time() - t0, 1)}
+    return {"history": hist, "ema": ema, "seconds": round(time.time() - t0, 1),
+            "nan_steps": nan_steps, "best_val": best["val"], "best_step": best["step"],
+            "best_ema": best["ema"]}
 
 
 def dct_matrix(n: int, k: int | None = None) -> np.ndarray:
@@ -477,7 +489,8 @@ def save(path, model: nn.Module, ema: EMA, meta: dict) -> None:
 def load(path, device) -> tuple[nn.Module, dict]:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     m = ck["meta"]
-    model = build(frames=m["frames"], k=m.get("k", 8), width=m["width"], depth=m["depth"], heads=m.get("heads", 4),
+    model = build(frames=m["frames"], k=m.get("k", 8), n=int(m.get("n", 721) or 721), width=m["width"],
+                  depth=m["depth"], heads=m.get("heads", 4),
                   n_classes=int(m.get("n_classes", 0) or 0), null_class=bool(m.get("label_drop", 0.0)))
     model.load_state_dict(ck["state_dict"])
     for p, s in zip(model.parameters(), ck["ema"]):
