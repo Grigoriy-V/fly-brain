@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 from tools.fig_gen13b_pick import row  # noqa: E402
 
 CKPT = "corpus_dct16_w192_lr1e3_cls_g_c"
-CELLS = [(0.001, "без метки\n(нулевой класс)"), (0.5, "метка, сила 0,5"),
-         (1.0, "метка, сила 1\n(как обучено)"), (2.0, "метка, сила 2")]
+CELLS = [(0.001, "без метки\n(нулевой класс)"), (0.5, "сила 0,5"),
+         (1.0, "сила 1 (как обучено)"), (2.0, "сила 2")]
 
 
 def tag_of(g: float) -> str:
@@ -52,17 +52,22 @@ def main(argv=None) -> int:
 
     key = f"prior_{a.sample}"
     vids, cells, rts = [], [], []
+    cls = None
     for g, head in CELLS:
         S = json.loads((run / f"{tag_of(g)}.json").read_text(encoding="utf-8"))
         z = np.load(run / f"{tag_of(g)}.npz")
         v = z[f"video__{key}"]
+        cls = (S.get("sampled_classes") or [None] * (a.sample + 1))[a.sample]
         vids.append(v); rts.append(S["scores"][key]["round_trip"])
     base = vids[0].reshape(-1)
     for i, ((g, head), v) in enumerate(zip(CELLS, vids)):
         r = float(np.corrcoef(base, v.reshape(-1))[0, 1])
         foot = f"прогонка {ru(f'{rts[i]:.3f}')}"
         foot += "" if i == 0 else f", r к 1-й {ru(f'{r:+.3f}')}"
-        cells.append((v, head, foot))
+        # Человек, 2026-09-20: «обязательно указывать класс, потому что по
+        # факту это промпт». Он и стоит в заголовке каждой ячейки, кроме
+        # первой, где метки нет вовсе.
+        cells.append((v, head if i == 0 else f"{head}\nпромпт: «{cls}»", foot))
 
     rr = [float(np.corrcoef(base, v.reshape(-1))[0, 1]) for v in vids[1:]]
     frames = int(json.loads((run / f"{tag_of(1.0)}.json").read_text(encoding="utf-8"))["frames"])

@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0007 | open | the corpus split holds out whole classes, so 10 of 110 labels have no training clips and their embedding rows are never trained - yet the gate draws sampling labels uniformly over all 110, conditioning about 9.1 % of every conditional run on a row at its initialisation | roadmap 18 |
 | ISS-0006 | open | a decoder window of even-spaced lags ([0 2 4], [0 2 4 6 8]) aliases Sintel's 24→50 Hz frame hold: taps two steps apart sit in one phase of the two-step hold, the fit averages two regimes and the reconstruction alternates frame by frame (L3 per-frame corr 0.94/0.92/0.94/0.89/0.93/0.86…); consecutive lags [0 1 2 3 4] remove it; the sweep at those two windows is being redone | roadmap 4 |
 | ISS-0005 | mitigated (b fixed, a third-party) | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am (a: MaleCNS has 49 Lai fragments for ~750 Am, a reconstruction gap) and on the feedback pairs Tm2→L2 and Mi4→Tm2 (b: the min_weight cut, fixed by the weak-pair exception; v9 DSI 0.152 against v7's 0.109, all members stable) | roadmap 1, ISS-0003 |
 | ISS-0004 | open | the step-4 stage curve (R → L → Mi/Tm → T4/T5) is a decoder artefact: at a 60 ms window instead of lag 0, T5a's control-corrected score goes 0.057 → 0.625 and the order inverts; stage explains R² 0.317 of the map; read from the best of 50 members on one split | roadmap 4 |
@@ -37,6 +38,44 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0007 — the gate samples labels the prior was never trained on
+
+- **Status:** open. Seen 2026-09-20 on roadmap 18 (18.4e, 18.12).
+- **Seen:** the corpus split holds out **whole classes** for the test side
+  (`pairs13(held_classes=…)`), so 10 of the 110 labels — ApplyEyeMakeup,
+  Basketball, CliffDiving, Drumming, HorseRace, JumpRope, PlayingGuitar,
+  Rowing, SkyDiving, TaiChi — have **zero** training clips and their
+  embedding rows never receive a gradient. `samples17.run` nevertheless draws
+  the sampling label uniformly over all 110
+  (`y = torch.randint(0, n_cls, (n_samples,))`), so about **9.1 %** of every
+  conditional gate run is conditioned on a row still at its
+  `nn.Embedding` initialisation. Confirmed on the 18.12 run: sample 14 of 16
+  drew `CliffDiving`.
+- **Costs:** roughly one sample in sixteen of every conditional arm carries a
+  large random vector added to its timestep embedding, which is noise in
+  exactly the arms being compared (18.4e, 18.12). It does **not** explain
+  18.12's null result — an untrained row makes the conditional field differ
+  *more* from the unconditional one, not less, so the measured effect is if
+  anything inflated — but any further conditioning work must draw labels only
+  from the trained set, and the two arms already measured should be re-read
+  without those samples.
+- **Reproduce:** `python /tmp/lab.py` pattern — take
+  `data/corpus18/pairs_manifest.json` and the `meta` of
+  `data/corpus18/videos.npz`, label each clip with `_clip_label`, and count
+  per class over `split["train"]`; the minimum is 0 for 10 classes. The drawn
+  labels of a run are in its summary under `sampled_classes`.
+- **Cause:** known. Held-out classes are the point of the split (the gate
+  needs unseen clips), but the sampler's label draw was written before the
+  prior was ever class-conditional and was never restricted to the classes
+  that have training data.
+- **Evidence:** `reports/2026-09-20_step18_5_width_and_the_representation_floor.md`
+  §18.12; `data/prior18/samples18_corpus_dct16_w192_lr1e3_cls_g_c_g1.json`
+  (`sampled_classes`); `data/prior18/corpus_dct16_w192_lr1e3_cls_g_c_train.json`
+  (`class_names`).
+- **Related:** roadmap 18; ISS-0004 (a measurement artefact of the same kind).
+
+---
 
 ### ISS-0006 — even-spaced decoder lags alias the stimulus frame hold
 
