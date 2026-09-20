@@ -350,3 +350,43 @@ def test_prior17_class_conditioning_changes_the_sample():
     R.train(plain, x, steps=4, batch=8, lr=1e-2, warmup=2, amp=False, log_every=99, log=lambda s: None)
     assert R.sample_states(plain, {"frames": T, "k": K, "dct_k": 0}, 2, steps=3,
                            device=torch.device("cpu")).shape == (2, T, K, 721)
+
+
+def test_prior17_coefficient_weight_tilts_the_loss_only():
+    """18.6: `w` re-weights the coefficient axis, and mean-1 keeps the scale.
+
+    Three things are checked, all offline on a toy shape: a flat weight is the
+    unweighted loss exactly, a tilted weight moves the loss in the direction
+    the tilt says, and the weight reaches the training loop without disturbing
+    the validation number, which by design stays unweighted so that it
+    compares across arms.
+    """
+    import numpy as np
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(11)
+    T, K = 6, 3
+    x = torch.randn(16, T, K, 721) * 0.5
+    model = R.build(frames=T, k=K, width=32, depth=2, heads=2)
+
+    def one(w):                                                                # the same noise and t for each call
+        torch.manual_seed(5)
+        return float(R.loss_fn(model, x[:8], w=w))
+
+    flat = torch.ones(T)
+    assert abs(one(flat) - one(None)) < 1e-6                                   # mean-1 flat == unweighted
+
+    torch.manual_seed(5)                                                       # the residual this comparison is about
+    eps = torch.randn_like(x[:8])
+    t = R.sample_t(8, x.device)
+    xt = (1 - t)[:, None, None, None] * eps + t[:, None, None, None] * x[:8]
+    with torch.no_grad():
+        err = ((model(xt, t) - (x[:8] - eps)) ** 2).mean((0, 2, 3)).numpy()    # per coefficient
+    w = torch.as_tensor((np.arange(T) + 1.0) / np.mean(np.arange(T) + 1.0), dtype=torch.float32)
+    assert abs(one(w) - float((w.numpy() * err).mean())) < 1e-5                # exactly the weighted mean
+
+    r = R.train(model, x, steps=6, batch=4, lr=1e-3, warmup=2, amp=False, log_every=99, log=lambda s: None,
+                val=x[:8], val_every=6, coef_weight=w)
+    assert np.isfinite(r["history"][-1]["val_loss"])

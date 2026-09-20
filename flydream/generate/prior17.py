@@ -78,12 +78,20 @@ def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
                      heads=kw.get("heads", 4), n_classes=kw.get("n_classes", 0))
 
 
-def loss_fn(model: nn.Module, x1: torch.Tensor, y: torch.Tensor | None = None) -> torch.Tensor:
+def loss_fn(model: nn.Module, x1: torch.Tensor, y: torch.Tensor | None = None,
+            w: torch.Tensor | None = None) -> torch.Tensor:
+    """`w` (k,) weights the coefficient axis (18.6). Every coefficient is
+    z-scored to unit variance on the volume, so without it each one enters
+    the loss equally — and at K = 32 that spends half the training signal on
+    a tail carrying 0.45 % of the state's energy (18.5b). `w` is expected
+    normalised to mean 1, which keeps the loss on the unweighted scale."""
     eps = torch.randn_like(x1)
     t = sample_t(x1.shape[0], x1.device)
     xt = (1 - t)[:, None, None, None] * eps + t[:, None, None, None] * x1
     v = model(xt, t) if y is None else model(xt, t, y)
-    return F.mse_loss(v, x1 - eps)
+    if w is None:
+        return F.mse_loss(v, x1 - eps)
+    return (w[None, :, None, None] * (v - (x1 - eps)) ** 2).mean()
 
 
 def conditioned(model, y: torch.Tensor | None):
@@ -157,7 +165,7 @@ def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, us
 def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr: float = 3e-4, warmup: int = 100,
           seed: int = 0, amp: bool = True, compile_mode: str = "", log_every: int = 100, log=print,
           val: torch.Tensor | None = None, val_every: int = 500, labels: torch.Tensor | None = None,
-          val_labels: torch.Tensor | None = None) -> dict:
+          val_labels: torch.Tensor | None = None, coef_weight: torch.Tensor | None = None) -> dict:
     """13B's optimised loop without the condition: data already on the device
     (float16), AMP fp16 with a GradScaler, fused AdamW, warmup + cosine, EMA,
     gradient clipping. `states` (N, T, K, n).
@@ -168,7 +176,12 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     54.72 ms step in fixed cost). `validate` swaps the EMA weights into the
     same module between steps, which CUDA graphs do not tolerate, so the
     default here is plain fusion; `reduce-overhead` is for a loop without
-    validation."""
+    validation.
+
+    `coef_weight` (k,) tilts the loss across the coefficient axis. The
+    validation loss is deliberately left **unweighted** whatever it is set to,
+    so that the number in the history stays one yardstick across every arm of
+    item 18; the training loss is the objective and does follow the weight."""
     dev = states.device
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
@@ -188,7 +201,7 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         idx = torch.as_tensor(rng.integers(0, len(states), batch), device=dev)
         x1 = states[idx].float()
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            loss = loss_fn(fwd, x1, None if labels is None else labels[idx])
+            loss = loss_fn(fwd, x1, None if labels is None else labels[idx], w=coef_weight)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
