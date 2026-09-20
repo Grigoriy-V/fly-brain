@@ -6,7 +6,10 @@
 состоит из двух половин, и смысл только в том, чтобы они сошлись вместе:
 
 **A. Пара работает.** Отложенный клип → мозг → состояние → энкодер → z →
-декодер → 13B → видео, сравнение с **сырым видео корпуса**.
+декодер → 13B → видео, сравнение с **сырым видео корпуса**. Считается дважды:
+из разыгранного z = μ + σ·ε (так пара выглядит в генеративном режиме) и из
+самого μ (так пара выглядит как пара). При сильном KL σ сравнима с μ, и первое
+число меряет уже не пару, а шум апостериора, поэтому нужны оба.
 
 **B. Сид разыгрываемый.** z от отложенных состояний обязан быть стандартным
 нормальным (радиус √D ± 1,4 при ст. откл. 0,99–1,01), и тогда свежий розыгрыш
@@ -93,6 +96,7 @@ def run(model: str, vae_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: P
         z_drw = V.sample_latent(vae, n_clips, device=dev,
                                 generator=torch.Generator(device=dev).manual_seed(8000 + seed))
         rec_enc = R.from_model_space(vmeta, vae.decode(z_enc))
+        rec_mu = R.from_model_space(vmeta, vae.decode(mu))            # A без шума апостериора
         rec_drw = R.from_model_space(vmeta, vae.decode(z_drw))
     D = int(np.prod(z_enc.shape[1:]))
     zf, zd = (t_.reshape(n_clips, -1).float().cpu().numpy() for t_ in (z_enc, z_drw))
@@ -104,7 +108,8 @@ def run(model: str, vae_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: P
     log(f"латент: закодированный {latent['enc_radius']:.1f} (sd {latent['enc_sd']:.3f}), "
         f"розыгрыш {latent['draw_radius']:.1f}, √D = {latent['typical_radius']:.1f}")
 
-    groups = {"настоящее состояние": real, "через VAE (A)": rec_enc, "розыгрыш латента (B)": rec_drw}
+    groups = {"настоящее состояние": real, "через VAE (A)": rec_enc,
+              "через VAE, из среднего (A)": rec_mu, "розыгрыш латента (B)": rec_drw}
     jobs = {f"{k}|{i}": v[i] for k, v in groups.items() for i in range(n_clips)}
     names = list(jobs)
     cond = torch.as_tensor(np.stack([jobs[n] for n in names]), device=dev)
@@ -146,6 +151,10 @@ def main(argv=None) -> int:
     from flydream.generate.invert import settings
     from flydream.model import ROOT
 
+    try:                                                              # вывод в файл под cp1251 иначе
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")    # падает на знаке корня
+    except (AttributeError, OSError):
+        pass
     g = settings()
     p = argparse.ArgumentParser()
     p.add_argument("--model", default="malecns")
