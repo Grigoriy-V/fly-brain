@@ -52,7 +52,7 @@ def states_of(net, d, bank, idx, mean, std, *, frames, dt, t_pre, batch, log=pri
 
 def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *,
         n_fit: int = 2400, n_test: int = 600, frames: int = 40, dt: float = 0.02, t_pre: float = 1.0,
-        batch: int = 16, seed: int = 0, log=print) -> dict:
+        batch: int = 16, seed: int = 0, render_k=(128, 512, 2048), log=print) -> dict:
     t0 = time.time()
     rng = np.random.default_rng(seed)
     net = load_network(model); dev = device_of(net)
@@ -90,6 +90,46 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus:
     cum = np.cumsum((P ** 2).sum(0)) / tot
     cum_fit = np.cumsum(w[:keep]) / float((Xc ** 2).sum())
 
+    # 18.22: доля дисперсии — не критерий (18.21: K = 2 держит разреженность и
+    # теряет сцену). Поэтому отложенные состояния восстанавливаются из первых k
+    # компонент и рендерятся, и сравниваются с сырым клипом, как требует критерий.
+    shots, arrays = {}, {}
+    if render_k:
+        from flydream.generate import gen13b as G2
+        from flydream.generate.edges18 import describe
+        from flydream.generate.invert import pixcorr_per_frame
+        gen, _ = G2.load(gen_ckpt, dev)
+        sel = list(range(min(6, len(B))))
+        raw = np.asarray(bank[test_idx[sel]][:, :frames], np.float32)
+        jobs = {"без сжатия": B[sel]}
+        for k in render_k:
+            k = min(int(k), keep)
+            rec = (P[sel, :k] @ V[:, :k].T + mu).astype(np.float32)
+            ms = (len(sel), pmeta["frames"], pmeta.get("k", 8), 721)   # PCA живёт в пространстве модели, не в кадрах
+            jobs[f"k = {k}"] = R.from_model_space(pmeta, torch.as_tensor(
+                rec.reshape(ms), device=dev, dtype=torch.float32))
+        names = [f"{g}|{i}" for g, v in jobs.items() for i in range(len(sel))]
+        cond = torch.as_tensor(np.stack([jobs[n.rsplit("|", 1)[0]][int(n.rsplit("|", 1)[1])]
+                                         for n in names]), device=dev)
+        mask = torch.ones(len(names), len(DEEP), device=dev)
+        vids = []
+        with torch.no_grad():
+            for i in range(0, len(names), 8):
+                gg = torch.Generator(device=dev).manual_seed(1000 + seed)
+                vids.append(G2.sample(gen, cond[i:i + 8], mask[i:i + 8], steps=20, generator=gg).cpu().numpy())
+        videos = np.concatenate(vids).astype(np.float32)
+        nb = np.asarray(L.neighbour_index(721))
+        for g in jobs:
+            s_ = [i for i, n in enumerate(names) if n.rsplit("|", 1)[0] == g]
+            st_ = describe([videos[i] for i in s_], nb)
+            shots[g] = {"r_to_raw": float(np.mean([pixcorr_per_frame(videos[i], raw[j]).mean()
+                                                   for j, i in enumerate(s_)])),
+                        "frac_flat": st_["frac_flat"]["mean"], "sd": st_["sd"]["mean"]}
+        arrays.update({f"video__{n}": videos[i] for i, n in enumerate(names)})
+        arrays.update({f"raw__{i}": raw[i] for i in sel})
+        arrays["clip_idx"] = test_idx[sel]
+        log("рендер восстановлений: " + ", ".join(f"{g} r={v['r_to_raw']:.3f}" for g, v in shots.items()))
+
     def need(frac: float) -> int | None:
         j = np.searchsorted(cum, frac) + 1
         return int(j) if j <= keep else None
@@ -99,10 +139,11 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus:
            "held_out_at": {str(k): float(cum[min(k, keep) - 1]) for k in (1, 8, 32, 128, 512, 1024, 2048, keep)},
            "fit_at": {str(k): float(cum_fit[min(k, keep) - 1]) for k in (1, 8, 32, 128, 512, 1024, 2048, keep)},
            "need_held_out": {str(f): need(f) for f in (0.5, 0.8, 0.9, 0.95, 0.99)},
+           "render_k": list(render_k), "shots": shots,
            "seconds": round(time.time() - t0, 1)}
-    return {"summary": out, "arrays": {"eigenvalues": w[:keep].astype(np.float32),
-                                       "cum_held_out": cum.astype(np.float32),
-                                       "cum_fit": cum_fit.astype(np.float32)}}
+    arrays |= {"eigenvalues": w[:keep].astype(np.float32), "cum_held_out": cum.astype(np.float32),
+               "cum_fit": cum_fit.astype(np.float32)}
+    return {"summary": out, "arrays": arrays}
 
 
 def main(argv=None) -> int:
@@ -121,6 +162,7 @@ def main(argv=None) -> int:
     p.add_argument("--fit", type=int, default=2400)
     p.add_argument("--test", type=int, default=600)
     p.add_argument("--batch", type=int, default=16)
+    p.add_argument("--render-k", default="128,512,2048")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
@@ -129,7 +171,8 @@ def main(argv=None) -> int:
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, Path(a.corpus),
             n_fit=a.fit, n_test=a.test, frames=g.get("frames", 40), dt=g.get("dt", 0.02),
-            t_pre=g.get("t_pre", 1.0), batch=a.batch, seed=a.seed)
+            t_pre=g.get("t_pre", 1.0), batch=a.batch, seed=a.seed,
+            render_k=tuple(int(x) for x in a.render_k.split(",")) if a.render_k else ())
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
