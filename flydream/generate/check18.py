@@ -55,11 +55,14 @@ def structure(maps: np.ndarray, ring: np.ndarray) -> dict:
     nb = np.where(ring[None, None, None] >= 0, x[..., np.clip(ring, 0, None)], np.nan)
     ring1 = float(np.mean([r(v, np.nanmean(n, -1)) for v, n in zip(x, nb)]))
     cross = []
-    for v in x:
+    for v in x:                                          # 18.7 calls this on video, which has one channel
+        if v.shape[1] < 2:
+            continue
         f = v.reshape(v.shape[0], v.shape[1], -1).transpose(1, 0, 2).reshape(v.shape[1], -1)
         c = np.corrcoef(f)
         cross.append(float(np.abs(c[np.triu_indices(len(c), 1)]).mean()))
-    return {"temporal_lag1": lag1, "ring1_spatial": ring1, "cross_type": float(np.mean(cross))}
+    return {"temporal_lag1": lag1, "ring1_spatial": ring1,
+            "cross_type": float(np.mean(cross)) if cross else float("nan")}
 
 
 def run(model: str, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *, n: int = 16, n_sintel: int = 8,
