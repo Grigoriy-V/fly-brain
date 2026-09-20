@@ -96,14 +96,40 @@ def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
                      null_class=kw.get("null_class", False))
 
 
+def fixed_noise(idx: torch.Tensor, shape, device, seed: int = 0) -> torch.Tensor:
+    """The one noise vector that belongs to each training state, by its index.
+
+    18.20. The default coupling draws a fresh `eps` every time a state is
+    visited, so over 20,000 steps each state is asked to come from ~47
+    different places and the model can only fit the average of those targets.
+    This gives every state one `eps` for the whole run, derived from its
+    index, so the pair it trains on never moves. The marginal is untouched —
+    the set of vectors is still one independent N(0, I) draw per clip — which
+    makes this a different coupling of the same two distributions, not a
+    different objective.
+
+    Minibatch optimal transport, the textbook answer to a bad coupling, is
+    empty at this size: the only part of the pair cost that depends on the
+    pairing is the cross term, whose spread is 1/sqrt(D) = 0.33 % of the cost,
+    so all 32 x 32 pairings inside a batch are equally good. Dimension is what
+    kills OT here and what makes a fixed pairing safe: the 13,555 straight
+    paths it pins essentially never come near each other in 92,288 dimensions,
+    so they do not fight over a shared point."""
+    out = torch.empty((len(idx),) + tuple(shape), device=device)
+    for j, i in enumerate(idx.tolist()):
+        g = torch.Generator(device=device).manual_seed(seed * 1_000_003 + int(i))
+        out[j] = torch.randn(tuple(shape), device=device, generator=g)
+    return out
+
+
 def loss_fn(model: nn.Module, x1: torch.Tensor, y: torch.Tensor | None = None,
-            w: torch.Tensor | None = None) -> torch.Tensor:
+            w: torch.Tensor | None = None, eps: torch.Tensor | None = None) -> torch.Tensor:
     """`w` (k,) weights the coefficient axis (18.6). Every coefficient is
     z-scored to unit variance on the volume, so without it each one enters
     the loss equally — and at K = 32 that spends half the training signal on
     a tail carrying 0.45 % of the state's energy (18.5b). `w` is expected
     normalised to mean 1, which keeps the loss on the unweighted scale."""
-    eps = torch.randn_like(x1)
+    eps = torch.randn_like(x1) if eps is None else eps
     t = sample_t(x1.shape[0], x1.device)
     xt = (1 - t)[:, None, None, None] * eps + t[:, None, None, None] * x1
     v = model(xt, t) if y is None else model(xt, t, y)
@@ -215,7 +241,7 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
           seed: int = 0, amp: bool = True, compile_mode: str = "", log_every: int = 100, log=print,
           val: torch.Tensor | None = None, val_every: int = 500, labels: torch.Tensor | None = None,
           val_labels: torch.Tensor | None = None, coef_weight: torch.Tensor | None = None,
-          label_drop: float = 0.0) -> dict:
+          label_drop: float = 0.0, couple: str = "random") -> dict:
     """13B's optimised loop without the condition: data already on the device
     (float16), AMP fp16 with a GradScaler, fused AdamW, warmup + cosine, EMA,
     gradient clipping. `states` (N, T, K, n).
@@ -235,7 +261,11 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
 
     `label_drop` replaces the real label with the null one at that rate, which
     is what makes guidance available at sampling (18.12). Validation keeps the
-    real labels whatever it is set to, for the same reason."""
+    real labels whatever it is set to, for the same reason.
+
+    `couple` is how a state is paired with its noise: "random" is the standard
+    independent coupling, "fixed" gives every state the one noise of
+    `fixed_noise` for the whole run (18.20)."""
     dev = states.device
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
@@ -268,8 +298,9 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         if yb is not None and label_drop > 0:                        # 18.12: the null label the guidance pushes from
             drop = torch.as_tensor(rng.random(batch) < label_drop, device=dev)
             yb = torch.where(drop, torch.full_like(yb, int(model.n_classes)), yb)
+        eb = None if couple == "random" else fixed_noise(idx, x1.shape[1:], dev, seed)
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            loss = loss_fn(fwd, x1, yb, w=coef_weight)
+            loss = loss_fn(fwd, x1, yb, w=coef_weight, eps=eb)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)

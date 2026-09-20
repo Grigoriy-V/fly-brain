@@ -1,4 +1,6 @@
 """The generator's window: `frames + margin` fitted, `frames` saved (ROADMAP item 9)."""
+import math
+
 import numpy as np
 
 from flydream.generate.invert import extend_clip, pixcorr_per_frame, settings
@@ -476,3 +478,39 @@ def test_prior17_label_table_starts_small_and_escapes_weight_decay():
     after = m.y_emb.weight.detach()
     assert float((after[1:] - before[1:]).abs().max()) == 0.0                  # unseen rows stay exact
     assert float((after[0] - before[0]).abs().max()) > 0                       # the seen row still learns
+
+
+def test_prior17_fixed_coupling_pins_one_noise_per_state():
+    """18.20: the pair a state trains on must stop moving.
+
+    The default coupling draws a fresh `eps` on every visit, so a state is
+    asked to come from a different place each time and the model fits the
+    average. `couple="fixed"` gives each state one `eps` for the run, keyed by
+    its index. Three things have to hold: the same index always yields the
+    same vector, different indices yield different ones, and the set is still
+    a standard normal sample — otherwise this would change the objective and
+    not just the coupling.
+    """
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    shape = (4, 2, 721)
+    idx = torch.tensor([7, 7, 3])
+    e = R.fixed_noise(idx, shape, torch.device("cpu"), seed=0)
+    assert e.shape == (3,) + shape
+    assert torch.equal(e[0], e[1])                                             # same index, same noise, always
+    assert not torch.equal(e[0], e[2])
+    again = R.fixed_noise(torch.tensor([7]), shape, torch.device("cpu"), seed=0)
+    assert torch.equal(again[0], e[0])                                         # and across calls
+    assert not torch.equal(R.fixed_noise(torch.tensor([7]), shape, torch.device("cpu"), seed=1)[0], e[0])
+
+    big = R.fixed_noise(torch.arange(64), shape, torch.device("cpu"), seed=0)
+    assert abs(float(big.mean())) < 0.02 and abs(float(big.std()) - 1.0) < 0.02  # marginal untouched
+
+    torch.manual_seed(0)                                                       # and the loop runs on it
+    m = R.build(frames=4, k=2, width=16, depth=1, heads=2)
+    states = torch.randn(6, 4, 2, 721).half()
+    r = R.train(m, states, steps=3, batch=2, lr=1e-3, warmup=1, amp=False,
+                log_every=99, log=lambda s: None, couple="fixed")
+    assert r["history"][-1]["step"] == 3 and math.isfinite(r["history"][-1]["loss"])
