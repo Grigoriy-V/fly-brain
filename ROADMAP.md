@@ -268,20 +268,45 @@ the tail is fp16 noise that whitening would amplify and k must be cut.
 **3-12 min, $0.05-$0.21** — the fit is seconds, `eigh` on 13,555² is 1-5
 minutes, the volume read is the rest.
 
-**19.1 — Stage-1 acceptance, local, ≤ 10 min, $0.** Fetch the basis
-(378 MB, under the 1 GB line) and the latents. Six held-out clips → brain →
-state → PCA encode → decode → 13B → clip against the raw video, the same code
-path as `vaeval18`. Expected ≥ 0.890 (18.22's 2,400-sample fit); the ceiling
-of the chain is 0.952. Gate: if stage 1 lands under ≈ 0.85 the fit is checked
-before anything is trained on it.
+**19.0 measured, $0.02, 43 s.** Held-out variance at k = 2,048 is **88.5 %**
+on test and 88.9 % on val — the subspace transfers to unseen data with a
+0.4-point gap — against 81.5 % for 18.22's 2,400-sample fit. `eigh` on
+13,555² took 21 s, not the minutes budgeted. Basis healthy: smallest column
+norm 0.99948, μ[2047] = 42,938, no degenerate directions.
 
-**19.2 — The flow over the latent.** `train17` with `n = 16` tokens of 128
-features (2,048 = 16 × 8 × 16 in prior17's (T, K, n) layout), K = 16 / width
-192 as the working arm, 20,000 steps, batch 32 or larger since attention over
-16 tokens is 45× cheaper than over 721. The training set is the whitened
-latents; validation reports the held-out preimage geometry through `to_noise`
-(the instrument, never the criterion). **≈ $0.15–0.25**, stated exactly with
-the command before it starts.
+**And the split is by class, which re-reads every number in item 18.** The
+corpus is UCF101: train and val hold 91 action classes, **test holds 10
+classes that never appear in training**, and no source file crosses splits.
+Every acceptance number in items 18 and 19 is therefore a transfer to unseen
+*categories*, not merely unseen clips.
+
+**The latent is not Gaussian, and that is now measured rather than assumed.**
+Per-axis sd is 1.000 on train by construction, but the radius is 41.1 ± 19.02
+against √k = 45.3 ± 0.71 with kurtosis 15.12 — a heavy-tailed scale mixture.
+On test: sd 0.824, radius 34.2 ± 15.19, kurtosis 6.03, and the sd *rises*
+along the spectrum (0.738 in the first 512, 0.874 in the last 512) — the
+opposite of the direction predicted above, so the head transfers worse than
+the tail. This is the distribution 19.2's flow has to learn.
+
+**19.1 — Stage-1 acceptance, local, ≤ 10 min, $0 — measured, and it passes.**
+Six held-out clips → brain → state → PCA encode → decode → 13B → clip against
+the raw video, the same code path and the same six clips as `vaeval18`:
+**0.825 at k = 2,048** (87 % of the chain's 0.952 ceiling), 0.779 at 1,024,
+0.728 at 512 — against **0.687** for the learned encoder-decoder at the same
+latent size and any KL weight including zero (18.24c). **Linear PCA at 512
+components beats the learned model at 2,163**, with no trained parameter and
+no paid run. Blur remains as the human accepted for v1: sparseness 25.1 %
+against the raw clip's 49.8 %. Full numbers:
+`reports/2026-09-21_step19_linear_first_stage.md`.
+
+**19.2 — The flow over the latent. Next, and it needs the human's word.**
+`train17` with `n = 16` tokens of 128 features (2,048 = 16 × 8 × 16 in
+prior17's (T, K, n) layout), K = 16 / width 192 as the working arm, 20,000
+steps, batch 32 or larger since attention over 16 tokens is 45× cheaper than
+over 721. The training set is `prior19/pca2048_latent.npz`, already on the
+volume — nothing to download. Validation reports the held-out preimage
+geometry through `to_noise` (the instrument, never the criterion).
+**≈ $0.15–0.25**, stated exactly with the command before it starts.
 
 **19.3 — The seed test, local, $0.** Three measurements on held-out clips, in
 one job: (a) a fresh ε → flow → PCA⁻¹ → 13B → clip, against the raw corpus and
