@@ -199,12 +199,25 @@ depth, width, the shape of the latent over the hex lattice, and whether a flow
 over the latent is needed on top. Judged by the standing criterion — a drawn z,
 decoded, rendered, as a **clip against the raw corpus video**.
 
-**The decisive cheap test, named and not run: β = 0, a pure autoencoder**, to
-measure this architecture's reconstruction ceiling with no KL at all. Reaching
-~0.89 means the balance is the problem and the answer is between 1e-5 and 1e-4;
-stalling at 0.65 means the architecture does not reach linear PCA and no β will
-save it. 20,000 steps ≈ 46 min ≈ $0.85, or 8,000 steps ≈ $0.33. Priced, so it
-needs the human's word before it starts.
+**18.24c measured, and it settles which lever is the wrong one.** β = 0, a pure
+autoencoder at the same 8,000 steps, renders **0.687** from its own code against
+**0.6875** for β = 1e-5 — indistinguishable in the fourth decimal. Switching the
+KL off entirely moves the reconstruction ceiling by nothing, so the KL decides
+only whether the latent is drawable, never how well the pair reconstructs. What
+holds it is the encoder-decoder itself: 0.687 against **0.890 for linear PCA**
+at the same 2,163 dimensions, with 3.89 M parameters against the 189 M numbers
+in a PCA basis of that rank. The acceptance test now reports both decodings, and
+that retired the agent's own suspicion that eval noise handicapped the strong-KL
+arm: β = 1e-4 decoded from its μ falls to 0.385, because its mean has sd 0.415
+while its decoder was trained on codes of sd 1.0. Caveat: the ceiling is at an
+8,000-step budget. $0.33.
+
+**Open, as options, nothing started:** (1) free, local — a linear control under
+our own layout, PCA 128 → 3 **per column**, to ask whether the per-column shape
+of the latent is what costs us rather than the network, since global PCA is free
+to spend its 2,048 dimensions unevenly; (2) ≈ $0.6–0.9 — width 384 / depth 6 at
+β = 1e-5, 8,000 steps, a direct capacity test, worth paying for only if (1)
+shows headroom. Both need the human's word.
 
 ## Item 17, the brain-state prior — measured, its gates open
 
