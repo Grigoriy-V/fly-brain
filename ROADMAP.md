@@ -370,10 +370,11 @@ spent.
 `reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
 `reports/2026-09-20_step18_4_throughput_and_learning_rate.md`,
 `reports/2026-09-20_step18_5_width_and_the_representation_floor.md`,
+`reports/2026-09-20_options_after_the_floor.md` (**варианты, не план**),
 `reports/figures/2026-09-20_malecns_check18.gif`,
 `..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
 `..._arms18.png`, `..._scaling18.png`, `..._width18.png`, `..._weight18.png`,
-`..._classcmp18.gif`,
+`..._classcmp18.gif`, `..._cmp18.gif`,
 `..._new_video18_w192.gif`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
@@ -382,7 +383,11 @@ model and the same code move the gate 0.142 → 0.095 and the coverage 1.290 →
 texture, 8× a real clip's round trip.
 
 **Where the remaining error sits, and the options** (nothing started, the
-human decides). Of the 0.095, **0.021 is the floor** — a real state
+human decides). *The options below concern the round trip, which 18.5a drove
+to the floor of DCT-16; the options for what to do **after** that — 13B, an
+embedding in place of the class label, a scene metric, a learned temporal
+latent — are written up as options in
+`reports/2026-09-20_options_after_the_floor.md`, none of them started.* Of the 0.095, **0.021 is the floor** — a real state
 band-limited to the same DCT-16 scores exactly that — and **0.074 is the
 prior**. So:
 1. ~~**The floor**~~ — **measured twice. 18.4d: K = 32 is 5.9× worse** at
