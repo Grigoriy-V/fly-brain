@@ -101,6 +101,10 @@ Closed items, one line each, evidence in the linked report.
 - **Research, how VAEs are actually trained** (2026-09-21): why the first
   stage may be linear and why nobody asks a latent to be Gaussian.
   `reports/2026-09-21_research_how_vaes_are_trained.md`.
+- **Research, the path to a video generator** (2026-09-21): six scouts on
+  sample complexity, the overshoot, non-neural samplers, a hex-local prior,
+  conditioning and off-the-shelf generators; nine candidate routes, none
+  chosen. `reports/2026-09-21_research_path_to_a_video_generator.md`.
 - **19, a linear first stage and a flow over its latent** (2026-09-21): PCA on
   the card and its acceptance, the flow over the latent in two recipes, the
   seed test, the time profile, the controls without the flow and the
