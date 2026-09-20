@@ -91,8 +91,11 @@ class SiTStates(nn.Module):
 
 
 def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
+    # `n` — число токенов. До 19.2 оно всегда было 721 (токен = колонка) и в
+    # build не передавалось; латент PCA даёт 16 токенов по 128 признаков, и
+    # умолчание сохранено, поэтому каждый прежний чекпойнт грузится как был.
     return SiTStates(frames=frames, k=k, width=kw.get("width", 128), depth=kw.get("depth", 4),
-                     heads=kw.get("heads", 4), n_classes=kw.get("n_classes", 0),
+                     heads=kw.get("heads", 4), n=kw.get("n", 721), n_classes=kw.get("n_classes", 0),
                      null_class=kw.get("null_class", False))
 
 
@@ -392,7 +395,8 @@ def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, devi
     the plain one samples frames directly, the DCT one samples coefficients,
     undoes their per-coefficient scaling and transforms back to frames."""
     dev = device or next(model.parameters()).device
-    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator,
+    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), columns=meta.get("n", 721),
+               steps=steps, device=dev, generator=generator,
                y=y, guidance=guidance, noise_scale=noise_scale)
     return from_model_space(meta, x)
 

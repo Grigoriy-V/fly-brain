@@ -683,6 +683,27 @@ def train_vae18(steps: int = 20000, batch: int = 32, lr: float = 1e-3, width: in
     return summary
 
 
+def _load_latent(device, file: str, subset: str = "train", tokens: int = 16, limit: int = 0,
+                 k_axis: int = 8):
+    """19.2: whitened PCA coordinates from `pca19`, shaped as the flow's own
+    (N, T, K, n) with n = `tokens`. There is nothing to z-score: whitening
+    already did it, so the stats are the identity and `dct_k` stays 0 — the
+    latent IS the model space, and `prior17.to_model_space` must not touch it.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import pca19 as P
+
+    z = np.load(Path(RUNS) / file)
+    Z = np.asarray(z[f"z_{subset}"], np.float32)
+    idx = np.asarray(z[f"index_{subset}"])
+    if limit:
+        Z, idx = Z[:limit], idx[:limit]
+    m = torch.as_tensor(P.as_tokens(Z, tokens=tokens, k_axis=k_axis).astype(np.float16), device=device)
+    stats = {"mean": np.zeros(k_axis, np.float32), "std": np.ones(k_axis, np.float32)}
+    return m, idx, stats
+
+
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
 def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
           out: str = "prior19", name: str = "pca2048", block: int = 8192,
@@ -865,7 +886,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
-            couple: str = "random", couple_file: str = "", couple_norm: str = "shell") -> dict:
+            couple: str = "random", couple_file: str = "", couple_norm: str = "shell",
+            latent_tokens: int = 0) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -882,8 +904,13 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
 
     dev = torch.device("cuda")
     t0 = time.time()
-    _, m, idx_tr, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
-    _, mv, idx_val, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False, sources=sources, run=run)
+    if latent_tokens:                                                # 19.2: поток над латентом PCA, а не над состоянием
+        m, idx_tr, stats = _load_latent(dev, maps_file, "train", tokens=latent_tokens)
+        mv, idx_val, _ = _load_latent(dev, maps_file, "val", tokens=latent_tokens, limit=256)
+    else:
+        _, m, idx_tr, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+        _, mv, idx_val, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False,
+                                       sources=sources, run=run)
     print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s "
           f"({m.element_size() * m.nelement() / 1e9:.1f} GB)", flush=True)
     time_frames, coef_mean, coef_std = int(m.shape[1]), None, None
@@ -930,8 +957,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
               f"of {len(sh)}", flush=True)
     if label_drop and not names:
         raise SystemExit("label_drop needs classes=True; there is nothing to drop")
-    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads, n_classes=len(names),
-                    null_class=bool(label_drop))
+    model = R.build(frames=m.shape[1], k=m.shape[2], n=int(m.shape[3]), width=width, depth=depth, heads=heads,
+                    n_classes=len(names), null_class=bool(label_drop))
     n_par = sum(p.numel() for p in model.parameters())
     print(f"state flow: {n_par} parameters", flush=True)
     couple_eps = None
@@ -970,7 +997,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
                     couple=couple, couple_eps=couple_eps)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
-    meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
+    meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "n": int(m.shape[3]),
+            "latent_tokens": latent_tokens, "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
             "trained_classes": trained,
