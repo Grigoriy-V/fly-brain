@@ -30,6 +30,7 @@ import numpy as np
 import torch
 
 from flydream.generate import gen13b as G
+from flydream.generate import learned as L
 from flydream.generate import prior17 as R
 from flydream.generate.gen13b import DEEP
 from flydream.generate.invert import device_of
@@ -48,13 +49,18 @@ def best_match(v: np.ndarray, bank: np.ndarray) -> tuple[int, float, float]:
 
 
 def run(prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *,
-        rows=(0, 1, 2, 3), frames: int = 40, steps: int = 100, seed: int = 0, log=print) -> dict:
+        rows=(0, 1, 2, 3), frames: int = 40, steps: int = 100, seed: int = 0,
+        src_prior=None, inv_steps: int = 20, fixed_point: int = 3,
+        dt: float = 0.02, t_pre: float = 1.0, log=print) -> dict:
     t0 = time.time()
     dev = torch.device("cpu")
     prior, pmeta = R.load(prior_ckpt, dev)
     gen, gmeta = G.load(gen_ckpt, dev)
-    if pmeta.get("couple") != "fixed":
-        raise ValueError(f"этот приор обучен со сцепкой {pmeta.get('couple')!r}; назначенного шума у клипов нет")
+    mode = pmeta.get("couple")
+    if mode not in ("fixed", "file"):
+        raise ValueError(f"этот приор обучен со сцепкой {mode!r}; назначенного шума у клипов нет")
+    if mode == "file" and src_prior is None:
+        raise ValueError("для сцепки из файла нужен --src-prior: тот приор, которым считались прообразы")
     d = Deep(manifest, columns)
     mean = np.array(gmeta["mean"], np.float32); std = np.array(gmeta["std"], np.float32)
 
@@ -66,7 +72,29 @@ def run(prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *,
 
     shape = (pmeta["frames"], pmeta.get("k", 8), 721)
     rows = list(rows)
-    eps = R.fixed_noise(torch.as_tensor(rows), shape, dev, seed).cpu().numpy().astype(np.float32)
+    if mode == "fixed":
+        eps = R.fixed_noise(torch.as_tensor(rows), shape, dev, seed).cpu().numpy().astype(np.float32)
+    else:
+        # 18.23: назначенный шум не хранится локально (файл пар 2,5 ГБ на томе),
+        # он воспроизводится тем же способом, каким был посчитан: обращение
+        # исходного приора на том же состоянии плюс нормировка на оболочку.
+        # Индекс строки обучения при этом не нужен — пара определяется
+        # состоянием, а не номером.
+        from flydream.decode import pairs as P2
+        from flydream.generate.invert import load_network
+        from flydream.generate.pairs13 import simulate_states as sim2
+        net = load_network("malecns")
+        _ = P2.type_index(net.connectome)
+        src, smeta = R.load(Path(src_prior), dev)
+        vids = np.asarray(cz["videos"], np.float16)[train[rows]]
+        st = sim2(net, vids, d.cells_all, dt, t_pre, 8).astype(np.float32)
+        mp = L.to_maps(st.astype(np.float16), d.layout, len(DEEP))[:, :frames].astype(np.float32)
+        real_s = (mp - mean[None, None, :, None]) / std[None, None, :, None]
+        e = R.to_noise(src, smeta, real_s, steps=inv_steps, fixed_point=fixed_point, device=dev)
+        f = e.reshape(len(e), -1)
+        eps = (f * (np.sqrt(f.shape[1]) / np.linalg.norm(f, axis=1, keepdims=True))).reshape(e.shape).astype(np.float32)
+        log(f"прообразы воспроизведены: радиус {np.linalg.norm(eps.reshape(len(eps), -1), axis=1).mean():.1f}, "
+            f"ст. откл. {eps.std():.3f}")
     g = torch.Generator(device=dev).manual_seed(5000 + seed)
     draw = torch.randn((len(rows),) + shape, device=dev, generator=g).cpu().numpy().astype(np.float32)
     D = int(np.prod(shape))
@@ -117,6 +145,9 @@ def main(argv=None) -> int:
     p.add_argument("--tag", default="assigned18")
     p.add_argument("--rows", default="0,1,2,3")
     p.add_argument("--steps", type=int, default=100)
+    p.add_argument("--src-prior", default=None,
+                   help="приор, которым считались прообразы (для couple=file)")
+    p.add_argument("--inv-steps", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
@@ -125,7 +156,8 @@ def main(argv=None) -> int:
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     r = run(Path(a.prior), Path(a.gen), manifest, columns, Path(a.corpus),
             rows=tuple(int(x) for x in a.rows.split(",")), frames=g.get("frames", 40),
-            steps=a.steps, seed=a.seed)
+            steps=a.steps, seed=a.seed, src_prior=a.src_prior, inv_steps=a.inv_steps,
+            dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0))
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
