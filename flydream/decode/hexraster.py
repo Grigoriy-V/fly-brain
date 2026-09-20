@@ -76,6 +76,36 @@ def to_axial(values, fill: float = np.nan):
 
 
 @functools.lru_cache(maxsize=8)
+def axial_coords(n_hexals: int = 721) -> np.ndarray:
+    """(n_hexals, 2) int64 axial (u, v) lattice coordinates, as flyvis stores them."""
+    from flyvis.utils.hex_utils import get_hex_coords, get_hextent
+
+    u, v = get_hex_coords(get_hextent(n_hexals))
+    return np.stack([np.asarray(u, np.int64), np.asarray(v, np.int64)], 1)
+
+
+@functools.lru_cache(maxsize=8)
+def hex_distance(n_hexals: int = 721) -> np.ndarray:
+    """(n, n) int64 lattice distance in steps between every pair of columns.
+
+    On an axial hex lattice the number of steps between (u₁,v₁) and (u₂,v₂) is
+    (|du| + |dv| + |du+dv|)/2 — the standard cube-coordinate metric, which is 1
+    for the six `neighbour_index` neighbours and grows by one per ring."""
+    a = axial_coords(n_hexals)
+    du = a[:, None, 0] - a[None, :, 0]
+    dv = a[:, None, 1] - a[None, :, 1]
+    return (np.abs(du) + np.abs(dv) + np.abs(du + dv)) // 2
+
+
+@functools.lru_cache(maxsize=8)
+def ring_of(n_hexals: int = 721) -> np.ndarray:
+    """(n,) int64 ring index of each column, 0 at the lattice centre."""
+    a = axial_coords(n_hexals)
+    c = a - np.rint(a.mean(0)).astype(np.int64)
+    return (np.abs(c[:, 0]) + np.abs(c[:, 1]) + np.abs(c[:, 0] + c[:, 1])) // 2
+
+
+@functools.lru_cache(maxsize=8)
 def neighbour_index(n_hexals: int = 721, invalid: int = -1) -> np.ndarray:
     """(n_hexals, 6) int64; columns are E, NE, NW, W, SW, SE, -1 off-lattice.
 

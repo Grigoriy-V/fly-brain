@@ -171,15 +171,50 @@ def guided(model, y: torch.Tensor | None, scale: float = 0.0):
     return f
 
 
+def shifted(u: float, shift: float = 1.0) -> float:
+    """SD3's grid reparameterisation τ = s·u / (1 + (s−1)·u), identity at s = 1.
+
+    Esser et al. 2024 § 5.3.2 move the sampling nodes instead of retraining;
+    τ(0) = 0 and τ(1) = 1 for every s > 0, and s > 1 pulls every interior node
+    towards t = 1, which spends more steps near t = 0 — where 19.4 measured the
+    draw's trajectory leaving the ideal curve."""
+    s = float(shift)
+    if s <= 0:
+        raise ValueError(f"shift must be positive, got {shift}")
+    return s * u / (1.0 + (s - 1.0) * u)
+
+
+def scaled(model, s: float = 1.0):
+    """The same field with its output divided by `s` — Ning et al. 2024 (ICLR),
+    "Elucidating the Exposure Bias in Diffusion Models": the network fed inputs
+    it never saw in training emits a larger-magnitude output, so one constant
+    divisor over the whole trajectory removes most of the drift. `s = 1` is off
+    and returns the model itself, so a sampler written against this helper is
+    byte-identical to the old one until a scale is asked for."""
+    return model if float(s) == 1.0 else (lambda x, t: model(x, t) / float(s))
+
+
 @torch.no_grad()
-def integrate(model: nn.Module, x: torch.Tensor, *, steps: int = 20, t0: float = 0.0, t1: float = 1.0) -> torch.Tensor:
+def integrate(model: nn.Module, x: torch.Tensor, *, steps: int = 20, t0: float = 0.0, t1: float = 1.0,
+              shift: float = 1.0) -> torch.Tensor:
     """Euler integration of dx/dt = v(x, t) from `t0` to `t1` — the sampler's
     own map, written once so that sampling, refining and the inversion below
-    all use the same discretisation."""
+    all use the same discretisation.
+
+    `shift` reparameterises the node grid through `shifted` and keeps the
+    interval: the step is then the true node spacing τ_{i+1} − τ_i, not 1/n.
+    The default 1.0 takes the original arithmetic unchanged, so every
+    checkpoint measured before this argument existed integrates identically."""
     n = max(1, int(round(steps * (t1 - t0))))
+    if float(shift) == 1.0:
+        for i in range(n):
+            t = torch.full((len(x),), t0 + (t1 - t0) * i / n, device=x.device)
+            x = x + model(x, t) * (t1 - t0) / n
+        return x
+    tau = [t0 + (t1 - t0) * shifted(i / n, shift) for i in range(n + 1)]
     for i in range(n):
-        t = torch.full((len(x),), t0 + (t1 - t0) * i / n, device=x.device)
-        x = x + model(x, t) * (t1 - t0) / n
+        t = torch.full((len(x),), tau[i], device=x.device)
+        x = x + model(x, t) * (tau[i + 1] - tau[i])
     return x
 
 

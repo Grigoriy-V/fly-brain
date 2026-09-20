@@ -12,12 +12,11 @@ acceptance criterion is his and overrides every metric
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
 
-**Current approved step:** 19 is built and measured
-(`reports/2026-09-21_step19_linear_first_stage.md`): the first stage is
-linear, the seed is drawable, a clip's own seed returns that clip, a fresh
-draw does not yet give a scene. The order of what follows was reset on
-2026-09-21 by `reports/2026-09-21_research_path_to_a_video_generator.md`.
-Next: 20, on the human's word.
+**Current approved step:** 20 and 21 are measured
+(`reports/2026-09-21_step20_sampler_and_cuts.md`): the sampler's overshoot is
+fixed and was not the blocker, half the state can be left unspecified if it is
+completed rather than zeroed, and the state's covariance is local — which is
+what chose the order below. Next: 22, on the human's word.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -46,13 +45,15 @@ choices. This file alone owns current work, order and authorization.
   of 128 (`prior17.py` with `train17(latent_tokens=…)`); two checkpoints under
   `prior19/`. The live problem is here.
 - **Measurement:** `seed19.py` (the seed test: preimage geometry, a clip's own
-  seed, a fresh draw, controls without the flow, interpolation),
-  `tprofile19.py` (where the sampler leaves the truth), `vaeval18.py`,
-  `roundtrip13.py`, figures under `tools/fig_*.py`.
+  seed, a fresh draw, controls without the flow, interpolation, `--fix` for a
+  corrected sampler), `tprofile19.py` (where the sampler leaves the truth),
+  `fix19.py` (the sampler knobs and the velocity profile), `cut19.py` (how far
+  the state can be cut), `hexcov19.py` (covariance against hex distance),
+  `vaeval18.py`, `roundtrip13.py`, figures under `tools/fig_*.py`.
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for anything that
   fits in ten minutes; Modal T4 (`flydream-generate`, `flydream-train`,
   `flydream-decode`) for GPU work, called through `tools/modal_call.py`.
-- **Tests:** 106 offline tests passing (2026-09-21, 23 s), no download, no
+- **Tests:** 122 offline tests passing (2026-09-21, 23 s), no download, no
   Modal, no credential.
 
 ## Done
@@ -113,38 +114,44 @@ Closed items, one line each, evidence in the linked report.
   `flydream/generate/{pca19,pcaval19,seed19,tprofile19}.py`.
   `reports/2026-09-21_step19_linear_first_stage.md`.
 
+- **20-21, the sampler fix and the state cuts** (2026-09-21): the overshoot is
+  a time-skew and the literature's constant-divisor fixes miss it; a projection
+  onto the measured trajectory curve repairs the geometry and improves the gate
+  2.2x without reaching a scene; a dropped half of the state costs nothing when
+  completed and is unusable when zeroed; 128 PCA components carry the gate as
+  well as 2,048; the state's covariance is local (0.876 at one step against a
+  0.267 shuffled control). Runs `2026-09-21_prior19_{fix_sweep,seed_fix,cut,hexcov}`;
+  code `flydream/generate/{fix19,cut19,hexcov19}.py`.
+  `reports/2026-09-21_step20_sampler_and_cuts.md`.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
-is proposed. The evidence behind this order, and the full ladder of nine
-routes with their sources, is
-`reports/2026-09-21_research_path_to_a_video_generator.md`; the measured state
-of the blocker is `reports/2026-09-21_step19_linear_first_stage.md` §§ 7–11.
-The task is unconditional 64x64 video generation in other coordinates, so the
-order is: free fixes and free measurements first, then the one paid route the
-measurements select.
+is proposed. The order below is what 20 and 21 measured, not a preference:
+the sampler is repaired and was not the blocker, so what remains is the shape
+of the problem (how many numbers are drawn) and the shape of the model (what
+the field can generalise from). Evidence:
+`reports/2026-09-21_step20_sampler_and_cuts.md`, with the full ladder of
+routes in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-20. **The sampler, not the model.** A fresh draw overshoots the radius 1.55x
-    and leaves the ideal trajectory at t = 0.1, which is the published
-    exposure-bias signature; both fixes are one scalar on the existing
-    checkpoint. Then the seed test. Free, local.
+22. **A smaller latent.** 128-512 PCA components instead of 2,048: the same
+    net on a problem 4-16 times smaller at the same N = 13,555, and the gate
+    through the chain is already measured as no worse (0.0334 at 128 against
+    0.0406 at 2,048). One training run, judged by the seed test.
 
-21. **Two free measurements.** How far the state can be cut before the video
-    stops holding (types, columns, DCT, PCA components) — and whether column
-    covariance decays with hex distance, which is what decides between 22 and
-    23. Free, local.
+23. **A hex-local prior.** Column positions and a neighbour window in the
+    flow, plus a global channel — 21b measured both halves: locality is real
+    (0.876 at one step) and a window alone would miss the 0.27 background.
+    This is the only published mechanism of novelty for a diffusion model.
 
-22. **Conditioning, two-stage.** Draw the DC part of the state (8 types x 721
-    columns), then the motion given it; the conditioned objective is the one
-    with measured gains and it keeps unconditional sampling available.
-
-23. **Hex-local attention in the flow.** Column positions and a neighbour
-    window instead of PCA tokens, to reach the only published mechanism of
-    novelty. Taken if 21 shows covariance is local.
+24. **Conditioning, two-stage.** Draw the DC part of the state, then the
+    motion given it. Kept behind 22-23 because its measured gains come from
+    fine continuous conditions, and its cost is memorisation, which then has
+    to be measured beside every sample.
 
 Waiting, not in the order above:
 
-24. **The state space as an interface**, the claim item 17 was accepted on:
+25. **The state space as an interface**, the claim item 17 was accepted on:
     interpolation and editing in state space as a product, not as a
     diagnostic. The machinery exists (`seed19.py --controls`); what is missing
     is a fair novelty test — pairs of two structured clips, r to each parent

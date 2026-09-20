@@ -38,6 +38,7 @@ import numpy as np
 import torch
 
 from flydream.decode import pairs as P13
+from flydream.generate import fix19 as F
 from flydream.generate import gen13b as G
 from flydream.generate import learned as L
 from flydream.generate import pca19 as P
@@ -73,7 +74,7 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
         manifest: dict, columns: dict, corpus: Path, *, n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
         invert_steps=(20, 100), sample_steps: int = 20, draw_scale: float = 0.0,
-        controls: bool = False, invert_n: int = 0, log=print) -> dict:
+        controls: bool = False, invert_n: int = 0, fixes=(), fix_n: int = 256, log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -179,6 +180,28 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
               "только PCA (19.1)": to_state(z_file),
               "сид от клипа через поток": to_state(z_from_clip),
               "свежий розыгрыш": to_state(z_draw)}
+    if fixes:
+        # Пункт 20: те же самые ε, но через поправленный сэмплер. Цель — ОБУЧАЮЩИЙ
+        # латент: на нём модель училась, отложенный слабее (десять новых классов).
+        # Геометрия каждой поправки считается на `fix_n` розыгрышах, потому что на
+        # шести её не видно (эксцесс при n = 6 смещён до 2,14, § 19.0).
+        sd_train = float(torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev).std())
+        out["fix"] = {"sd_train": sd_train, "arms": {}}
+        m = min(fix_n, len(e_many))
+        for text in fixes:
+            spec = F.parse_spec(text)
+            nm = F.name_of(spec, sample_steps)
+            zd = F.integrate_fixed(flow, P.as_tokens(e_draw, tokens=tokens), steps=sample_steps,
+                                   spec=spec, sd_data=sd_train, tokens=tokens).reshape(n_clips, -1)
+            zg = torch.cat([F.integrate_fixed(flow, P.as_tokens(e_many[i:i + 256], tokens=tokens),
+                                              steps=sample_steps, spec=spec, sd_data=sd_train,
+                                              tokens=tokens).reshape(-1, k) for i in range(0, m, 256)])
+            out["fix"]["arms"][nm] = P.geometry(zg) | {"spec": spec, "n_draws": int(len(zg))}
+            groups[f"розыгрыш + {nm}"] = to_state(zd)
+            g = out["fix"]["arms"][nm]
+            log(f"поправка {nm}: ст. откл. {g['sd']:.3f} при {sd_train:.3f} у обучающих, радиус "
+                f"{g['radius_mean']:.1f} ± {g['radius_sd']:.2f} при "
+                f"{out['latent_data']['radius_mean']:.1f} у отложенных, эксцесс {g['kurtosis_mean']:.2f}")
     if controls:
         # Латент отбелён: по осям дисперсия 1, среднее 0. Значит N(0, I) прямо
         # в PCA-обратно — уже модель первого порядка, и её надо побить, а не
@@ -272,6 +295,8 @@ def main(argv=None) -> int:
     p.add_argument("--sample-steps", type=int, default=20)
     p.add_argument("--draw-scale", type=float, default=0.0, help="-1 — привести к ст. откл. данных")
     p.add_argument("--controls", action="store_true", help="добавить розыгрыши без потока и интерполяцию")
+    p.add_argument("--fix", default="", help="поправки сэмплера через ; — \"vscale=1.1;shift=2\" (пункт 20)")
+    p.add_argument("--fix-n", type=int, default=256, help="сколько розыгрышей на геометрию поправки")
     p.add_argument("--invert-n", type=int, default=0, help="сколько отложенных латентов обращать")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
@@ -283,7 +308,8 @@ def main(argv=None) -> int:
             Path(a.corpus), n_clips=a.clips, frames=g.get("frames", 40), margin=g.get("margin", 5),
             dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0), seed=a.seed,
             invert_steps=tuple(int(x) for x in a.invert_steps.split(",")),
-            sample_steps=a.sample_steps, draw_scale=a.draw_scale, controls=a.controls, invert_n=a.invert_n)
+            sample_steps=a.sample_steps, draw_scale=a.draw_scale, controls=a.controls, invert_n=a.invert_n,
+            fixes=[x for x in a.fix.split(';') if x.strip()], fix_n=a.fix_n)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
