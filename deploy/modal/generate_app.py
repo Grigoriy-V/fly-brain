@@ -755,7 +755,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
-            couple: str = "random", couple_file: str = "") -> dict:
+            couple: str = "random", couple_file: str = "", couple_norm: str = "shell") -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -830,8 +830,20 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         if not np.array_equal(np.asarray(z["index"]), np.asarray(idx_tr)):
             raise ValueError("the coupling file was inverted from a different subset of the maps")
         couple_eps = torch.as_tensor(z["eps"], device=dev)
-        print(f"coupling from {couple_file}: {tuple(couple_eps.shape)}, "
-              f"sd {float(couple_eps.float().std()):.3f}", flush=True)
+        if couple_norm == "shell":
+            # 18.23: scaling by the per-axis sd fixes the marginal and leaves
+            # the cloud elongated - measured, radius 302.7 +- 25.4 where a
+            # Gaussian in D dimensions sits at sqrt(D) +- 0.71, i.e. 36x too
+            # wide. Putting every pair on the shell is the far better stand-in
+            # for a draw, and it is what the sampler will actually meet.
+            f = couple_eps.float().reshape(len(couple_eps), -1)
+            f = f * ((f.shape[1] ** 0.5) / f.norm(dim=1, keepdim=True))
+            couple_eps = f.reshape(couple_eps.shape).to(couple_eps.dtype)
+        cf = couple_eps.float().reshape(len(couple_eps), -1)
+        rr = cf.norm(dim=1)
+        print(f"coupling from {couple_file} ({couple_norm}): {tuple(couple_eps.shape)}, "
+              f"sd {float(cf.std()):.4f}, radius {float(rr.mean()):.1f} +- {float(rr.std()):.2f} "
+              f"(a Gaussian sits at {cf.shape[1] ** 0.5:.1f} +- 0.71)", flush=True)
     with GpuSampler() as gpu:
         r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, compile_mode=compile_mode,
                     log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
@@ -844,7 +856,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
             "trained_classes": trained,
             "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop), "couple": couple,
-            "couple_file": couple_file,
+            "couple_file": couple_file, "couple_norm": couple_norm,
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
             "coef_mean": None if coef_mean is None else coef_mean.tolist(),
