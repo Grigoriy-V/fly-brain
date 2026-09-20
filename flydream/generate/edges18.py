@@ -25,6 +25,21 @@ import numpy as np
 
 from flydream.generate import learned as L
 
+# Каждое плечо item 18, у которого на диске есть сэмплы; порядок — как в отчёте.
+ARMS = [
+    ("samples18_corpus_dct16_c", "контроль: w128, 3e-4, K16"),
+    ("samples18_corpus_dct16_lr6e4_c", "w128, lr 6e-4"),
+    ("samples18_corpus_dct16_lr1e3_c", "w128, lr 1e-3"),
+    ("samples18_corpus_dct16_60k_c", "w128, 60k шагов"),
+    ("samples18_corpus_dct16_cls_c", "w128, классы"),
+    ("samples18_corpus_dct16_w192_c", "w192, 3e-4"),
+    ("samples18_corpus_dct16_w192_lr1e3_c", "w192, lr 1e-3 — лучшее по воротам"),
+    ("samples18_corpus_dct16_w192_lr1e3_c_s100", "w192, lr 1e-3, 100 шагов сэмплера"),
+    ("samples18_corpus_dct32_c", "K=32, w128"),
+    ("samples18_corpus_dct32_w192_c", "K=32, w192, равный вес"),
+    ("samples18_corpus_dct32_w192_lr1e3_w1_c", "K=32, w192, вес sd¹"),
+]
+
 
 def spread(v: np.ndarray) -> dict:
     """Разброс значений: обычный и устойчивый к выбросам."""
@@ -62,11 +77,16 @@ def run(run_dir: Path, corpus: Path, tags: list[tuple[str, str]], *, n_raw: int 
     nb = np.asarray(L.neighbour_index(721))
     groups = {}
     for tag, label in tags:
+        if not (run_dir / f"{tag}.json").exists():
+            log(f"  {label}: нет на диске, пропущено")
+            continue
         S = json.loads((run_dir / f"{tag}.json").read_text(encoding="utf-8"))
         z = np.load(run_dir / f"{tag}.npz")
         sc = S["scores"]
         pri = [k for k in sc if sc[k]["kind"] == "prior"]
         groups[label] = describe([z[f"video__{k}"] for k in pri], nb)
+        groups[label]["gate"] = S["gates"]["prior"]["round_trip"]["median"]
+        groups[label]["tag"] = tag
         if "13B из настоящего состояния" not in groups:               # потолок отрисовщика, берём один раз
             cli = [k for k in sc if sc[k]["kind"] == "clip"]
             groups["13B из настоящего состояния"] = describe([z[f"video__{k}"] for k in cli], nb)
@@ -88,10 +108,11 @@ def main(argv=None) -> int:
     p.add_argument("--corpus", default=str(ROOT / "data" / "corpus18"))
     p.add_argument("--tag", default="edges18_local")
     p.add_argument("--n-raw", type=int, default=32)
+    p.add_argument("--arms", default="", help='"all" — все плечи из ARMS; пусто — два плеча 18.9')
     a = p.parse_args(argv)
     run_dir = Path(a.run)
-    tags = [("samples18_corpus_dct16_w192_lr1e3_c", "прайор, 20 шагов"),
-            ("samples18_corpus_dct16_w192_lr1e3_c_s100", "прайор, 100 шагов")]
+    tags = ARMS if a.arms == "all" else [("samples18_corpus_dct16_w192_lr1e3_c", "прайор, 20 шагов"),
+                                         ("samples18_corpus_dct16_w192_lr1e3_c_s100", "прайор, 100 шагов")]
     r = run(run_dir, Path(a.corpus), tags, n_raw=a.n_raw)
     (run_dir / f"{a.tag}.json").write_text(json.dumps(r, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"\n{'группа':30s} {'sd':>6} {'IQR':>6} {'MAD':>6} {'p5-95':>6} | "
