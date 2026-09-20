@@ -830,20 +830,26 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         if not np.array_equal(np.asarray(z["index"]), np.asarray(idx_tr)):
             raise ValueError("the coupling file was inverted from a different subset of the maps")
         couple_eps = torch.as_tensor(z["eps"], device=dev)
-        if couple_norm == "shell":
-            # 18.23: scaling by the per-axis sd fixes the marginal and leaves
-            # the cloud elongated - measured, radius 302.7 +- 25.4 where a
-            # Gaussian in D dimensions sits at sqrt(D) +- 0.71, i.e. 36x too
-            # wide. Putting every pair on the shell is the far better stand-in
-            # for a draw, and it is what the sampler will actually meet.
-            f = couple_eps.float().reshape(len(couple_eps), -1)
-            f = f * ((f.shape[1] ** 0.5) / f.norm(dim=1, keepdim=True))
-            couple_eps = f.reshape(couple_eps.shape).to(couple_eps.dtype)
-        cf = couple_eps.float().reshape(len(couple_eps), -1)
-        rr = cf.norm(dim=1)
+        # 18.23: scaling by the per-axis sd fixes the marginal and leaves the
+        # cloud elongated - measured, radius 302.7 +- 25.4 where a Gaussian in
+        # D dimensions sits at sqrt(D) +- 0.71, i.e. 36x too wide. Putting
+        # every pair on the shell is the far better stand-in for a draw, and
+        # it is what the sampler will actually meet. Both the rescale and the
+        # report run in chunks: the whole set in float32 is 5 GB and does not
+        # fit beside the maps on a T4.
+        Dc = int(np.prod(couple_eps.shape[1:]))
+        tgt, chunk, rs, ss = float(Dc) ** 0.5, 512, [], 0.0
+        for i in range(0, len(couple_eps), chunk):
+            c = couple_eps[i:i + chunk].float().reshape(-1, Dc)
+            if couple_norm == "shell":
+                c *= tgt / c.norm(dim=1, keepdim=True)
+                couple_eps[i:i + chunk] = c.reshape(couple_eps[i:i + chunk].shape).to(couple_eps.dtype)
+            rs.append(c.norm(dim=1)); ss += float((c ** 2).sum())
+            del c
+        rr = torch.cat(rs)
         print(f"coupling from {couple_file} ({couple_norm}): {tuple(couple_eps.shape)}, "
-              f"sd {float(cf.std()):.4f}, radius {float(rr.mean()):.1f} +- {float(rr.std()):.2f} "
-              f"(a Gaussian sits at {cf.shape[1] ** 0.5:.1f} +- 0.71)", flush=True)
+              f"sd {(ss / (len(couple_eps) * Dc)) ** 0.5:.4f}, radius {float(rr.mean()):.1f} "
+              f"+- {float(rr.std()):.2f} (a Gaussian sits at {tgt:.1f} +- 0.71)", flush=True)
     with GpuSampler() as gpu:
         r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, compile_mode=compile_mode,
                     log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
