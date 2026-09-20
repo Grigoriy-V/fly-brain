@@ -35,6 +35,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default=str(ROOT / "data" / "prior18"))
     p.add_argument("--src", default="walk18_local")
+    p.add_argument("--shared", default="walk18_shared")
     p.add_argument("--out", default=str(ROOT / "reports" / "figures" / "2026-09-20_malecns_walk18.png"))
     a = p.parse_args(argv)
     run = Path(a.run)
@@ -42,6 +43,8 @@ def main(argv=None) -> int:
     S = json.loads((run / f"{a.src}.json").read_text(encoding="utf-8"))
     rows = [r for r in S["rows"] if r["alpha"] is not None]
     real = next(r for r in S["rows"] if r["alpha"] is None)
+    H = json.loads((run / f"{a.shared}.json").read_text(encoding="utf-8"))
+    sh = [r for r in H["rows"] if r["alpha"] is not None]
 
     import matplotlib
     matplotlib.use("Agg")
@@ -55,22 +58,26 @@ def main(argv=None) -> int:
     ax1.axhline(100 * real["frac_flat"], color="#2ca02c", ls="--", lw=1.8)
     ax1.text(0.02, 100 * real["frac_flat"] + 0.5, f"настоящее состояние: {ru(f'{100 * real['frac_flat']:.1f}')} %",
              fontsize=9.5, color="#2ca02c")
-    ax1.plot(al, fl, "o-", color="#1f77b4", lw=2.4, ms=7.5)
+    ax1.plot(al, fl, "o-", color="#1f77b4", lw=2.4, ms=7.5, label="к прообразу своей сцены")
+    ax1.plot([r["alpha"] for r in sh], [100 * r["frac_flat"] for r in sh], "o-", color="#8c564b",
+             lw=2.2, ms=6, label="к общей компоненте")
+    ax1.legend(fontsize=9, loc="lower right")
     for r, f in zip(rows, fl):
         if r["alpha"] in (0.0, 0.4, 0.6, 0.8, 1.0):
             ax1.annotate(f"‖ε‖ {r['radius']:.0f}", (r["alpha"], f), textcoords="offset points",
                          xytext=(2, -15), fontsize=8.6, color="#555")
     ax1.set_ylabel("ровных переходов, % (разреженность)", color="#1f77b4")
     ax1.tick_params(axis="y", labelcolor="#1f77b4")
-    ax1.set_ylim(24, 49)
+    ax1.set_ylim(20, 49)
     ax1b = ax1.twinx()
     ax1b.plot(al, ku, "s--", color="#9467bd", lw=1.8, ms=5.5)
+    ax1b.plot([r["alpha"] for r in sh], [r["kurtosis"] for r in sh], "s--", color="#c49a8a", lw=1.5, ms=4.5)
     ax1b.axhline(real["kurtosis"], color="#9467bd", ls=":", lw=1.2)
     ax1b.set_ylabel("эксцесс перепадов", color="#9467bd")
     ax1b.tick_params(axis="y", labelcolor="#9467bd")
-    ax1b.set_ylim(5, 12)
+    ax1b.set_ylim(3.5, 12)
     ax1.set_xlabel("доля пути от обычного розыгрыша к шуму сцены")
-    ax1.set_title("Область сцен не иголка: структура растёт\nплавно с самого начала пути", fontsize=10.5)
+    ax1.set_title("Своё направление работает, общее вредит:\nструктура растёт плавно, а по общему падает", fontsize=10.5)
     ax1.grid(alpha=0.3)
 
     r06 = next(r for r in rows if r["alpha"] == 0.6)

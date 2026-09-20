@@ -40,6 +40,7 @@ from flydream.generate.roundtrip13 import build_states, round_trip
 
 def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus: Path, *,
         n_clips: int = 4, alphas=(0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 1.0), frames: int = 40,
+        target: str = "scene", n_shared: int = 16,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, steps: int = 100, fixed_point: int = 3,
         seed: int = 0, log=print) -> dict:
     t0 = time.time()
@@ -68,6 +69,23 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus:
     log(f"{n_clips} real states, clips {clip_idx.tolist()}, {time.time() - t0:.0f} s")
 
     eps_star = R.to_noise(prior, pmeta, real, steps=steps, fixed_point=fixed_point, device=dev)
+    if target == "shared":
+        # 18.19: 18.18 нашёл, что прообразы разных сцен почти ортогональны, а их
+        # общая компонента держит 7,35 % энергии. Это единственная глобальная
+        # поправка, которая вообще существует, и здесь она проверяется: конец
+        # пути — не прообраз своей сцены, а это общее направление, одно для всех.
+        pool = np.setdiff1d(np.asarray(cm["split"]["test"]), clip_idx)
+        idx_s = rng.choice(pool, n_shared, replace=False)
+        st_s = simulate_states(net, bank[idx_s], d.cells_all, dt, t_pre, 8).astype(np.float32)
+        m_s = L.to_maps(st_s.astype(np.float16), d.layout, len(DEEP))[:, :frames].astype(np.float32)
+        e_s = R.to_noise(prior, pmeta, (m_s - mean[None, None, :, None]) / std[None, None, :, None],
+                         steps=steps, fixed_point=fixed_point, device=dev)
+        fs = e_s.reshape(len(e_s), -1)
+        mv = fs.mean(0)
+        r_star = float(np.linalg.norm(fs, axis=1).mean())
+        eps_star = np.repeat((mv / np.linalg.norm(mv) * r_star)[None].astype(np.float32),
+                             n_clips, 0).reshape(eps_star.shape)
+        log(f"shared direction from {n_shared} other clips, put at radius {r_star:.1f}")
     g = torch.Generator(device=dev).manual_seed(4000 + seed)
     eps0 = torch.randn(eps_star.shape, device=dev, generator=g).cpu().numpy().astype(np.float32)
     log(f"inverted; ‖ε*‖ {np.linalg.norm(eps_star.reshape(n_clips, -1), axis=1).mean():.1f}, "
@@ -108,6 +126,7 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, corpus:
                      "frac_flat": st["frac_flat"]["mean"], "kurtosis": st["grad_kurtosis"]["mean"],
                      "neigh_r": st["neigh_r"]["mean"], "sd": st["sd"]["mean"]})
     out = {"prior_ckpt": str(prior_ckpt), "n_clips": n_clips, "alphas": list(alphas), "steps": steps,
+           "target": target, "n_shared": n_shared,
            "seed": seed, "clip_idx": clip_idx.tolist(), "dims": int(np.prod(eps_star.shape[1:])),
            "typical_radius": float(np.sqrt(np.prod(eps_star.shape[1:]))), "rows": rows,
            "seconds": round(time.time() - t0, 1)}
@@ -130,6 +149,9 @@ def main(argv=None) -> int:
     p.add_argument("--tag", default="walk18_local")
     p.add_argument("--clips", type=int, default=4)
     p.add_argument("--alphas", default="0,0.2,0.4,0.6,0.8,0.9,0.95,1.0")
+    p.add_argument("--target", default="scene", choices=["scene", "shared"],
+                   help="конец пути: прообраз своей сцены или общая компонента (18.19)")
+    p.add_argument("--n-shared", type=int, default=16)
     p.add_argument("--steps", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
@@ -140,7 +162,7 @@ def main(argv=None) -> int:
     r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, Path(a.corpus), n_clips=a.clips,
             alphas=tuple(float(x) for x in a.alphas.split(",")), frames=g.get("frames", 40),
             margin=g.get("margin", 5), dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0),
-            steps=a.steps, seed=a.seed)
+            steps=a.steps, target=a.target, n_shared=a.n_shared, seed=a.seed)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
