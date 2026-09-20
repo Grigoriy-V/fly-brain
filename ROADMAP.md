@@ -374,7 +374,7 @@ spent.
 `reports/figures/2026-09-20_malecns_check18.gif`,
 `..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
 `..._arms18.png`, `..._scaling18.png`, `..._width18.png`, `..._weight18.png`,
-`..._classcmp18.gif`, `..._cmp18.gif`, `..._13b18.gif`, `..._why18.png`, `..._steps18.png`, `..._edges18.png`, `..._axis18.png`,
+`..._classcmp18.gif`, `..._cmp18.gif`, `..._13b18.gif`, `..._why18.png`, `..._steps18.png`, `..._edges18.png`, `..._axis18.png`, `..._new384.gif`,
 `..._new_video18_w192.gif`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
