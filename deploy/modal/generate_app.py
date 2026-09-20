@@ -676,9 +676,8 @@ def train_vae18(steps: int = 20000, batch: int = 32, lr: float = 1e-3, width: in
     (outdir / f"{name}_train.json").write_text(json.dumps(summary), encoding="utf-8")
     runs_volume.commit()
     a = summary["acceptance"]
-    print(f"train_vae18 done: {r['seconds']} s, GPU {gpu.mean}
-"
-          f"  held-out z: sd {a['val_z_sd']:.3f} (нужно 1,00), radius {a['val_radius_mean']:.1f} "
+    print(f"train_vae18 done: {r['seconds']} s, GPU {gpu.mean}", flush=True)
+    print(f"  held-out z: sd {a['val_z_sd']:.3f} (target 1.00), radius {a['val_radius_mean']:.1f} "
           f"+- {a['val_radius_sd']:.2f} against sqrt(D) = {a['val_typical_radius']:.1f} +- 0.71; "
           f"rec {a['val_rec']:.4f}", flush=True)
     return summary

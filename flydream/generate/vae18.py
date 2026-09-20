@@ -198,12 +198,13 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
                    "kl": float(out["kl"]), "z_sd": float(out["z_sd"]), "sigma": float(out["sigma"]),
                    "lr": sched.get_last_lr()[0], "seconds": round(time.time() - t0, 1)}
             if val is not None and ((step + 1) % val_every == 0 or step == steps - 1):
-                backup = [p.detach().clone() for p in model.parameters()]
-                ema.copy_to(model)
-                g = torch.Generator(device=dev).manual_seed(0)
-                rec |= {f"val_{k}": v for k, v in encode_stats(model, val, generator=g).items()}
-                for p, q in zip(model.parameters(), backup):
-                    p.copy_(q)
+                with torch.no_grad():                                 # свап весов EMA — in-place по листам
+                    backup = [p.detach().clone() for p in model.parameters()]
+                    ema.copy_to(model)
+                    g = torch.Generator(device=dev).manual_seed(0)
+                    rec |= {f"val_{k}": v for k, v in encode_stats(model, val, generator=g).items()}
+                    for p, q in zip(model.parameters(), backup):
+                        p.copy_(q)
             hist.append(rec)
             log(f"  step {rec['step']:6d}  rec {rec['rec']:.4f}  kl {rec['kl']:8.1f}  "
                 f"z_sd {rec['z_sd']:.3f}  sigma {rec['sigma']:.3f}  beta {b:.2e}  {rec['seconds']:.0f}s"

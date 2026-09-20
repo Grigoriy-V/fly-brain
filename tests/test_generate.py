@@ -586,6 +586,13 @@ def test_vae18_shapes_kl_and_free_bits():
     s = V.encode_stats(m, torch.randn(8, T, K, n), batch=4)
     assert s["dims"] == n * zc and abs(s["typical_radius"] - (n * zc) ** 0.5) < 1e-9
 
+    # The validation path swaps the EMA weights in and back with an in-place
+    # copy on leaf parameters, which throws outside no_grad. It broke a priced
+    # run because this test used to pass `val=None` and never entered it.
+    val = torch.randn(6, T, K, n).half()
+    before = [p.detach().clone() for p in m.parameters()]
     r = V.train(m, torch.randn(12, T, K, n).half(), steps=6, batch=4, lr=1e-3, warmup=1,
-                amp=False, beta=1e-4, log_every=99, log=lambda s_: None)
+                amp=False, beta=1e-4, log_every=2, val=val, val_every=2, log=lambda s_: None)
     assert r["history"][-1]["step"] == 6 and math.isfinite(r["history"][-1]["rec"])
+    assert "val_z_sd" in r["history"][-1] and "val_radius_mean" in r["history"][-1]
+    assert any(float((p - q).abs().max()) > 0 for p, q in zip(m.parameters(), before))  # веса не откатились
