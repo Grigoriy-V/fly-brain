@@ -38,6 +38,7 @@ ARMS = [
     ("samples18_corpus_dct32_c", "K=32, w128"),
     ("samples18_corpus_dct32_w192_c", "K=32, w192, равный вес"),
     ("samples18_corpus_dct32_w192_lr1e3_w1_c", "K=32, w192, вес sd¹"),
+    ("samples18_corpus_dct32_w384_lr1e3_w1_c", "K=32, w384, вес sd¹ — лучшее по воротам"),
 ]
 
 
@@ -109,10 +110,16 @@ def main(argv=None) -> int:
     p.add_argument("--tag", default="edges18_local")
     p.add_argument("--n-raw", type=int, default=32)
     p.add_argument("--arms", default="", help='"all" — все плечи из ARMS; пусто — два плеча 18.9')
+    p.add_argument("--tags", default="", help="свои плечи: tag=подпись через запятую (имеет приоритет над --arms)")
     a = p.parse_args(argv)
     run_dir = Path(a.run)
-    tags = ARMS if a.arms == "all" else [("samples18_corpus_dct16_w192_lr1e3_c", "прайор, 20 шагов"),
-                                         ("samples18_corpus_dct16_w192_lr1e3_c_s100", "прайор, 100 шагов")]
+    if a.tags:                                                       # свои плечи, по одному tag=подпись
+        tags = [tuple((t.split("=", 1) + [t.split("=", 1)[0]])[:2]) for t in a.tags.split(",")]
+    elif a.arms == "all":
+        tags = ARMS
+    else:
+        tags = [("samples18_corpus_dct16_w192_lr1e3_c", "прайор, 20 шагов"),
+                ("samples18_corpus_dct16_w192_lr1e3_c_s100", "прайор, 100 шагов")]
     r = run(run_dir, Path(a.corpus), tags, n_raw=a.n_raw)
     (run_dir / f"{a.tag}.json").write_text(json.dumps(r, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"\n{'группа':30s} {'sd':>6} {'IQR':>6} {'MAD':>6} {'p5-95':>6} | "
