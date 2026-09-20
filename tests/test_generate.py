@@ -392,7 +392,7 @@ def test_prior17_coefficient_weight_tilts_the_loss_only():
     assert np.isfinite(r["history"][-1]["val_loss"])
 
 
-def test_prior17_null_label_and_guidance():
+def test_prior17_null_label_and_guidance(tmp_path):
     """18.12: the null label, and the field that guidance builds out of it.
 
     A prior asked for `null_class` carries one embedding row more than it has
@@ -438,3 +438,11 @@ def test_prior17_null_label_and_guidance():
 
     with pytest.raises(ValueError):
         R.guided(plain, y[:6], 2.0)
+
+    ck = tmp_path / "null.pt"                                                  # the meta alone must rebuild the row
+    R.save(ck, model, R.EMA(model), {"frames": T, "k": K, "width": 32, "depth": 2, "heads": 2,
+                                     "n_classes": C, "label_drop": 0.1})
+    back, _ = R.load(ck, torch.device("cpu"))
+    assert back.null_class and back.y_emb.num_embeddings == C + 1
+    with torch.no_grad():
+        assert torch.allclose(R.guided(back, yb, 2.0)(xb, tb), R.guided(model, yb, 2.0)(xb, tb), atol=1e-5)
