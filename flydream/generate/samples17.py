@@ -102,7 +102,14 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
     n_cls = int(pmeta.get("n_classes") or 0)
     y = cls_names = None
     if n_cls:                                                                # a conditional prior needs a label per
-        y = torch.randint(0, n_cls, (n_samples,), device=dev, generator=g)   # sample; draw them uniformly and record
+        # ISS-0007: the corpus split holds out whole classes, so some rows of
+        # the table never saw a gradient; drawing over all of them conditioned
+        # about one sample in sixteen on an untrained row. `trained_classes`
+        # is written by train17; a checkpoint from before it falls back to the
+        # old behaviour, and the summary records which pool was used.
+        pool = pmeta.get("trained_classes") or list(range(n_cls))
+        pool_t = torch.as_tensor(pool, device=dev)
+        y = pool_t[torch.randint(0, len(pool), (n_samples,), device=dev, generator=g)]
         cls_names = [(pmeta.get("class_names") or [])[i] if pmeta.get("class_names") else str(i)
                      for i in y.tolist()]
     p_steps = int(prior_steps or sample_steps)
@@ -199,6 +206,8 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
                "prior_meta": {k: pmeta.get(k) for k in ("sources", "dct_k", "n_train", "steps", "width", "depth",
                                                         "lr", "n_classes", "compile_mode")},
                "sampled_classes": cls_names,
+               "label_pool": None if not n_cls else {"n": len(pool), "of": n_cls,
+                                                     "restricted": bool(pmeta.get("trained_classes"))},
                "gates": {k: {q: group(k, q) for q in ("round_trip", "video_nn_r", "video_nn_distance")}
                          for k in ("prior", "clip", "ceiling") if any(kinds[n] == k for n in names)},
                "diversity": diversity, "scores": scores, "seconds": round(time.time() - t0, 1)}

@@ -658,7 +658,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         coef_mean = coef_mean[0, :, :, 0].cpu().numpy(); coef_std = coef_std[0, :, :, 0].cpu().numpy()
         print(f"DCT-{dct_k}: train {tuple(m.shape)}, coefficient sd per index "
               f"{np.round(coef_std.mean(1), 3).tolist()}", flush=True)
-    names, labels, val_labels = [], None, None
+    names, labels, val_labels, trained = [], None, None, None
     if classes:                                                      # 18.4e: the label the clip came with
         meta = json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["meta"]
         of = [_clip_label(r) for r in meta]
@@ -667,8 +667,11 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         by_clip = np.array([ids[n] for n in of], np.int64)
         labels = torch.as_tensor(by_clip[idx_tr], device=dev)
         val_labels = torch.as_tensor(by_clip[idx_val], device=dev)
-        print(f"classes: {len(names)} labels, {np.bincount(by_clip[idx_tr]).min()}-"
-              f"{np.bincount(by_clip[idx_tr]).max()} training clips each", flush=True)
+        cnt = np.bincount(by_clip[idx_tr], minlength=len(names))
+        trained = np.where(cnt > 0)[0].tolist()                      # ISS-0007: the split holds out whole
+        print(f"classes: {len(names)} labels, {cnt.min()}-{cnt.max()} training clips each; "
+              f"{len(names) - len(trained)} have none and must not be sampled from "
+              f"({', '.join(names[i] for i in range(len(names)) if cnt[i] == 0)})", flush=True)
     cw = None
     if loss_weight_p:                                                # 18.6: what a coefficient is actually worth
         if coef_std is None:
@@ -696,6 +699,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
+            "trained_classes": trained,
             "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop),
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
