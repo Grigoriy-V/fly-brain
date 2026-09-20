@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated:** 2026-09-20.
+**Updated:** 2026-09-21.
 
 This file alone owns current direction, order and authorization. Rules:
 `AGENTS.md` and `docs/ARTEFACTS.md`. System: `docs/PROJECT_MAP.md`.
@@ -212,12 +212,108 @@ arm: β = 1e-4 decoded from its μ falls to 0.385, because its mean has sd 0.415
 while its decoder was trained on codes of sd 1.0. Caveat: the ceiling is at an
 8,000-step budget. $0.33.
 
-**Open, as options, nothing started:** (1) free, local — a linear control under
-our own layout, PCA 128 → 3 **per column**, to ask whether the per-column shape
-of the latent is what costs us rather than the network, since global PCA is free
-to spend its 2,048 dimensions unevenly; (2) ≈ $0.6–0.9 — width 384 / depth 6 at
-β = 1e-5, 8,000 steps, a direct capacity test, worth paying for only if (1)
-shows headroom. Both need the human's word.
+**Closed by the research of 2026-09-21** (`reports/2026-09-21_research_how_vaes_are_trained.md`):
+the requirement that the VAE's own latent be N(0, I) was the agent's design
+error, not a property any working system has. Every latent-diffusion system
+trains a weakly regularised autoencoder for reconstruction and a *second*
+model over its latent; the shipped `scaling_factor`s (SD 1.x → latent sd 5.49,
+SDXL 7.68, FLUX 2.77) are the published proof. The learned encoder-decoder is
+set aside — not because the idea is wrong but because a linear first stage
+already reconstructs at 0.890 for $0, and the human's cost rule (below) makes
+a $4–9 encoder disproportionate to a $0.22 generator. Superseded by step 19.
+
+## Approved next step: 19 — a linear first stage and a flow over its latent
+
+The human, 2026-09-21, in words: the plan below, with two rules — **a
+component's training costs on the order of 13B's ($0.22), not dollars**, and
+**no local job runs longer than about 10 minutes; anything longer goes to a
+GPU or gets its CPU path optimised**. Record: `DECISIONS.md` 2026-09-21;
+argument: `reports/2026-09-21_research_how_vaes_are_trained.md` §§ 1, 10-11.
+
+**The shape.** Two stages, the way latent diffusion does it, with the first
+stage linear:
+
+```text
+ε ~ N(0, I) → prior17 over the latent (16 tokens × 128) → z ∈ R^2048
+           → PCA⁻¹ → T4/T5 state (D = 92,288) → 13B → video → frozen brain
+```
+
+Stage 1 is PCA with 2,048 components fitted on all 13,555 training states in
+the flow's own space (z-scored DCT-16, `prior17.to_model_space`), whitened by
+the training eigenvalues so every coordinate has unit variance on train; that
+is the "record mean/std and normalise" step every latent-diffusion checkpoint
+carries, done in closed form. Stage 2 is the flow matcher that already exists
+and already trains for $0.23 (`prior17`), pointed at 2,048 numbers instead of
+92,288: the data now fill their own space (Dai & Wipf's regime, r ≈ D), which
+is the one condition under which a flow's draws can reach the data.
+
+**The acceptance criterion is unchanged and is the human's**: a drawn ε,
+pushed through the whole chain, judged as a **clip against the raw corpus
+video**, and a held-out clip's own preimage must return that clip. Blur is
+accepted for v1 if scenes appear and a fresh draw gives a new meaningful video.
+
+**19.0 — PCA on the card.** `pca19` on Modal, T4, cpu 1: load
+`gen18/maps_dct16.npz` (train split) from the volume, z-score with the working
+arm's stats, Gram matrix 13,555² on the GPU (≈ 1.7e13 FLOPs, seconds), top-2,048
+eigenpairs, basis W (92,288 × 2,048) and eigenvalues; encode train / val / test
+states to whitened coordinates. Writes `prior19/pca2048.npz` (basis fp16,
+378 MB) and `prior19/latent2048.npz` (13,555 × 2,048 fp32, 111 MB). Reports in
+the same job, for free: held-out variance explained at 128 / 512 / 2,048, and
+the **geometry of whitened held-out coordinates** — radius against √2048 =
+45.3, per-axis sd, kurtosis — the number that says how far a draw starts from
+the data before any flow is trained. ≈ 2 min, **≈ $0.05**.
+
+**19.1 — Stage-1 acceptance, local, ≤ 10 min, $0.** Fetch the basis
+(378 MB, under the 1 GB line) and the latents. Six held-out clips → brain →
+state → PCA encode → decode → 13B → clip against the raw video, the same code
+path as `vaeval18`. Expected ≥ 0.890 (18.22's 2,400-sample fit); the ceiling
+of the chain is 0.952. Gate: if stage 1 lands under ≈ 0.85 the fit is checked
+before anything is trained on it.
+
+**19.2 — The flow over the latent.** `train17` with `n = 16` tokens of 128
+features (2,048 = 16 × 8 × 16 in prior17's (T, K, n) layout), K = 16 / width
+192 as the working arm, 20,000 steps, batch 32 or larger since attention over
+16 tokens is 45× cheaper than over 721. The training set is the whitened
+latents; validation reports the held-out preimage geometry through `to_noise`
+(the instrument, never the criterion). **≈ $0.15–0.25**, stated exactly with
+the command before it starts.
+
+**19.3 — The seed test, local, $0.** Three measurements on held-out clips, in
+one job: (a) a fresh ε → flow → PCA⁻¹ → 13B → clip, against the raw corpus and
+against its nearest training video (the novelty number); (b) the held-out
+clip's own preimage → forward → does it return the clip (the human's original
+question, `assigned18` adapted); (c) the drawn state's round trip through the
+frozen brain beside a real clip's. Figure with the raw clip, 13B from the real
+state, PCA reconstruction, and the draw, frames 0/mid/last QA'd.
+
+**Whole step ≈ $0.30.**
+
+**Known risk, named before the run.** Whitening by training eigenvalues
+inflates the trailing components, which are the noisiest; if 19.0 shows
+held-out per-coordinate variance far above 1 in the tail, the tail is either
+shrunk (variance from the val split) or cut (k = 1,024, held-out variance
+73.9 %, before k = 512 at 0.835 rendered).
+
+**If it does not work — the ladder, in order, each priced before it starts:**
+
+1. *19.1 fails (stage 1 under ≈ 0.85).* Refit; if the fit is right and the
+   number stands, add a small learned residual on top of the fixed PCA path —
+   DC-AE's recipe, the only published fix for "a learned map loses to a linear
+   one" — starting from PCA, so it costs a fraction of a from-scratch encoder.
+2. *19.3 fails the old way — held-out preimages sit inside the shell, draws are
+   clouds.* First measure how far inside (the 19.0 geometry gives the
+   pre-flow number). Then reduce k: 1,024, then 512 (fidelity 0.835 rendered),
+   trading reconstruction for a fuller space, on the same criterion. That
+   trade is the human's to accept.
+3. *19.3 fails a new way — geometry passes but the draw decodes to nothing.*
+   Ex-post density over the latent: a Gaussian mixture or a second, smaller
+   flow fitted to the *aggregate* latent (Ghosh et al.; Dai & Wipf), $0 to a
+   few cents.
+4. *Everything above fails.* Back to a learned first stage — but as the DC-AE
+   residual on PCA with a 1e-6-class KL, never again as a KL that must make
+   the latent Gaussian, and never at a price out of proportion to 13B.
+
+Nothing in 19.0–19.3 is started without the human's word per priced run.
 
 ## Item 17, the brain-state prior — measured, its gates open
 

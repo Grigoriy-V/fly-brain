@@ -540,3 +540,52 @@ during the build. Approved by the human, 2026-09-20 ("VAE на 2 048").
   dimension by DCT truncation below K = 16.
 - Not committed: the encoder and decoder architecture over the hex lattice, the
   reconstruction/KL balance, and whether a flow over the latent is needed.
+
+## 2026-09-21 — The first stage is linear PCA; drawability is the flow's job; local jobs are capped at ten minutes; a component costs what 13B cost
+
+**Decision.** The state VAE's requirement that its own latent be N(0, I) is
+withdrawn. The generative chain becomes two stages the way latent diffusion
+does it: a **linear first stage** — PCA with 2,048 components on the training
+states, whitened — and the existing flow matcher `prior17` trained over that
+latent. Drawability is the flow's job, not a KL term's. Approved by the human,
+2026-09-21, together with two rules: **no local computation runs longer than
+about ten minutes** (longer work goes to a GPU or its CPU path is optimised),
+and **a component's training is priced on the order of 13B's own training
+($0.22), not in dollars** — the $4–9 learned encoder was rejected on that
+ground.
+
+**Why.** `reports/2026-09-21_research_how_vaes_are_trained.md`:
+
+1. **Nobody samples `z ~ N(0, I)` through a VAE decoder at scale.** Every
+   latent-diffusion checkpoint ships a `scaling_factor` = 1/σ̂ measured on the
+   first training batch — SD 1.x 0.18215 (latent sd 5.49), SDXL 0.13025 (7.68),
+   FLUX 0.3611 (2.77) — and SD3/FLUX ship a shift as well. LDM's KL weight is
+   1e-6 on a KL summed over 4,096 dimensions against a per-pixel mean
+   reconstruction, and its authors state the purpose as "avoid arbitrarily
+   scaled latent spaces". The Gaussian draw happens at the input of the second
+   model, never at the decoder.
+2. **The theory says the same.** Dai & Wipf (ICLR 2019): a VAE over data on a
+   manifold of dimension r ≪ D cannot match its prior; a second model over
+   the latent, where r ≈ D, can. That is the measured failure of the flow over
+   92,288-dimensional states (preimages 73 σ inside the shell) explained.
+3. **The first stage need not be learned.** RAE trains diffusion over a frozen
+   DINOv2 space; Ghosh et al. fit an ex-post density over any deterministic
+   encoder. PCA-2048 already reconstructs held-out clips at 0.890 (18.22)
+   against a 0.952 ceiling, for $0, where the learned encoder-decoder reached
+   0.687 at any KL weight including zero (18.24c).
+4. **Proportion.** 13B trained for $0.22 and `prior17` for $0.23; step 19 as a
+   whole is ≈ $0.30.
+
+**Consequences.**
+- `ROADMAP.md` step 19 is the plan: 19.0 PCA on the card, 19.1 stage-1
+  acceptance, 19.2 the flow over 16 × 128 latent tokens, 19.3 the seed test;
+  with a four-rung fallback ladder (DC-AE residual on PCA; smaller k; ex-post
+  density over the latent; a learned residual first stage with a 1e-6-class KL).
+- The human's acceptance criterion is unchanged: a drawn ε through the whole
+  chain, judged as a clip against the raw corpus video; a held-out clip's own
+  preimage must return it; blur accepted for v1.
+- Withdrawn as a requirement anywhere in the project: a latent that must be
+  standard normal by its own KL. Withdrawn as a cost model: extrapolating
+  training budgets from ImageNet-scale systems to 13,555 states.
+- The learned encoder-decoder of 18.24 stays as measured evidence and as the
+  residual of rung 4; it is not deleted and not retrained as it stands.
