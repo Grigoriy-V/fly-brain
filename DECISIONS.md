@@ -28,6 +28,7 @@ says what replaced it.
 | 2026-09-18 | The generative inverse model is the deliverable; the sleep chapter is a second stage; the substrate spark is parked | standing |
 | 2026-09-18 | A transplanted gain preserves total input per target cell, is capped, and a capped pair is an export defect | standing |
 | 2026-09-18 | A decodability number is reported over a lag sweep, several ensemble members and several splits, against a per-type null | standing |
+| 2026-09-20 | The state prior moves to a VAE with a 2,048-dimensional latent; the seed becomes drawable by construction | standing |
 | 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
 | 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, gated by the round trip and by novelty of both state and video (the free unconditional baseline measured first) | standing; sub-step design is the agent's |
 | 2026-09-20 | `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan | standing |
@@ -496,3 +497,46 @@ the prior is retrained on the new set and read against the same gates so the
 new number is comparable with 0.142; the check of 13B against the new prior is
 a gate of that step, and its outcome decides whether 13B is retrained.
 `AGENTS.md` keeps the permission rule unchanged.
+
+## 2026-09-20 — The state prior moves to a VAE with a 2,048-dimensional latent
+
+**Decision.** The unconditional flow over 92,288-dimensional states is replaced
+by a learned encoder and decoder with a 2,048-dimensional latent and a KL term
+toward N(0, I). A flow over that latent may or may not be needed and is decided
+during the build. Approved by the human, 2026-09-20 ("VAE на 2 048").
+
+**Why.** Three measurements, all in
+`reports/2026-09-20_the_seed_problem.md`:
+
+1. **Flow matching never looks at the inverse direction.** Its loss contains no
+   term evaluating where real data inverts to, which is why the preimages of
+   real scenes sit at radius 252.4 (per-axis sd 0.833) while every draw lands
+   on the shell at 303.8 — 73 standard deviations away. The instrument was
+   checked: a state the prior itself made from a known standard draw inverts
+   back to sd 1.001 at 0.0-0.4 % error. A KL term is precisely a term on that
+   quantity.
+2. **Pinning the pair by hand does not work (18.20).** One fixed noise per
+   training clip for a whole run returns its own clip 0 times out of 8; 2.6 M
+   parameters cannot hold 13,555 arbitrary point-to-point assignments, so the
+   model falls back on the same average field. A learned encoder chooses the
+   latent itself, which is learnable by construction. $0.36 settled this.
+3. **2,048 dimensions carry enough (18.22).** PCA fitted on 2,400 states and
+   measured on 600 held out, reconstructions rendered against the raw corpus
+   clip: k = 2,048 reaches 0.890, i.e. 91.1 % of its own ceiling against 95.8 %
+   for the working DCT K = 16 representation. This is the linear bound; a
+   learned encoder beats it.
+
+**Consequences.**
+- If the KL does its work, **z is drawable from N(0, I) by construction**: the
+  seed problem is dissolved rather than patched, and a separate prior over
+  states may not be needed.
+- The acceptance criterion does not change and overrides every metric: a drawn
+  z, decoded, rendered, judged as a **clip against the raw corpus video** (the
+  human, 2026-09-20). The gate, sparseness, neighbour correlation and pixel
+  correlation have each now been shown to disagree with the picture.
+- Closed by this decision and not to be reopened without new evidence: classes
+  as a condition, guidance, noise scaling, radius normalisation, the shared
+  preimage direction, K = 32, a fixed hand-assigned coupling, and buying
+  dimension by DCT truncation below K = 16.
+- Not committed: the encoder and decoder architecture over the hex lattice, the
+  reconstruction/KL balance, and whether a flow over the latent is needed.

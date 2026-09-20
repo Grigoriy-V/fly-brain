@@ -118,6 +118,47 @@ untouched (draw sparseness 20.9 % → 20.9 %); 3× the width does the opposite
 (sd unmoved at 0.833, sparseness 20.9 % → 26.3 %). The preimage sd is an
 instrument, never a criterion.
 
+**18.20 measured: the fixed coupling did not take.** An assigned seed returns
+its own clip **0 times out of 8** (searched over all 13,555 training clips),
+with correlation +0.007 to the expected clip against +0.008 for a fresh draw.
+Validation, preimage geometry and the picture are all unchanged. Cause: 2.6 M
+parameters cannot hold 13,555 arbitrary point-to-point assignments, so the
+model falls back on the same average velocity field. $0.36.
+
+**18.21 measured: K = 16 is the DCT floor.** A real state kept at K
+coefficients and rendered scores 0.912 against the raw clip at K = 16 and
+**0.517 at K = 8**, with the gate 8× worse. Buying dimension with this encoder
+is closed; the planned K = 8 run was cancelled before it was paid for.
+
+**18.22 measured, and it sizes the encoder.** PCA over 2,400 training states,
+variance on 600 held out, reconstructions rendered against the raw clip:
+k = 2,048 reaches **0.890**, which is 91.1 % of its own ceiling against 95.8 %
+for the working K = 16 representation (k = 512 is 85.5 %, DCT K = 8 is 54.3 %).
+Variance lost is the wrong yardstick and was corrected here: the same 18.5 %
+loss means something different for PCA than for DCT.
+
+## Approved next step: a VAE with a 2,048 latent
+
+The human, 2026-09-20, on the evidence above: **"VAE на 2 048"**. Full argument
+and numbers: `reports/2026-09-20_the_seed_problem.md` §§ 7-8.
+
+Three measurements stand behind it: flow matching contains **no term at all**
+that looks at where real data inverts to, which is why scene preimages sit 73 σ
+inside the shell (KL is exactly such a term); pinning the pair by hand does not
+work (18.20, 0/8), because an arbitrary assignment of 13,555 points is not
+learnable, while an encoder picks its own latent and is; and 2,048 dimensions
+carry enough fidelity (18.22).
+
+The consequence that matters: **if the KL does its job, z is drawable from
+N(0, I) by construction**, the seed problem is dissolved rather than patched,
+and a separate prior over states may not be needed at all.
+
+Open at the start of the build, to be decided in it: the encoder and decoder
+architecture over the hex lattice, the reconstruction/KL balance, and whether a
+flow over the latent is needed on top. Judged by the standing criterion — a
+drawn z, decoded, rendered, as a **clip against the raw corpus video**. Nothing
+is built until the human says so.
+
 ## Item 17, the brain-state prior — measured, its gates open
 
 Goal: video generated without a source clip, from states the project produced
