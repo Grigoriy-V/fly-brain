@@ -252,16 +252,21 @@ pushed through the whole chain, judged as a **clip against the raw corpus
 video**, and a held-out clip's own preimage must return that clip. Blur is
 accepted for v1 if scenes appear and a fresh draw gives a new meaningful video.
 
-**19.0 — PCA on the card.** `pca19` on Modal, T4, cpu 1: load
-`gen18/maps_dct16.npz` (train split) from the volume, z-score with the working
-arm's stats, Gram matrix 13,555² on the GPU (≈ 1.7e13 FLOPs, seconds), top-2,048
-eigenpairs, basis W (92,288 × 2,048) and eigenvalues; encode train / val / test
-states to whitened coordinates. Writes `prior19/pca2048.npz` (basis fp16,
-378 MB) and `prior19/latent2048.npz` (13,555 × 2,048 fp32, 111 MB). Reports in
-the same job, for free: held-out variance explained at 128 / 512 / 2,048, and
-the **geometry of whitened held-out coordinates** — radius against √2048 =
-45.3, per-axis sd, kurtosis — the number that says how far a draw starts from
-the data before any flow is trained. ≈ 2 min, **≈ $0.05**.
+**19.0 — PCA on the card.** `pca19` on Modal, T4, cpu 1 / 12 GB: read
+`gen18/maps_dct16.npz` **once** for all three splits (three reads would idle the
+card through 8.6 GB of I/O), Gram matrix 13,555² on the GPU (3.4e13 FLOPs,
+seconds), top-2,048 eigenpairs, basis W (92,288 × 2,048) and eigenvalues;
+encode train / val / test to whitened coordinates. Writes
+`prior19/pca2048.npz` (basis fp16, 378 MB) and `prior19/pca2048_latent.npz`
+(13,555 × 2,048 fp32, 111 MB). Reports in the same job, for free: held-out
+variance explained at 128 / 512 / 1,024 / 2,048, and the **geometry of the
+whitened held-out latent** — radius against √2048 = 45.3, per-axis sd and its
+profile along the spectrum — the number that says how far a draw starts from
+the data before any flow is trained. The job prints its own stop condition: if
+the smallest basis column norm falls below 0.99 or the last eigenvalue below 1,
+the tail is fp16 noise that whitening would amplify and k must be cut.
+**3-12 min, $0.05-$0.21** — the fit is seconds, `eigh` on 13,555² is 1-5
+minutes, the volume read is the rest.
 
 **19.1 — Stage-1 acceptance, local, ≤ 10 min, $0.** Fetch the basis
 (378 MB, under the 1 GB line) and the latents. Six held-out clips → brain →
@@ -288,11 +293,18 @@ state, PCA reconstruction, and the draw, frames 0/mid/last QA'd.
 
 **Whole step ≈ $0.30.**
 
-**Known risk, named before the run.** Whitening by training eigenvalues
-inflates the trailing components, which are the noisiest; if 19.0 shows
-held-out per-coordinate variance far above 1 in the tail, the tail is either
-shrunk (variance from the val split) or cut (k = 1,024, held-out variance
-73.9 %, before k = 512 at 0.835 rendered).
+**Known risk, named before the run — and its direction corrected.** Training
+eigenvalues *overestimate* the variance of the trailing directions, because
+those directions were selected on the same sample. Dividing by them therefore
+makes the held-out tail **narrower** than unit, and the held-out latent sits
+**inside** the shell √k — the same disease that stopped the flow over states,
+arriving by a different road. 19.0 measures it directly on 1,246 held-out
+states (per-axis sd along the spectrum); if the tail is narrow, the answer is to
+cut it (k = 1,024, held-out variance 73.9 %, then k = 512 at 0.835 rendered) or
+to rescale by the held-out variance instead. A six-clip acceptance run cannot
+judge this: at n = 6 a perfect Gaussian latent already reads 0.95 per-axis and
+kurtosis 2.1, so `pcaval19` prints the pooled sd and the sample-corrected value
+beside it and names 19.0 as the judge.
 
 **If it does not work — the ladder, in order, each priced before it starts:**
 

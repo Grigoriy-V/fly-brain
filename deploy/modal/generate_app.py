@@ -683,6 +683,116 @@ def train_vae18(steps: int = 20000, batch: int = 32, lr: float = 1e-3, width: in
     return summary
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
+def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
+          out: str = "prior19", name: str = "pca2048", block: int = 8192,
+          ks: str = "128,512,1024,2048", limit: int = 0) -> dict:
+    """19.0: the linear first stage — PCA on the training states, whitened.
+
+    Decided by the human 2026-09-21 (`DECISIONS.md`): the latent need not be
+    N(0, I) by its own KL, drawability is the flow's job, and the first stage
+    may as well be linear — PCA-2048 already renders held-out clips at 0.890
+    (18.22) where the learned encoder-decoder reached 0.687 at any KL weight
+    including zero (18.24c).
+
+    Everything here is GPU work: a Gram matrix of 13,555 x 13,555 (1.7e13
+    FLOPs), one `eigh`, and two blocked matmuls for the basis. The step also
+    reports, for free, the two numbers that decide whether to pay for the flow
+    at all: held-out variance explained, and the **geometry of the whitened
+    held-out latent** — radius against sqrt(k), per-axis sd and its profile
+    along the spectrum. The tail of that profile is the named risk: training
+    eigenvalues overestimate the variance of the trailing directions, so a
+    held-out latent can sit inside the shell before any flow is trained.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import pca19 as P
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    if limit:                                                         # репетиция на подвыборке: своё имя и свой k,
+        name, k = f"{name}_smoke{limit}", min(k, limit - 1)            # иначе она молча затрёт настоящий базис
+    z = np.load(Path(RUNS) / maps_file)                               # 2,9 ГБ читаются ОДИН раз на все три сплита:
+    maps_all = z["maps"]                                              # три вызова _load_maps держали бы карту
+    stats = {"mean": z["mean"], "std": z["std"]}                      # простаивающей на 8,6 ГБ чтения
+    for key in ("coef_mean", "coef_std", "time_frames", "dct_k"):
+        if key in z.files:
+            stats[key] = z[key]
+    n_s = 0 if sources == "all" else int(
+        json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["n_sintel"])
+    split, shape = {}, None
+    for subset in ("train", "val", "test"):
+        keep = np.isin(z["index"], z[subset])
+        if sources != "all":
+            keep &= (z["index"] < n_s) if sources == "sintel" else (z["index"] >= n_s)
+        ids = np.where(keep)[0]
+        if limit:
+            ids = ids[:limit if subset == "train" else min(limit, 64)]
+        mm = torch.as_tensor(maps_all[ids], device=dev)
+        shape = tuple(int(v) for v in mm.shape[1:])
+        split[subset] = (mm.reshape(len(mm), -1), z["index"][ids])
+        print(f"{subset} {tuple(mm.shape)} on GPU, {time.time() - t0:.0f} s", flush=True)
+    del maps_all
+    X, idx = split["train"]
+    held = {s_: split[s_] for s_ in ("val", "test")}
+    print(f"D = {X.shape[1]}, том прочитан один раз за {time.time() - t0:.0f} с", flush=True)
+
+    with GpuSampler() as gpu:
+        p = P.fit(X, k, block=block, log=lambda s_: print(s_, flush=True))
+        wanted = tuple(int(x) for x in ks.split(",") if int(x) <= k)
+        summary = {"kind": "state_pca", "k": k, "dims": p["dims"], "n_fit": p["n_fit"], "shape": shape,
+                   "maps_file": maps_file, "run": run, "sources": sources, "block": block,
+                   "degenerate": p["degenerate"], "train_total_var": p["train_total_var"],
+                   "explained": {}, "geometry": {}}
+        zr = P.encode(X, p, whiten=False, block=block)             # один проход, из него и доля, и отбелённые
+        summary["explained"]["train"] = P.explained(X, p, wanted, block=block, z=zr)
+        Z = {"train": zr / p["lam"].clamp_min(P.EPS).sqrt()}
+        del zr
+        summary["geometry"]["train"] = P.geometry(Z["train"])
+        for subset, (Y, _) in held.items():
+            zy = P.encode(Y, p, whiten=False, block=block)
+            summary["explained"][subset] = P.explained(Y, p, wanted, block=block, z=zy)
+            Z[subset] = zy / p["lam"].clamp_min(P.EPS).sqrt()
+            summary["geometry"][subset] = P.geometry(Z[subset])
+            for kk in wanted:                                         # what cutting the tail would do to the geometry
+                if kk != k:
+                    summary["geometry"][f"{subset}_k{kk}"] = P.geometry(Z[subset][:, :kk])
+
+    summary |= {"gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 12288, "limit": limit,
+                "basis_norm_min": p["basis_norm_min"], "mu_last": p["mu_last"],
+                "seconds_fit": p["seconds"],                          # пишется ДО savez, иначе в файле его нет
+                "files": {"basis": f"{out}/{name}.npz", "latent": f"{out}/{name}_latent.npz"}}
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    meta = {"shape": list(shape), "mean": stats["mean"].tolist(), "std": stats["std"].tolist(),
+            "dct_k": int(stats.get("dct_k", 0) or 0), "time_frames": int(stats.get("time_frames", 0) or 0),
+            "coef_mean": None if "coef_mean" not in stats else stats["coef_mean"].tolist(),
+            "coef_std": None if "coef_std" not in stats else stats["coef_std"].tolist(),
+            "frames": int(shape[0]), "k": int(shape[1])}
+    np.savez(outdir / f"{name}.npz", meta=json.dumps(meta), summary=json.dumps(summary), **P.to_numpy(p))
+    np.savez(outdir / f"{name}_latent.npz", shape=np.asarray(shape),
+             **{f"z_{s}": Z[s].cpu().numpy().astype(np.float32) for s in Z},
+             **{"index_train": idx, **{f"index_{s}": held[s][1] for s in held}})
+    runs_volume.commit()
+
+    summary["seconds"] = round(time.time() - t0, 1)
+    g = summary["geometry"]["test"]
+    print(f"pca19 done in {summary['seconds']} s, GPU {gpu.mean}", flush=True)
+    for kk in wanted:
+        print(f"  k = {kk:5d}: explained train {100 * summary['explained']['train'][kk]['explained']:.1f} %, "
+              f"test {100 * summary['explained']['test'][kk]['explained']:.1f} %", flush=True)
+    if p["basis_norm_min"] < 0.99 or p["mu_last"] < 1.0:               # хвост базиса — шум, отбеливание его усилит
+        print(f"  ВНИМАНИЕ: минимальная норма столбца базиса {p['basis_norm_min']:.4f}, mu[{k - 1}] = "
+              f"{p['mu_last']:.4g}: хвост вырожден, k надо резать", flush=True)
+    print(f"  held-out latent (test, k = {k}): per-axis sd {g['sd_axis_mean']:.3f}, radius {g['radius_mean']:.1f} "
+          f"+- {g['radius_sd']:.2f} against sqrt(k) = {g['typical_radius']:.1f} +- 0.71, "
+          f"kurtosis {g['kurtosis_mean']:.2f} (Gaussian 3.00)", flush=True)
+    print("  sd along the spectrum: " + ", ".join(f"{b['from']}-{b['to']}: {b['sd']:.3f}" for b in g["profile"]),
+          flush=True)
+    return summary
+
+
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=60 * MINUTES)
 def invert17(prior: str = "prior18/corpus_dct16_w192_lr1e3_c.pt", out: str = "prior18/eps_w192.npz",
              maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
