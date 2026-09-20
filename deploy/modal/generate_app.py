@@ -761,6 +761,102 @@ def _bench_step_ms(R, model, states, *, steps: int, warmup: int, batch: int, see
     return round((time.time() - t0) / steps * 1000.0, 2)
 
 
+@app.function(image=image, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=2, memory=12288,
+              timeout=30 * MINUTES)
+def class_probe18(maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", shuffles: int = 3,
+                  seed: int = 0) -> dict:
+    """18.15: is there anything in the state to condition on, model aside?
+
+    ISS-0008 voided both conditional arms — their label tables never left
+    their initialisation — so "the label carries nothing" was never actually
+    tested. This tests the data alone, with no generator in the way: how much
+    of the state's variance the class explains, and whether the class can be
+    read back from a held-out state.
+
+    Neither number means anything by itself, so both carry controls. The
+    **shuffle null** is the same statistic with the labels permuted — what a
+    label carrying nothing must score. The **positive control** is the nine
+    procedural generator classes (bar, dots, flash, grating, …): drastically
+    different stimuli that *must* separate, so if they do not, the
+    measurement is broken rather than the labels.
+
+    The classifier is the nearest class mean in the state's own space, which
+    is a linear classifier and needs no reduction. CPU only — a covariance
+    and two matrix products, no GPU work.
+    """
+    import numpy as np
+
+    t0 = time.time()
+    z = np.load(Path(RUNS) / maps_file)
+    meta = json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["meta"]
+    of = np.array([_clip_label(r) for r in meta])
+    index, maps = z["index"], z["maps"]
+    print(f"maps {tuple(maps.shape)} {maps.dtype}, {len(meta)} clips in the manifest", flush=True)
+    part = {k: np.isin(index, z[k]) for k in ("train", "val")}
+    has_colon = np.char.count(of[index], ":") > 0
+    rng = np.random.default_rng(seed)
+
+    def flat(rows) -> np.ndarray:
+        x = np.asarray(maps[rows], np.float32)
+        return x.reshape(len(x), -1)
+
+    def between(Xc: np.ndarray, y: np.ndarray, n_cls: int, tot: float) -> float:
+        """Share of the (already centred) total variance held by the class means."""
+        b = 0.0
+        for i in range(n_cls):
+            m = y == i
+            if m.any():
+                b += float(m.sum()) * float(np.einsum("j,j->", Xc[m].mean(0), Xc[m].mean(0)))
+        return b / (tot + 1e-12)
+
+    out = {"maps_file": maps_file, "run": run, "shuffles": shuffles, "seed": seed, "groups": {}}
+    for gname, want in (("actions_ucf101", False), ("procedural_control", True)):
+        tr = np.where(part["train"] & (has_colon == want))[0]
+        va = np.where(part["val"] & (has_colon == want))[0]
+        names = sorted(set(of[index[tr]]))
+        ids = {n: i for i, n in enumerate(names)}
+        ytr = np.array([ids[n] for n in of[index[tr]]])
+        keepv = np.array([n in ids for n in of[index[va]]], bool)
+        va = va[keepv]
+        yva = np.array([ids[n] for n in of[index[va]]])
+        print(f"{gname}: {len(tr)} train, {len(va)} val, {len(names)} classes", flush=True)
+
+        X = flat(tr)                                                 # (n, 16*8*721) float32
+        mu = X.mean(0, keepdims=True)
+        X -= mu                                                      # in place: the copy would be gigabytes
+        tot = float(np.einsum("ij,ij->", X, X))
+        e_real = between(X, ytr, len(names), tot)
+        e_null = float(np.mean([between(X, rng.permutation(ytr), len(names), tot) for _ in range(shuffles)]))
+
+        def score(y: np.ndarray) -> tuple[float, float]:
+            cm = np.stack([X[y == i].mean(0) if (y == i).any() else np.zeros(X.shape[1], np.float32)
+                           for i in range(len(names))])
+            d = (cm * cm).sum(1)[None] - 2.0 * ((flat(va) - mu) @ cm.T)     # ‖x‖² is common to a row
+            o = np.argsort(d, 1)
+            return float((o[:, 0] == yva).mean()), float(np.mean([yva[i] in o[i, :5] for i in range(len(yva))]))
+
+        t1, t5 = score(ytr)
+        n1, n5 = score(rng.permutation(ytr))
+        out["groups"][gname] = {
+            "n_train": int(len(tr)), "n_val": int(len(va)), "n_classes": len(names),
+            "eta2": e_real, "eta2_shuffled": e_null, "eta2_ratio": e_real / (e_null + 1e-12),
+            "top1": t1, "top5": t5, "top1_shuffled": n1, "top5_shuffled": n5,
+            "chance": 1.0 / len(names), "top1_over_shuffled": t1 / (n1 + 1e-12)}
+        print(f"  eta^2 {e_real:.4f} vs shuffled {e_null:.4f} ({e_real / (e_null + 1e-12):.2f}x) | "
+              f"top-1 {100 * t1:.1f} % vs shuffled {100 * n1:.1f} % (chance {100 / len(names):.1f} %), "
+              f"top-5 {100 * t5:.1f} % vs {100 * n5:.1f} %", flush=True)
+        del X
+
+    out["seconds"] = round(time.time() - t0, 1)
+    out["cpu"], out["memory_mb"] = 2, 12288
+    (Path(RUNS) / "prior18").mkdir(parents=True, exist_ok=True)
+    (Path(RUNS) / "prior18" / "class_probe18.json").write_text(json.dumps(out, ensure_ascii=False, indent=1),
+                                                               encoding="utf-8")
+    runs_volume.commit()
+    print(f"class_probe18 done in {out['seconds']} s", flush=True)
+    return out
+
+
 def _clip_label(r: dict) -> str:
     """The class a clip carries. Ordinary video brings its UCF101 action; the
     procedural minority has no action, so its own generator class stands in —
