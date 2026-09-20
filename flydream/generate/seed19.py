@@ -72,7 +72,8 @@ def preimages(flow, z: torch.Tensor, *, steps: int, tokens: int, chunk: int = 25
 def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt: Path,
         manifest: dict, columns: dict, corpus: Path, *, n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
-        invert_steps=(20, 100), sample_steps: int = 20, log=print) -> dict:
+        invert_steps=(20, 100), sample_steps: int = 20, draw_scale: float = 0.0,
+        controls: bool = False, invert_n: int = 0, log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -94,14 +95,15 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
     # --- A. геометрия прообразов на всём отложенном сплите -------------------
     z_test = torch.as_tensor(np.asarray(zf["z_test"], np.float32), device=dev)
     idx_test = np.asarray(zf["index_test"])
+    z_inv = z_test if not invert_n else z_test[:invert_n]              # сколько латентов обращать для геометрии
     out = {"flow": str(flow_ckpt), "pca": str(pca_path), "k": k, "tokens": tokens,
-           "n_test": int(len(z_test)), "latent_data": P.geometry(z_test), "preimage": {}}
-    log(f"A. обращаю {len(z_test)} отложенных латентов")
+           "n_test": int(len(z_inv)), "latent_data": P.geometry(z_test), "preimage": {}}
+    log(f"A. обращаю {len(z_inv)} отложенных латентов")
     for st in invert_steps:
-        eps = preimages(flow, z_test, steps=st, tokens=tokens, log=log)
+        eps = preimages(flow, z_inv, steps=st, tokens=tokens, log=log)
         g = geometry_of(eps)
         back = R.integrate(flow, P.as_tokens(eps, tokens=tokens), steps=st).reshape(len(eps), -1)
-        g["round_trip_error"] = float((back - z_test).norm(dim=1).mean() / z_test.norm(dim=1).mean())
+        g["round_trip_error"] = float((back - z_inv).norm(dim=1).mean() / z_inv.norm(dim=1).mean())
         out["preimage"][st] = g
         log(f"  {st} шагов: ст. откл. {g['sd']:.3f}, радиус {g['radius_mean']:.1f} +- {g['radius_sd']:.2f} "
             f"при √k = {g['typical_radius']:.1f} +- 0,71, эксцесс {g['kurtosis_mean']:.2f}, "
@@ -141,11 +143,12 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
     gdraw = torch.Generator(device=dev).manual_seed(9000 + seed)
     e_draw = torch.randn(n_clips, k, device=dev, generator=gdraw)      # ровно N(0, I), без укорачивания
     z_draw = R.integrate(flow, P.as_tokens(e_draw, tokens=tokens), steps=sample_steps).reshape(n_clips, -1)
+    scale = 1.0
     # Сколько переноса поток делает на самом деле. По шести розыгрышам этого не
     # увидеть: при n = 6 эксцесс смещён до 2,14 и идеальный гаусс читается как
     # «тяжёлых хвостов нет». Поэтому столько же розыгрышей, сколько отложенных.
     with torch.no_grad():
-        e_many = torch.randn(len(z_test), k, device=dev,
+        e_many = torch.randn(len(z_inv), k, device=dev,
                              generator=torch.Generator(device=dev).manual_seed(4242 + seed))
         zm = torch.cat([R.integrate(flow, P.as_tokens(e_many[i:i + 256], tokens=tokens),
                                     steps=sample_steps).reshape(-1, k) for i in range(0, len(e_many), 256)])
@@ -156,6 +159,18 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
         "radius_needed": float(out["latent_data"]["radius_mean"]),
         "radius_start": float(P.geometry(e_many)["radius_mean"])}
     dm = out["draw_many"]
+    if draw_scale:
+        # Поправка масштаба, как `scaling_factor` у латентной диффузии: измеряем
+        # ст. отклонение розыгрыша и приводим его к данным. `draw_scale < 0` —
+        # взять поправку из самого замера, положительное число — задать руками.
+        scale = float(out["latent_data"]["sd"] / dm["sd"]) if draw_scale < 0 else float(draw_scale)
+        z_draw = z_draw * scale
+        zm = zm * scale
+        out["draw_scaled"] = P.geometry(zm) | {"scale": scale}
+        log(f"масштаб розыгрыша поправлен в {scale:.3f} раза: ст. откл. {dm['sd']:.3f} -> "
+            f"{out['draw_scaled']['sd']:.3f}, радиус {dm['radius_mean']:.1f} -> "
+            f"{out['draw_scaled']['radius_mean']:.1f} при {out['latent_data']['radius_mean']:.1f} у данных")
+    out["draw_scale"] = scale
     log(f"перенос: радиус {dm['radius_start']:.1f} -> {dm['radius_mean']:.1f}, нужно было "
         f"-> {dm['radius_needed']:.1f}; сдвиг точки {100 * dm['moved']:.1f} % нормы; "
         f"разброс {dm['radius_sd']:.2f} против {out['latent_data']['radius_sd']:.2f} у данных")
@@ -164,6 +179,38 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
               "только PCA (19.1)": to_state(z_file),
               "сид от клипа через поток": to_state(z_from_clip),
               "свежий розыгрыш": to_state(z_draw)}
+    if controls:
+        # Латент отбелён: по осям дисперсия 1, среднее 0. Значит N(0, I) прямо
+        # в PCA-обратно — уже модель первого порядка, и её надо побить, а не
+        # предполагать. Второй контроль добавляет тяжёлый хвост: направление
+        # равномерно, радиус — из эмпирического распределения обучающих.
+        gc = torch.Generator(device=dev).manual_seed(7700 + seed)
+        z_iso = torch.randn(n_clips, k, device=dev, generator=gc)
+        z_tr = torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev)
+        rad = z_tr.norm(dim=1)
+        pick = torch.randint(0, len(rad), (n_clips,), device=dev, generator=gc)
+        u = torch.randn(n_clips, k, device=dev, generator=gc)
+        z_rad = u / u.norm(dim=1, keepdim=True) * rad[pick][:, None]
+        out["control_geometry"] = {"N(0,I)": P.geometry(z_iso), "радиус из данных": P.geometry(z_rad)}
+        groups["контроль: N(0, I) без потока"] = to_state(z_iso)
+        groups["контроль: радиус из данных"] = to_state(z_rad)
+        log(f"контроли: N(0,I) радиус {out['control_geometry']['N(0,I)']['radius_mean']:.1f}, "
+            f"радиус-из-данных {out['control_geometry']['радиус из данных']['radius_mean']:.1f} "
+            f"± {out['control_geometry']['радиус из данных']['radius_sd']:.2f}")
+        # Сид, которого нет ни у одного клипа, но и не экстраполяция: середина
+        # сферического пути между прообразами ДВУХ РАЗНЫХ отложенных клипов.
+        # Радиус при slerp сохраняется, то есть точка остаётся на той же
+        # оболочке, где живут настоящие прообразы.
+        pair = np.roll(np.arange(n_clips), 1)
+        mid = torch.as_tensor(R.slerp(eps_clip.cpu().numpy(), eps_clip.cpu().numpy()[pair], 0.5), device=dev)
+        z_mid = R.integrate(flow, P.as_tokens(mid.reshape(n_clips, -1), tokens=tokens),
+                            steps=sample_steps).reshape(n_clips, -1)
+        out["interp_geometry"] = {"сид": P.geometry(mid.reshape(n_clips, -1)),
+                                  "латент": P.geometry(z_mid), "pairs": pair.tolist()}
+        groups["середина двух прообразов"] = to_state(z_mid)
+        log(f"середина двух прообразов: сид на радиусе {out['interp_geometry']['сид']['radius_mean']:.1f}, "
+            f"латент {out['interp_geometry']['латент']['radius_mean']:.1f} "
+            f"при {out['latent_data']['radius_mean']:.1f} у данных")
 
     jobs = {f"{g}|{i}": v[i] for g, v in groups.items() for i in range(n_clips)}
     names = list(jobs)
@@ -222,6 +269,10 @@ def main(argv=None) -> int:
     p.add_argument("--tag", default="seed19")
     p.add_argument("--clips", type=int, default=6)
     p.add_argument("--invert-steps", default="20,100")
+    p.add_argument("--sample-steps", type=int, default=20)
+    p.add_argument("--draw-scale", type=float, default=0.0, help="-1 — привести к ст. откл. данных")
+    p.add_argument("--controls", action="store_true", help="добавить розыгрыши без потока и интерполяцию")
+    p.add_argument("--invert-n", type=int, default=0, help="сколько отложенных латентов обращать")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
@@ -231,7 +282,8 @@ def main(argv=None) -> int:
     r = run(a.model, Path(a.flow), Path(a.pca), Path(a.latent), Path(a.gen), manifest, columns,
             Path(a.corpus), n_clips=a.clips, frames=g.get("frames", 40), margin=g.get("margin", 5),
             dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0), seed=a.seed,
-            invert_steps=tuple(int(x) for x in a.invert_steps.split(",")))
+            invert_steps=tuple(int(x) for x in a.invert_steps.split(",")),
+            sample_steps=a.sample_steps, draw_scale=a.draw_scale, controls=a.controls, invert_n=a.invert_n)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]

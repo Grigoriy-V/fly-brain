@@ -32,7 +32,9 @@ says what replaced it.
 | 2026-09-18 | Training runs on T4 (L4 the alternative, nothing above), packed several members per card; every changed result ships with a picture | standing |
 | 2026-09-20 | The next stage is new video from a sampled brain state: a prior over reachable T4/T5 states, gated by the round trip and by novelty of both state and video (the free unconditional baseline measured first) | standing; sub-step design is the agent's |
 | 2026-09-20 | `AGENTS.md` holds rules only; artefact rules live in `docs/ARTEFACTS.md`; `docs/ideas/` is the human's input, not a plan | standing |
-| 2026-09-20 | The $0.50 cap on a training run is lifted; the prior's training set is rebuilt from ordinary video, and 13B may be retrained on it | standing |
+| 2026-09-20 | The $0.50 cap on a training run is lifted; the prior's training set is rebuilt from ordinary video, and 13B may be retrained on it | standing (the cap itself withdrawn 2026-09-21) |
+| 2026-09-21 | The first stage is linear PCA; drawability is the flow's job; local jobs stay under ten minutes | standing |
+| 2026-09-21 | There is no standing budget rule; a run's price is agreed per step | standing |
 
 ---
 
@@ -335,7 +337,10 @@ Consequences: the `Agent` calls name a model; a subagent's output is data
 checked by the project agent; the step's report carries the delegation's
 cost.
 
-## 2026-09-18 — Modal is used only for a measured ≥4× speed-up or for a GPU; training is priced in single dollars
+## 2026-09-18 — Modal is used only for a measured ≥4× speed-up or for a GPU
+
+*(The pricing half of this entry — "training is priced in single dollars" — was
+withdrawn 2026-09-21: see the entry of that date. The Modal rule stands.)*
 
 Decision (the human, 2026-09-18, night): "если доп скорости нет, модал не
 надо использовать, модал используем если есть х4 или лучше х6 ускорение,
@@ -541,18 +546,21 @@ during the build. Approved by the human, 2026-09-20 ("VAE на 2 048").
 - Not committed: the encoder and decoder architecture over the hex lattice, the
   reconstruction/KL balance, and whether a flow over the latent is needed.
 
-## 2026-09-21 — The first stage is linear PCA; drawability is the flow's job; local jobs are capped at ten minutes; a component costs what 13B cost
+## 2026-09-21 — The first stage is linear PCA; drawability is the flow's job; local jobs are capped at ten minutes
 
 **Decision.** The state VAE's requirement that its own latent be N(0, I) is
 withdrawn. The generative chain becomes two stages the way latent diffusion
 does it: a **linear first stage** — PCA with 2,048 components on the training
 states, whitened — and the existing flow matcher `prior17` trained over that
 latent. Drawability is the flow's job, not a KL term's. Approved by the human,
-2026-09-21, together with two rules: **no local computation runs longer than
-about ten minutes** (longer work goes to a GPU or its CPU path is optimised),
-and **a component's training is priced on the order of 13B's own training
-($0.22), not in dollars** — the $4–9 learned encoder was rejected on that
-ground.
+2026-09-21, together with one rule: **no local computation runs longer than
+about ten minutes** — longer work goes to a GPU or its CPU path is optimised.
+
+*Correction, 2026-09-21:* this entry first also recorded "a component's
+training is priced like 13B's". That was the agent generalising a specific
+rejection (a $4–9 encoder for a $0.8 network) into a standing cap, and the
+human withdrew it the same day. Price is agreed per step; see the entry
+below.
 
 **Why.** `reports/2026-09-21_research_how_vaes_are_trained.md`:
 
@@ -573,8 +581,8 @@ ground.
    encoder. PCA-2048 already reconstructs held-out clips at 0.890 (18.22)
    against a 0.952 ceiling, for $0, where the learned encoder-decoder reached
    0.687 at any KL weight including zero (18.24c).
-4. **Proportion.** 13B trained for $0.22 and `prior17` for $0.23; step 19 as a
-   whole is ≈ $0.30.
+4. **Proportion.** A linear first stage costs a fraction of a learned one and
+   is refitted for cents whenever the corpus changes.
 
 **Consequences.**
 - `ROADMAP.md` step 19 is the plan: 19.0 PCA on the card, 19.1 stage-1
@@ -589,3 +597,27 @@ ground.
   training budgets from ImageNet-scale systems to 13,555 states.
 - The learned encoder-decoder of 18.24 stays as measured evidence and as the
   residual of rung 4; it is not deleted and not retrained as it stands.
+
+## 2026-09-21 — There is no standing budget rule; a run's price is agreed per step
+
+**Decision** (the human, 2026-09-21): "убери вообще отовсюду правила бюджета
+сколько тратить и тд, они делались не для этого, цена обсуждается конкретно
+под шаг и задачу." Every spending cap recorded in this file was an answer to a
+particular proposal on the day it was made, never a standing limit: the $30
+ensemble map, the $0.50 training run, "single dollars", and the agent's own
+"a component costs like 13B". None of them is a rule.
+
+**Why.** The caps changed what the agent dared to propose. On 2026-09-21 it
+withheld the training budget the measurements pointed at because it had
+written itself a rule the human had not made, and then offered a cheaper plan
+than the evidence supported. A price is a fact about a step; whether it is
+worth paying is the human's judgement on that step, made with what the step
+buys in front of him.
+
+**Consequences.**
+- `ROADMAP.md` carries no budget and no cap; each step is priced when proposed.
+- `AGENTS.md` states the no-budget rule beside the permission rule.
+- The permission rule is untouched: **every priced run still needs the human's
+  explicit word, every time**, with what it does, how long it takes, the price
+  and the exact command stated first. That rule is about consent, not money.
+- Earlier cap entries stay in this file as history, marked as withdrawn.

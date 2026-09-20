@@ -105,6 +105,11 @@ canonical records in a given step.
   trained generator and short simulations through the frozen brain.
 - **Modal only for a GPU or a measured ≥4× gain** (DECISIONS 2026-09-18,
   night), training, when it happens at all, starts from the transplanted weights, never from scratch.
+- **No standing budget.** There is no cap on what a run may cost (the human,
+  2026-09-21: "цена обсуждается конкретно под шаг и задачу"). A step is
+  proposed with what it buys, how long it takes, its price and its exact
+  command, and the human weighs the price against that step. Earlier caps in
+  `DECISIONS.md` were answers to particular proposals and are not rules.
 - **Any action that starts a priced worker requires explicit permission every
   single time.** A Modal GPU or CPU Function, a training run, an inversion
   batch, a download above 1 GB, anything that wakes a scaled-to-zero App.
