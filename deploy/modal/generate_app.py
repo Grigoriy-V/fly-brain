@@ -618,11 +618,145 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
 
 
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
+def train_vae18(steps: int = 20000, batch: int = 32, lr: float = 1e-3, width: int = 192, depth: int = 4,
+                heads: int = 4, z_col: int = 3, beta: float = 1e-4, free_bits: float = 0.0,
+                warmup_frac: float = 0.3, seed: int = 0, out: str = "prior18", name: str = "vae_z3",
+                maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all") -> dict:
+    """18.24: the encoder and decoder whose latent is drawable (DECISIONS 2026-09-20).
+
+    Trains on the same compact maps every arm of item 18 used, so the states
+    are identical and only the model differs. The number that decides the run
+    is not the loss: it is what the held-out latents look like. A Gaussian in D
+    dimensions sits at radius sqrt(D) with spread 0.71, so the summary reports
+    the held-out z's per-axis sd, its radius and the spread of that radius
+    beside sqrt(D) — the acceptance condition the human set is sd 0.99-1.01 and
+    radius within about 1.4 of sqrt(D), together with a reconstruction good
+    enough to render.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import vae18 as V
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    _, m, _, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+    _, mv, _, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False,
+                             sources=sources, run=run)
+    frames, k = int(m.shape[1]), int(m.shape[2])
+    print(f"train {tuple(m.shape)}, val {tuple(mv.shape)} on GPU in {time.time() - t0:.0f} s", flush=True)
+    model = V.build(frames=frames, k=k, n=int(m.shape[3]), z_col=z_col, width=width, depth=depth, heads=heads)
+    n_par = sum(p.numel() for p in model.parameters())
+    D = int(m.shape[3]) * z_col
+    print(f"state VAE: {n_par} parameters, latent {int(m.shape[3])} x {z_col} = {D} "
+          f"(sqrt(D) = {np.sqrt(D):.1f}), compression {int(np.prod(m.shape[1:])) / D:.1f}x", flush=True)
+    with GpuSampler() as gpu:
+        r = V.train(model, m, steps=steps, batch=batch, lr=lr, beta=beta, free_bits=free_bits,
+                    warmup_frac=warmup_frac, seed=seed, log_every=200,
+                    log=lambda s_: print(s_, flush=True), val=mv, val_every=1000)
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    meta = {"kind": "state_vae", "frames": frames, "k": k, "n": int(m.shape[3]), "z_col": z_col,
+            "width": width, "depth": depth, "heads": heads, "latent_dims": D, "steps": steps,
+            "batch": batch, "lr": lr, "beta": beta, "free_bits": free_bits, "warmup_frac": warmup_frac,
+            "parameters": int(n_par), "seed": seed, "sources": sources, "maps_file": maps_file, "run": run,
+            "mean": stats["mean"].tolist(), "std": stats["std"].tolist(),
+            "dct_k": int(stats.get("dct_k", 0) or 0), "time_frames": int(stats.get("time_frames", 0) or 0),
+            "coef_mean": None if "coef_mean" not in stats else stats["coef_mean"].tolist(),
+            "coef_std": None if "coef_std" not in stats else stats["coef_std"].tolist(),
+            "n_train": int(m.shape[0])}
+    V.save(outdir / f"{name}.pt", model, r["ema"], meta)
+    last = r["history"][-1]
+    summary = {**meta, "history": r["history"], "seconds": r["seconds"],
+               "seconds_worker": round(time.time() - t0, 1), "gpu": GPU, "gpu_utilisation": gpu.mean,
+               "cpu": 1, "memory_mb": 12288,
+               "acceptance": {kx: last.get(kx) for kx in
+                              ("val_rec", "val_z_sd", "val_radius_mean", "val_radius_sd",
+                               "val_typical_radius", "val_dims")}}
+    (outdir / f"{name}_train.json").write_text(json.dumps(summary), encoding="utf-8")
+    runs_volume.commit()
+    a = summary["acceptance"]
+    print(f"train_vae18 done: {r['seconds']} s, GPU {gpu.mean}
+"
+          f"  held-out z: sd {a['val_z_sd']:.3f} (нужно 1,00), radius {a['val_radius_mean']:.1f} "
+          f"+- {a['val_radius_sd']:.2f} against sqrt(D) = {a['val_typical_radius']:.1f} +- 0.71; "
+          f"rec {a['val_rec']:.4f}", flush=True)
+    return summary
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=60 * MINUTES)
+def invert17(prior: str = "prior18/corpus_dct16_w192_lr1e3_c.pt", out: str = "prior18/eps_w192.npz",
+             maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
+             steps: int = 20, fixed_point: int = 3, batch: int = 64, normalise: str = "sd") -> dict:
+    """18.23: every training state's own preimage, put where a draw lands.
+
+    The human, 2026-09-20: "пары работают, они просто лежат не там". `to_noise`
+    already gives each real state the noise this prior would have drawn it
+    from, and the round trip through it reproduces the clip at r = 0.957. The
+    only defect is where those pairs sit: radius 257 with per-axis sd 0.848
+    against the shell at 303.8, which no draw ever reaches.
+
+    This inverts the whole training set once and rescales the result to a
+    standard normal, so `train17(couple="file")` can be retrained on pairs that
+    lie where the sampler actually draws. Unlike 18.20's arbitrary assignment,
+    the map from noise to state here is the smooth inverse of a neural ODE, so
+    nearby states keep nearby preimages and the pairing is learnable.
+
+    `normalise="sd"` divides by the measured per-axis sd (keeps the relative
+    spread of radii); `"shell"` puts every sample on sqrt(D) exactly; `"none"`
+    saves the raw preimages.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import prior17 as R
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    _, m, idx, _ = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
+    model, meta = R.load(Path(RUNS) / prior, dev)
+    D = int(np.prod(m.shape[1:]))
+    print(f"inverting {tuple(m.shape)} with {prior} (D = {D}, sqrt(D) = {np.sqrt(D):.1f})", flush=True)
+
+    eps = np.empty((len(m),) + tuple(m.shape[1:]), np.float16)
+    with GpuSampler() as gpu:
+        for i in range(0, len(m), batch):
+            x = m[i:i + batch].float()
+            e = R.invert(model, x, steps=steps, fixed_point=fixed_point)
+            eps[i:i + batch] = e.cpu().numpy().astype(np.float16)
+            if (i // batch) % 20 == 0:
+                print(f"  {i + len(x)}/{len(m)}, {time.time() - t0:.0f} s", flush=True)
+    raw = eps.reshape(len(eps), -1).astype(np.float32)
+    sd0, r0 = float(raw.std()), float(np.linalg.norm(raw, axis=1).mean())
+    if normalise == "sd":
+        eps = (raw / sd0).reshape(eps.shape).astype(np.float16)
+    elif normalise == "shell":
+        eps = (raw * (np.sqrt(D) / np.linalg.norm(raw, axis=1, keepdims=True))).reshape(eps.shape).astype(np.float16)
+    f = eps.reshape(len(eps), -1).astype(np.float32)
+    rad = np.linalg.norm(f, axis=1)
+    stats = {"prior": prior, "maps_file": maps_file, "run": run, "sources": sources, "n": int(len(eps)),
+             "dims": D, "typical_radius": float(np.sqrt(D)), "steps": steps, "fixed_point": fixed_point,
+             "normalise": normalise, "sd_before": sd0, "radius_before": r0,
+             "sd_after": float(f.std()), "radius_after_mean": float(rad.mean()),
+             "radius_after_sd": float(rad.std()), "radius_sd_of_gaussian": float(np.sqrt(0.5)),
+             "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 16384,
+             "seconds": round(time.time() - t0, 1)}
+    outp = Path(RUNS) / out
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(outp, eps=eps, index=idx, stats=json.dumps(stats))
+    runs_volume.commit()
+    print(f"invert17 done in {stats['seconds']} s: sd {sd0:.3f} -> {stats['sd_after']:.3f}, "
+          f"radius {r0:.1f} -> {stats['radius_after_mean']:.1f} +- {stats['radius_after_sd']:.2f} "
+          f"(a Gaussian sits at {np.sqrt(D):.1f} +- 0.71), GPU {gpu.mean}", flush=True)
+    return stats
+
+
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=90 * MINUTES)
 def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
             seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
-            couple: str = "random") -> dict:
+            couple: str = "random", couple_file: str = "") -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -691,11 +825,19 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
                     null_class=bool(label_drop))
     n_par = sum(p.numel() for p in model.parameters())
     print(f"state flow: {n_par} parameters", flush=True)
+    couple_eps = None
+    if couple == "file":                                             # 18.23: pairs from invert17, already standardised
+        z = np.load(Path(RUNS) / couple_file)
+        if not np.array_equal(np.asarray(z["index"]), np.asarray(idx_tr)):
+            raise ValueError("the coupling file was inverted from a different subset of the maps")
+        couple_eps = torch.as_tensor(z["eps"], device=dev)
+        print(f"coupling from {couple_file}: {tuple(couple_eps.shape)}, "
+              f"sd {float(couple_eps.float().std()):.3f}", flush=True)
     with GpuSampler() as gpu:
         r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, compile_mode=compile_mode,
                     log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
                     labels=labels, val_labels=val_labels, coef_weight=cw, label_drop=label_drop,
-                    couple=couple)
+                    couple=couple, couple_eps=couple_eps)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
@@ -703,6 +845,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
             "trained_classes": trained,
             "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop), "couple": couple,
+            "couple_file": couple_file,
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
             "coef_mean": None if coef_mean is None else coef_mean.tolist(),

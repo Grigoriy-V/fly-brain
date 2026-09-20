@@ -241,7 +241,8 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
           seed: int = 0, amp: bool = True, compile_mode: str = "", log_every: int = 100, log=print,
           val: torch.Tensor | None = None, val_every: int = 500, labels: torch.Tensor | None = None,
           val_labels: torch.Tensor | None = None, coef_weight: torch.Tensor | None = None,
-          label_drop: float = 0.0, couple: str = "random") -> dict:
+          label_drop: float = 0.0, couple: str = "random",
+          couple_eps: torch.Tensor | None = None) -> dict:
     """13B's optimised loop without the condition: data already on the device
     (float16), AMP fp16 with a GradScaler, fused AdamW, warmup + cosine, EMA,
     gradient clipping. `states` (N, T, K, n).
@@ -265,7 +266,16 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
 
     `couple` is how a state is paired with its noise: "random" is the standard
     independent coupling, "fixed" gives every state the one noise of
-    `fixed_noise` for the whole run (18.20)."""
+    `fixed_noise` for the whole run (18.20), and "file" takes the pair from
+    `couple_eps` (N, …) aligned with `states` — the preimages this prior
+    already produces for the real data, rescaled to a standard normal (18.23).
+
+    18.20 and 18.23 are the same change with different pairs, and the
+    difference is the whole point: an arbitrary assignment asks the network to
+    memorise a table of 13,555 unrelated points, which 2.6 M parameters cannot
+    do and did not (0 hits out of 8); the preimages are the smooth inverse of a
+    neural ODE, so nearby states have nearby noises and the map is the kind a
+    network can fit."""
     dev = states.device
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
@@ -298,7 +308,12 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
         if yb is not None and label_drop > 0:                        # 18.12: the null label the guidance pushes from
             drop = torch.as_tensor(rng.random(batch) < label_drop, device=dev)
             yb = torch.where(drop, torch.full_like(yb, int(model.n_classes)), yb)
-        eb = None if couple == "random" else fixed_noise(idx, x1.shape[1:], dev, seed)
+        if couple == "random":
+            eb = None
+        elif couple == "file":
+            eb = couple_eps[idx].float()
+        else:
+            eb = fixed_noise(idx, x1.shape[1:], dev, seed)
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
             loss = loss_fn(fwd, x1, yb, w=coef_weight, eps=eb)
         opt.zero_grad(set_to_none=True)

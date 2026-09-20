@@ -514,3 +514,78 @@ def test_prior17_fixed_coupling_pins_one_noise_per_state():
     r = R.train(m, states, steps=3, batch=2, lr=1e-3, warmup=1, amp=False,
                 log_every=99, log=lambda s: None, couple="fixed")
     assert r["history"][-1]["step"] == 3 and math.isfinite(r["history"][-1]["loss"])
+
+
+def test_prior17_coupling_from_a_file_uses_the_given_pair():
+    """18.23: the pair comes from the preimages this prior already produces.
+
+    `couple="file"` must take each state's noise from the supplied tensor by
+    the same row index the batch was drawn with, and nothing else. The check
+    is behavioural: with a coupling whose rows are wildly distinct, the loss
+    target `x1 - eps` has to follow the supplied rows, so a run with the right
+    alignment and a run with the rows shuffled cannot produce the same loss.
+    """
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(0)
+    T, K = 4, 2
+    states = torch.randn(6, T, K, 721).half()
+    eps = torch.arange(6, dtype=torch.float32)[:, None, None, None] * torch.ones(6, T, K, 721)
+
+    def one(e):
+        torch.manual_seed(0)
+        m = R.build(frames=T, k=K, width=16, depth=1, heads=2)
+        r = R.train(m, states, steps=4, batch=3, lr=1e-3, warmup=1, amp=False,
+                    log_every=99, log=lambda s: None, couple="file", couple_eps=e)
+        return r["history"][-1]["loss"]
+
+    a = one(eps)
+    b = one(eps[torch.tensor([3, 4, 5, 0, 1, 2])])
+    assert math.isfinite(a) and math.isfinite(b)
+    assert abs(a - b) > 1e-6, (a, b)                                       # the rows are actually used
+    assert abs(one(eps) - a) < 1e-9                                        # and used deterministically
+
+
+def test_vae18_shapes_kl_and_free_bits():
+    """18.24: the three things that decide whether the VAE can do its job.
+
+    The latent starts exactly standard normal (the head is zeroed, so mu = 0
+    and logvar = 0 and the KL term is zero at step one) — otherwise the first
+    hundreds of steps go on undoing a random initialisation. The free-bits
+    floor must apply per latent dimension and before averaging, or it bounds
+    nothing. And the beta schedule must start at zero, because a KL that bites
+    before the decoder can use the latent collapses it.
+    """
+    import torch
+
+    from flydream.generate import vae18 as V
+
+    torch.manual_seed(0)
+    T, K, n, zc = 4, 2, 17, 3
+    m = V.build(frames=T, k=K, n=n, z_col=zc, width=16, depth=1, heads=2)
+    x = torch.randn(5, T, K, n)
+    y, mu, logvar, z = m(x)
+    assert y.shape == x.shape and mu.shape == (5, n, zc) and z.shape == (5, n, zc)
+    assert float(mu.abs().max()) == 0.0 and float(logvar.abs().max()) == 0.0      # стартует стандартным
+    assert float(V.kl_per_dim(mu, logvar).sum()) == 0.0
+
+    mu2 = torch.full((2, n, zc), 0.1); lv2 = torch.zeros(2, n, zc)
+    per = V.kl_per_dim(mu2, lv2)
+    assert abs(float(per[0, 0, 0]) - 0.005) < 1e-6                                # 0.5 * 0.1^2
+
+    out_lo = V.loss_fn(m, x, beta=1.0, free_bits=0.0)
+    out_hi = V.loss_fn(m, x, beta=1.0, free_bits=0.5)
+    assert float(out_hi["kl_used"]) > float(out_lo["kl_used"])                    # пол поднимает, а не опускает
+    assert abs(float(out_hi["kl_used"]) - 0.5 * n * zc) < 1e-4                    # ровно пол на каждое измерение
+
+    assert V.beta_at(0, 1000, 1e-3, 0.3) < 1e-4                                   # отжиг начинается с нуля
+    assert abs(V.beta_at(999, 1000, 1e-3, 0.3) - 1e-3) < 1e-12
+
+    s = V.encode_stats(m, torch.randn(8, T, K, n), batch=4)
+    assert s["dims"] == n * zc and abs(s["typical_radius"] - (n * zc) ** 0.5) < 1e-9
+
+    r = V.train(m, torch.randn(12, T, K, n).half(), steps=6, batch=4, lr=1e-3, warmup=1,
+                amp=False, beta=1e-4, log_every=99, log=lambda s_: None)
+    assert r["history"][-1]["step"] == 6 and math.isfinite(r["history"][-1]["rec"])
