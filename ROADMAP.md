@@ -68,6 +68,56 @@ This is not the dream chapter: the source of the state is an artificial prior,
 not the brain's own activity. The dream source inside the model (item 16)
 stays deferred.
 
+## The seed problem — the live blocker on this track
+
+The human, 2026-09-20: *"пока я не могу вбить сид в нойз2стейт руками и не
+получу видео как на этом клипе — всё хуйня"*. Full statement, evidence and
+the eliminated list: `reports/2026-09-20_the_seed_problem.md`. It is recorded
+separately and in his words at his request, so that the problem is not later
+restated as a different one.
+
+**The problem in one line.** A seed taken from a real video works; a seed we
+can draw does not. Nothing between them is broken.
+
+- **By hand it works.** A real held-out clip inverted through the prior
+  (`to_noise`) and pushed forward again returns that clip at r = **+0.957**
+  against a ceiling of +0.969 for 13B straight from the real state
+  (`2026-09-20_prior18_fromseed`, $0).
+- **By a draw it does not.** An ordinary N(0, I) draw through the identical
+  chain gives r = **−0.060** and a mottled field.
+- **Why no integer seed can reach it.** Draws concentrate on the shell
+  √D = 303.8 of width 0.707; the preimages of real states sit at 252.4
+  (per-axis sd 0.833) — **73 standard deviations inside**. And the preimage is
+  not a seed: it is 92,288 numbers, exactly the size of the state itself, so
+  storing it stores nothing new.
+- **The instrument is unbiased**: a state the prior itself made from a known
+  standard draw inverts back to sd 1.001/1.001/0.999 at 0.0-0.4 % error
+  (`selfinv18`), so the 0.833 is real geometry.
+
+**The acceptance criterion is the human's and it overrides every metric.** A
+result counts only as a **clip against the raw corpus video** — not against
+"13B from the real state" (already softer than the real video), not by the
+gate, the sparseness or r. The gate is retired as a judge on four separate
+demonstrations (18.8, 18.13, 18.17, 18.19); r is dominated by the large-scale
+layout and is nearly blind to the fine detail the eye reads first.
+
+**18.20, the live hypothesis: the pair.** Until now `prior17.loss_fn` drew a
+fresh `eps` on every visit, so over 20,000 steps each of the 13,555 states was
+asked to come from ~47 different places. `fixed_noise` / `train(couple=
+"fixed")` gives every state one noise for the whole run, keyed by its index;
+the marginal is untouched, so this changes the **coupling** of the same two
+distributions, not the objective. Pinned by
+`test_prior17_fixed_coupling_pins_one_noise_per_state`. Run in flight on
+K=16 / width 192 (≈ 21 min, ≈ $0.37, the human's word given 2026-09-20).
+Minibatch OT, the textbook alternative, is analytically empty here: only
+0.33 % of a pair's cost depends on the pairing at D = 92,288.
+
+**Two measurements that bound what to expect.** 3× the training steps at fixed
+width moves the preimage geometry (sd 0.815 → 0.947) and leaves the picture
+untouched (draw sparseness 20.9 % → 20.9 %); 3× the width does the opposite
+(sd unmoved at 0.833, sparseness 20.9 % → 26.3 %). The preimage sd is an
+instrument, never a criterion.
+
 ## Item 17, the brain-state prior — measured, its gates open
 
 Goal: video generated without a source clip, from states the project produced
@@ -464,9 +514,11 @@ Sources, prices and the research's own cost:
   `flydream-generate`) for GPU-bound work; `tools/modal_watch.py` to watch.
 - **Tests:** 77 offline tests passing (2026-09-20, 23 s), no download, no
   Modal, no credential.
-- **Spend recorded in `reports/runs.jsonl`:** $3.35 in total, of which 13A
+- **Spend recorded in `reports/runs.jsonl`:** $8.61 in total, of which 13A
   ≈ $1.61 (the pairs, the three decoders, the round trip on 11-12) and 13B
-  ≈ $0.42; item 14 ran locally at $0.
+  ≈ $0.42; item 14 ran locally at $0. Everything measured after 18.16 —
+  the noise geometry (18.17-18.19), the seed demonstration, the two levers
+  and their control — ran locally at **$0**.
 
 ## Done
 
