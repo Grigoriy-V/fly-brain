@@ -57,9 +57,22 @@ def edges(v: np.ndarray, nb: np.ndarray) -> dict:
          for j in range(nb.shape[1])]
     d = np.concatenate(d)
     d = d - d.mean(); s = float(d.std())
+    # 18.12: перепад нормирован на собственный разброс, поэтому зернистость на
+    # колонку эта мера засчитывает как такую же «разреженность», как редкие
+    # границы сцены — направление силой 15 набирает по ней рекорд проекта, а на
+    # глаз это соль с перцем. Корреляция колонки с её соседями различает два
+    # случая: у крупных областей она высокая, у зернистости падает. Меру всегда
+    # читать парой с `frac_flat`, поодиночке ни одна сцену не опознаёт.
+    rs = []
+    for f in x:
+        m = [nb[:, j] >= 0 for j in range(nb.shape[1])]
+        aa = np.concatenate([f[m[j]] for j in range(nb.shape[1])])
+        bb = np.concatenate([f[nb[m[j], j]] for j in range(nb.shape[1])])
+        rs.append(np.corrcoef(aa, bb)[0, 1])
     return {"grad_sd": s, "grad_kurtosis": float((d ** 4).mean() / (s ** 4 + 1e-24)),
             "frac_flat": float((np.abs(d) < 0.25 * s).mean()),
-            "frac_strong": float((np.abs(d) > 3.0 * s).mean())}
+            "frac_strong": float((np.abs(d) > 3.0 * s).mean()),
+            "neigh_r": float(np.mean(rs))}
 
 
 def describe(vids, nb) -> dict:

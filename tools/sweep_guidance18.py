@@ -85,21 +85,23 @@ def main(argv=None) -> int:
     for r in rows:                                                            # структура рядом с воротами
         v = e["groups"][f"направление {r['guidance']:g}"]
         r.update({"frac_flat": v["frac_flat"]["mean"], "kurtosis": v["grad_kurtosis"]["mean"],
-                  "frac_strong": v["frac_strong"]["mean"], "sd": v["sd"]["mean"]})
+                  "frac_strong": v["frac_strong"]["mean"], "sd": v["sd"]["mean"],
+                  "neigh_r": v["neigh_r"]["mean"]})
 
     ref = {k: e["groups"][k] for k in e["groups"] if k not in {t[1] for t in tags}}
     out = {"ckpt": a.ckpt, "scales": scales, "rows": rows, "reference": ref,
            "seconds": round(time.time() - t0, 1), "seed": a.seed, "n_samples": a.samples}
     (run_dir / f"{a.out}.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
 
-    print(f"\n{'сила':>6} {'ворота':>8} {'новизна':>8} {'ровного':>9} {'эксцесс':>8} {'границ':>7} {'контраст':>9}")
+    print(f"\n{'сила':>6} {'ворота':>8} {'новизна':>8} {'ровного':>9} {'эксцесс':>8} {'границ':>7} "
+          f"{'сосед r':>8} {'контраст':>9}")
     for r in rows:
         print(f"{r['guidance']:6g} {r['gate']:8.4f} {r['novelty']:+8.3f} {100 * r['frac_flat']:8.1f}% "
-              f"{r['kurtosis']:8.2f} {100 * r['frac_strong']:6.2f}% {r['sd']:9.3f}")
+              f"{r['kurtosis']:8.2f} {100 * r['frac_strong']:6.2f}% {r['neigh_r']:8.3f} {r['sd']:9.3f}")
     for k, v in ref.items():
         print(f"{k:>6.6s} {'—':>8} {'—':>8} {100 * v['frac_flat']['mean']:8.1f}% "
-              f"{v['grad_kurtosis']['mean']:8.2f} {100 * v['frac_strong']['mean']:6.2f}% {v['sd']['mean']:9.3f}"
-              f"   <- {k}")
+              f"{v['grad_kurtosis']['mean']:8.2f} {100 * v['frac_strong']['mean']:6.2f}% "
+              f"{v['neigh_r']['mean']:8.3f} {v['sd']['mean']:9.3f}   <- {k}")
     print(f"\nwrote {run_dir / a.out}.json  ({out['seconds']:.0f} s, $0)")
     return 0
 
