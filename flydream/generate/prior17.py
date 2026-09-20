@@ -52,6 +52,19 @@ class SiTStates(nn.Module):
         # sampling can push away from it (`guided`). Without `null_class` the
         # module is identical to 18.4e's and every earlier checkpoint loads.
         self.y_emb = nn.Embedding(n_classes + int(self.null_class), self.t_dim) if n_classes else None
+        if self.y_emb is not None:
+            # ISS-0008. `nn.Embedding` starts at N(0, 1) — row norm ≈ 11.3
+            # against ≈ 29.8 for the timestep embedding this is added to. DiT
+            # starts the table at std 0.02 (row norm 0.23, fifty times
+            # smaller) precisely so that, with adaLN-Zero, the model begins
+            # unconditional and grows the label signal only where it pays. At
+            # N(0, 1) it begins with a large random per-class bias instead,
+            # and the cheapest thing it can learn is to be blind to that whole
+            # subspace — after which no gradient reaches the table at all.
+            # Measured on 18.4e and 18.12: after 20,000 steps the two
+            # independently trained tables agree on class geometry at
+            # r = +0.001, i.e. both are still their initial noise.
+            nn.init.normal_(self.y_emb.weight, std=0.02)
         self.inp = nn.Linear(frames * k, width)
         self.pos = nn.Parameter(torch.randn(1, n, width) * 0.02)
         self.blocks = nn.ModuleList([SiTBlock(width, heads, self.t_dim) for _ in range(depth)])
@@ -221,7 +234,17 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     torch.manual_seed(seed)
     model.to(dev).train()
     fused = dev.type == "cuda"
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.99), weight_decay=0.01, fused=fused)
+    # ISS-0008: the label table is the one parameter weight decay must not
+    # touch. Its gradient is weak by nature (one row per class, ~120 clips
+    # each), so 0.01 of decay shrinks a row faster than the data grows it —
+    # measured, the rows ended at 0.89 of their initial norm with no learned
+    # structure. DiT trains with no decay at all; this excludes the table
+    # alone, so every unconditional arm of item 18 stays comparable.
+    emb = [p for n, p in model.named_parameters() if n.startswith("y_emb.")]
+    ids = {id(p) for p in emb}
+    rest = [p for p in model.parameters() if id(p) not in ids]
+    groups = [{"params": rest, "weight_decay": 0.01}] + ([{"params": emb, "weight_decay": 0.0}] if emb else [])
+    opt = torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.99), fused=fused)
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / max(1, steps)))))
     use_amp = amp and dev.type == "cuda"

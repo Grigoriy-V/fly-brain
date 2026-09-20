@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0008 | fixed in code, rerun pending | the class embedding was never trained: nn.Embedding starts at N(0,1) (row norm 11.3 against 29.8 for the timestep embedding it is added to, fifty times DiT's 0.02) and AdamW decayed the table like any weight, so after 20,000 steps the two independently trained tables agree on class geometry at r = +0.001 - both still their initial noise, which voids 18.4e and 18.12 as tests of conditioning | roadmap 18, ISS-0007 |
 | ISS-0007 | open | the corpus split holds out whole classes, so 10 of 110 labels have no training clips and their embedding rows are never trained - yet the gate draws sampling labels uniformly over all 110, conditioning about 9.1 % of every conditional run on a row at its initialisation | roadmap 18 |
 | ISS-0006 | open | a decoder window of even-spaced lags ([0 2 4], [0 2 4 6 8]) aliases Sintel's 24→50 Hz frame hold: taps two steps apart sit in one phase of the two-step hold, the fit averages two regimes and the reconstruction alternates frame by frame (L3 per-frame corr 0.94/0.92/0.94/0.89/0.93/0.86…); consecutive lags [0 1 2 3 4] remove it; the sweep at those two windows is being redone | roadmap 4 |
 | ISS-0005 | mitigated (b fixed, a third-party) | the right-lobe export carries about thirty times less total input than FlyVis on lamina pairs through Am (a: MaleCNS has 49 Lai fragments for ~750 Am, a reconstruction gap) and on the feedback pairs Tm2→L2 and Mi4→Tm2 (b: the min_weight cut, fixed by the weak-pair exception; v9 DSI 0.152 against v7's 0.109, all members stable) | roadmap 1, ISS-0003 |
@@ -38,6 +39,60 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0008 — the class embedding was never trained: N(0, 1) init and weight decay on the table
+
+- **Status:** fixed in code 2026-09-20, **not yet verified by a rerun**. Seen
+  2026-09-20 on roadmap 18 (18.4e, 18.12).
+- **Seen:** `SiTStates` built its label table with plain
+  `nn.Embedding(n_classes, 128)`, whose default initialisation is N(0, 1) —
+  a row norm of **11.3** against **29.8** for the timestep embedding it is
+  added to. DiT initialises the same table at std 0.02 (row norm 0.23,
+  **fifty times smaller**) so that, with adaLN-Zero, the model starts
+  unconditional and grows the label signal only where it pays. Second, AdamW
+  applied `weight_decay=0.01` to that table like any other weight, while DiT
+  trains with no decay at all. Measured on the two trained checkpoints:
+
+  | | per-class deviation ‖y − ȳ‖ | vs ‖te‖ |
+  |---|---|---|
+  | 18.4e (`corpus_dct16_cls_c`) | 10.37 | 0.32 |
+  | 18.12 (`…_cls_g_c`) | 10.10 | 0.34 |
+  | an untrained N(0, 1) table | 11.32 | — |
+
+  The rows ended at 0.89 of their initial random norm, which is what decay
+  alone would do over 20,000 steps at lr 1e-3. And the geometry learned
+  nothing: the pairwise-cosine matrices of the **two independently
+  initialised and independently trained** tables agree at
+  **r = +0.0014**, against −0.0124 for a random matrix as control, with
+  identical spread (sd 0.091 / 0.090 / 0.089). Both tables are, to
+  measurement precision, still their initial noise.
+- **Costs:** every class-conditional result of item 18 is void as a test of
+  conditioning. 18.4e ("classes change nothing at the gate") and 18.12 ("the
+  label carries nothing, ≈0 ≡ 1") measured a model whose class vectors were
+  frozen random noise, so **whether the labels carry anything has not in fact
+  been tested**. The guidance machinery built on top (18.12) is sound and its
+  arithmetic is verified, but it was amplifying the difference between a
+  field and a field plus fixed noise.
+- **Reproduce:** load either checkpoint with `prior17.load`, take
+  `y_emb.weight[:n_classes]`, subtract the column mean and compare the row
+  norms with `t_mlp(t_embedding(t, 128))`; then correlate the pairwise-cosine
+  matrices of the two checkpoints.
+- **Cause:** known, and mine. `SiTStates.__init__` never set the table's
+  initialisation, and `train` put every parameter in one decay group. With a
+  large random per-class bias added to `te`, the cheapest thing the network
+  can learn is to be blind to that subspace — after which no gradient reaches
+  the table and decay is the only force left on it.
+- **Fix:** `nn.init.normal_(self.y_emb.weight, std=0.02)`, and the table in
+  its own AdamW group with `weight_decay=0.0`. Unconditional arms have no
+  `y_emb`, so every earlier arm of item 18 stays comparable. Pinned by
+  `tests/test_generate.py::test_prior17_label_table_starts_small_and_escapes_weight_decay`.
+  **A rerun of the conditional arm is what would close this.**
+- **Evidence:** `reports/2026-09-20_step18_5_width_and_the_representation_floor.md`
+  §18.12 and §18.14; `data/prior18/corpus_dct16_cls_c.pt`,
+  `data/prior18/corpus_dct16_w192_lr1e3_cls_g_c.pt`.
+- **Related:** roadmap 18; ISS-0007 (the other defect in the same arm).
+
+---
 
 ### ISS-0007 — the gate samples labels the prior was never trained on
 

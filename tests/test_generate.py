@@ -446,3 +446,33 @@ def test_prior17_null_label_and_guidance(tmp_path):
     assert back.null_class and back.y_emb.num_embeddings == C + 1
     with torch.no_grad():
         assert torch.allclose(R.guided(back, yb, 2.0)(xb, tb), R.guided(model, yb, 2.0)(xb, tb), atol=1e-5)
+
+
+def test_prior17_label_table_starts_small_and_escapes_weight_decay():
+    """ISS-0008: the two things 18.4e and 18.12 got wrong about the label table.
+
+    `nn.Embedding` starts at N(0, 1), fifty times DiT's std 0.02, which hands
+    adaLN-Zero a large random per-class bias to be blind to instead of a
+    signal to grow; and AdamW's 0.01 of decay shrank a row faster than ~120
+    clips per class could grow it. Both are checked here rather than in a
+    priced run: the table starts at DiT's scale, and a class that never
+    appears in a batch keeps its row **exactly**, which is only true if decay
+    no longer reaches it.
+    """
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(0)
+    T, K, C = 4, 2, 5
+    m = R.build(frames=T, k=K, width=32, depth=2, heads=2, n_classes=C, null_class=True)
+    sd = float(m.y_emb.weight.std())
+    assert 0.01 < sd < 0.04, sd                                                # DiT's 0.02, not N(0, 1)
+
+    x = torch.randn(8, T, K, 721) * 0.5
+    y = torch.zeros(8, dtype=torch.long)                                       # only class 0 is ever seen
+    before = m.y_emb.weight.detach().clone()
+    R.train(m, x, steps=5, batch=4, lr=1e-2, warmup=1, amp=False, log_every=99, log=lambda s: None, labels=y)
+    after = m.y_emb.weight.detach()
+    assert float((after[1:] - before[1:]).abs().max()) == 0.0                  # unseen rows stay exact
+    assert float((after[0] - before[0]).abs().max()) > 0                       # the seen row still learns
