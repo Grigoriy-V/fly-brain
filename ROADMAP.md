@@ -12,11 +12,12 @@ acceptance criterion is his and overrides every metric
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
 
-**Current approved step:** 19 is built and measured — the first stage is
+**Current approved step:** 19 is built and measured
+(`reports/2026-09-21_step19_linear_first_stage.md`): the first stage is
 linear, the seed is drawable, a clip's own seed returns that clip, a fresh
-draw does not yet give a scene (`reports/2026-09-21_step19_linear_first_stage.md`,
-`reports/2026-09-21_research_how_vaes_are_trained.md`). Next in the order: 20,
-on the human's word.
+draw does not yet give a scene. The order of what follows was reset on
+2026-09-21 by `reports/2026-09-21_research_path_to_a_video_generator.md`.
+Next: 20, on the human's word.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -115,53 +116,52 @@ Closed items, one line each, evidence in the linked report.
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
-is proposed, against what that step buys.
+is proposed. The evidence behind this order, and the full ladder of nine
+routes with their sources, is
+`reports/2026-09-21_research_path_to_a_video_generator.md`; the measured state
+of the blocker is `reports/2026-09-21_step19_linear_first_stage.md` §§ 7–11.
+The task is unconditional 64x64 video generation in other coordinates, so the
+order is: free fixes and free measurements first, then the one paid route the
+measurements select.
 
-20. **noise2state that reaches a scene from a draw.** The blocker of the whole
-    track: a drawn ε decodes to a state the brain cannot follow, while a
-    clip's own seed decodes to that clip. Three sub-steps, in this order,
-    because the first two decide the size of the third:
+20. **The sampler, not the model.** A fresh draw overshoots the radius 1.55x
+    and leaves the ideal trajectory at t = 0.1, which is the published
+    exposure-bias signature; both fixes are one scalar on the existing
+    checkpoint. Then the seed test. Free, local.
 
-    **20a, grow the state corpus.** The build supports six rotations per
-    source file and about 1.25 are used, so the same code gives four to six
-    times the states. The first stage is refitted on whatever the corpus
-    becomes and its acceptance re-run (`pca19`, `pcaval19`).
+21. **Two free measurements.** How far the state can be cut before the video
+    stops holding (types, columns, DCT, PCA components) — and whether column
+    covariance decays with hex distance, which is what decides between 22 and
+    23. Free, local.
 
-    **20b, retrain the flow at the present capacity on the larger corpus.**
-    This is what separates "too little data" from "too small a network"
-    before capacity is bought. Judged by the seed test, not by the loss.
+22. **Conditioning, two-stage.** Draw the DC part of the state (8 types x 721
+    columns), then the motion given it; the conditioned objective is the one
+    with measured gains and it keeps unconditional sampling available.
 
-    **20c, capacity for the flow**, sized by what 20a and 20b show. The
-    recipe is settled: no nan steps, the best-validation snapshot kept, the
-    card loaded.
-
-    After each: **the seed test** (`seed19.py`) — a drawn ε through the whole
-    chain against the raw corpus video, beside the distance to the nearest
-    training video, with the controls that have no flow at all.
-
-21. **The fallback ladder for 20**, taken only if 20 does not close it, in
-    this order: a learned residual on top of the fixed PCA path (DC-AE's
-    recipe); a smaller latent traded for a fuller space; ex-post density over
-    the latent (Dai & Wipf, Ghosh et al.); a learned first stage with a weak
-    KL. Each is designed and priced when its turn comes.
-
-22. **Conditioning, if unconditional sampling stays out of reach.** The corpus
-    carries 101 action classes; 18.12 and 18.16 measured classes on the flow
-    over states and they moved nothing, but that was under the geometry that
-    19 has since removed, so the question is open again.
+23. **Hex-local attention in the flow.** Column positions and a neighbour
+    window instead of PCA tokens, to reach the only published mechanism of
+    novelty. Taken if 21 shows covariance is local.
 
 Waiting, not in the order above:
 
-23. **The state space as an interface**, the claim item 17 was accepted on:
+24. **The state space as an interface**, the claim item 17 was accepted on:
     interpolation and editing in state space as a product, not as a
     diagnostic. The machinery exists (`seed19.py --controls`); what is missing
     is a fair novelty test — pairs of two structured clips, r to each parent
-    separately, and the path at several α.
+    separately, and the path at several alpha.
 
 ## Not started
 
 Recorded, not approved, not begun. One line each.
 
+- **More corpus and more capacity for the flow** — the earlier queue item 20
+  (four to six times the states from the unused rotations, the same capacity
+  retrained, then capacity). Deferred 2026-09-21: the published transitions
+  were measured on convolutional nets over spatial data, so data alone is not
+  the gap — routes B and C of
+  `reports/2026-09-21_research_path_to_a_video_generator.md`.
+- **An external generator as the scene or corpus source** — unbounded clips,
+  a weaker claim; route G of the same report.
 - **3', fine-tuning MaleCNS from the transplanted weights** (the human,
   2026-09-19: "не сейчас"). Commands in
   `reports/2026-09-18_step3_training_options.md` §5б.
