@@ -621,7 +621,7 @@ def train13b(kind: str = "hexresnet", steps: int = 6000, batch: int = 32, lr: fl
 def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 128, depth: int = 4, heads: int = 4,
             seed: int = 0, out: str = "prior17", sources: str = "all", dct_k: int = 0, name: str = "state_flow",
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
-            classes: bool = False, loss_weight_p: float = 0.0) -> dict:
+            classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -681,19 +681,22 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         print(f"loss weight sd^{loss_weight_p}: coefficient 0 takes {100 * sh[0]:.1f} % of the loss, "
               f"the top half {100 * sh[len(sh) // 2:].sum():.2f} %, effective K {1 / (sh ** 2).sum():.2f} "
               f"of {len(sh)}", flush=True)
-    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads, n_classes=len(names))
+    if label_drop and not names:
+        raise SystemExit("label_drop needs classes=True; there is nothing to drop")
+    model = R.build(frames=m.shape[1], k=m.shape[2], width=width, depth=depth, heads=heads, n_classes=len(names),
+                    null_class=bool(label_drop))
     n_par = sum(p.numel() for p in model.parameters())
     print(f"state flow: {n_par} parameters", flush=True)
     with GpuSampler() as gpu:
         r = R.train(model, m, steps=steps, batch=batch, lr=lr, seed=seed, compile_mode=compile_mode,
                     log_every=100, log=lambda s_: print(s_, flush=True), val=mv, val_every=500,
-                    labels=labels, val_labels=val_labels, coef_weight=cw)
+                    labels=labels, val_labels=val_labels, coef_weight=cw, label_drop=label_drop)
     outdir = Path(RUNS) / out
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
-            "loss_weight_p": float(loss_weight_p),
+            "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop),
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
             "coef_mean": None if coef_mean is None else coef_mean.tolist(),

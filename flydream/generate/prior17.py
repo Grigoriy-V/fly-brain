@@ -37,17 +37,21 @@ class SiTStates(nn.Module):
     """Token = column; features = the column's T frames of K types."""
 
     def __init__(self, frames: int = 40, k: int = 8, width: int = 128, depth: int = 4, heads: int = 4, n: int = 721,
-                 n_classes: int = 0):
+                 n_classes: int = 0, null_class: bool = False):
         super().__init__()
         self.frames, self.k, self.n, self.n_classes = frames, k, n, n_classes
+        self.null_class = bool(null_class)
         self.t_dim = 128
         self.t_mlp = nn.Sequential(nn.Linear(self.t_dim, self.t_dim), nn.SiLU(), nn.Linear(self.t_dim, self.t_dim))
         # DiT's own form of conditioning: the label embedding is added to the
-        # timestep embedding and modulates every block through adaLN-Zero. No
-        # dropout and no null class — the precedent this follows (Dhariwal &
-        # Nichol, Table 4: FID 26.21 -> 10.94) is conditioning alone, without
-        # classifier-free guidance on either side.
-        self.y_emb = nn.Embedding(n_classes, self.t_dim) if n_classes else None
+        # timestep embedding and modulates every block through adaLN-Zero.
+        # 18.4e used that half alone, following Dhariwal & Nichol (Table 4:
+        # FID 26.21 -> 10.94), and it moved the gate not at all. 18.12 adds the
+        # other half: one extra embedding row, index `n_classes`, is the null
+        # label, trained by dropping the real one at rate `label_drop`, so that
+        # sampling can push away from it (`guided`). Without `null_class` the
+        # module is identical to 18.4e's and every earlier checkpoint loads.
+        self.y_emb = nn.Embedding(n_classes + int(self.null_class), self.t_dim) if n_classes else None
         self.inp = nn.Linear(frames * k, width)
         self.pos = nn.Parameter(torch.randn(1, n, width) * 0.02)
         self.blocks = nn.ModuleList([SiTBlock(width, heads, self.t_dim) for _ in range(depth)])
@@ -75,7 +79,8 @@ class SiTStates(nn.Module):
 
 def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
     return SiTStates(frames=frames, k=k, width=kw.get("width", 128), depth=kw.get("depth", 4),
-                     heads=kw.get("heads", 4), n_classes=kw.get("n_classes", 0))
+                     heads=kw.get("heads", 4), n_classes=kw.get("n_classes", 0),
+                     null_class=kw.get("null_class", False))
 
 
 def loss_fn(model: nn.Module, x1: torch.Tensor, y: torch.Tensor | None = None,
@@ -99,6 +104,29 @@ def conditioned(model, y: torch.Tensor | None):
     prior needs its label carried along, so bind it once here rather than
     threading `y` through the sampler, the inversion and the refiner."""
     return model if y is None else (lambda x, t: model(x, t, y))
+
+
+def guided(model, y: torch.Tensor | None, scale: float = 0.0):
+    """The same velocity field, pushed away from the null label (18.12).
+
+        v = v_null + scale · (v_y − v_null)
+
+    Ho & Salimans 2022. `scale` 0 is off and returns the plain conditional
+    path at one forward pass per step; 1 reproduces that path exactly through
+    the formula; above 1 the sample is pulled further towards its class, which
+    is the knob 18.4e's conditioning-only arm did not have. Above 1 it costs
+    two forward passes per Euler step, so a 20-step sample costs 40."""
+    if y is None or not scale:
+        return conditioned(model, y)
+    if not getattr(model, "null_class", False):
+        raise ValueError("guidance needs a prior trained with label_drop > 0; this one has no null class")
+    null = torch.full_like(y, int(model.n_classes))
+
+    def f(x, t):
+        v_y = model(x, t, y)
+        v_0 = model(x, t, null)
+        return v_0 + scale * (v_y - v_0)
+    return f
 
 
 @torch.no_grad()
@@ -133,11 +161,12 @@ def invert(model: nn.Module, x: torch.Tensor, *, steps: int = 20, fixed_point: i
 
 @torch.no_grad()
 def sample(model: nn.Module, n: int, *, frames: int = 40, k: int = 8, columns: int = 721, steps: int = 20,
-           device=None, generator: torch.Generator | None = None, y: torch.Tensor | None = None) -> torch.Tensor:
+           device=None, generator: torch.Generator | None = None, y: torch.Tensor | None = None,
+           guidance: float = 0.0) -> torch.Tensor:
     """(n, T, K, 721) states drawn from the prior, in 13B's conditioning units."""
     dev = device or next(model.parameters()).device
     x = torch.randn(n, frames, k, columns, device=dev, generator=generator)
-    return integrate(conditioned(model, y), x, steps=steps)
+    return integrate(guided(model, y, guidance), x, steps=steps)
 
 
 @torch.no_grad()
@@ -165,7 +194,8 @@ def validate(model: nn.Module, ema: EMA, states: torch.Tensor, *, batch: int, us
 def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr: float = 3e-4, warmup: int = 100,
           seed: int = 0, amp: bool = True, compile_mode: str = "", log_every: int = 100, log=print,
           val: torch.Tensor | None = None, val_every: int = 500, labels: torch.Tensor | None = None,
-          val_labels: torch.Tensor | None = None, coef_weight: torch.Tensor | None = None) -> dict:
+          val_labels: torch.Tensor | None = None, coef_weight: torch.Tensor | None = None,
+          label_drop: float = 0.0) -> dict:
     """13B's optimised loop without the condition: data already on the device
     (float16), AMP fp16 with a GradScaler, fused AdamW, warmup + cosine, EMA,
     gradient clipping. `states` (N, T, K, n).
@@ -181,7 +211,11 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     `coef_weight` (k,) tilts the loss across the coefficient axis. The
     validation loss is deliberately left **unweighted** whatever it is set to,
     so that the number in the history stays one yardstick across every arm of
-    item 18; the training loss is the objective and does follow the weight."""
+    item 18; the training loss is the objective and does follow the weight.
+
+    `label_drop` replaces the real label with the null one at that rate, which
+    is what makes guidance available at sampling (18.12). Validation keeps the
+    real labels whatever it is set to, for the same reason."""
     dev = states.device
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
@@ -200,8 +234,12 @@ def train(model: nn.Module, states: torch.Tensor, *, steps: int, batch: int, lr:
     for step in range(steps):
         idx = torch.as_tensor(rng.integers(0, len(states), batch), device=dev)
         x1 = states[idx].float()
+        yb = None if labels is None else labels[idx]
+        if yb is not None and label_drop > 0:                        # 18.12: the null label the guidance pushes from
+            drop = torch.as_tensor(rng.random(batch) < label_drop, device=dev)
+            yb = torch.where(drop, torch.full_like(yb, int(model.n_classes)), yb)
         with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
-            loss = loss_fn(fwd, x1, None if labels is None else labels[idx], w=coef_weight)
+            loss = loss_fn(fwd, x1, yb, w=coef_weight)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
@@ -272,12 +310,14 @@ def from_model_space(meta: dict, x: torch.Tensor) -> np.ndarray:
 
 @torch.no_grad()
 def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, device=None,
-                  generator: torch.Generator | None = None, y: torch.Tensor | None = None) -> np.ndarray:
+                  generator: torch.Generator | None = None, y: torch.Tensor | None = None,
+                  guidance: float = 0.0) -> np.ndarray:
     """(n, 40, 8, 721) states in 13B's conditioning units, from either prior:
     the plain one samples frames directly, the DCT one samples coefficients,
     undoes their per-coefficient scaling and transforms back to frames."""
     dev = device or next(model.parameters()).device
-    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator, y=y)
+    x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator,
+               y=y, guidance=guidance)
     return from_model_space(meta, x)
 
 
@@ -358,7 +398,7 @@ def load(path, device) -> tuple[nn.Module, dict]:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     m = ck["meta"]
     model = build(frames=m["frames"], k=m.get("k", 8), width=m["width"], depth=m["depth"], heads=m.get("heads", 4),
-                  n_classes=int(m.get("n_classes", 0) or 0))
+                  n_classes=int(m.get("n_classes", 0) or 0), null_class=bool(m.get("label_drop", 0.0)))
     model.load_state_dict(ck["state_dict"])
     for p, s in zip(model.parameters(), ck["ema"]):
         p.data.copy_(s)                                                          # sample with the EMA weights

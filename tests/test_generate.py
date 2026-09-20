@@ -390,3 +390,51 @@ def test_prior17_coefficient_weight_tilts_the_loss_only():
     r = R.train(model, x, steps=6, batch=4, lr=1e-3, warmup=2, amp=False, log_every=99, log=lambda s: None,
                 val=x[:8], val_every=6, coef_weight=w)
     assert np.isfinite(r["history"][-1]["val_loss"])
+
+
+def test_prior17_null_label_and_guidance():
+    """18.12: the null label, and the field that guidance builds out of it.
+
+    A prior asked for `null_class` carries one embedding row more than it has
+    classes, and that row is what `label_drop` trains: with the rate at 1 the
+    real label never reaches the model, so the null row is the only one an
+    Adam step moves. Guidance is then checked against its own definition —
+    scale 1 is the conditional velocity exactly, 0 is off (the same field at
+    one forward pass instead of two), and in between it is
+    v_null + s·(v_y − v_null). A prior without a null class refuses to be
+    guided rather than reading a row that was never trained, and 18.4e's
+    shape is left exactly as it was so its checkpoint still loads.
+    """
+    import pytest
+    import torch
+
+    from flydream.generate import prior17 as R
+
+    torch.manual_seed(3)
+    T, K, C = 5, 3, 4
+    x = torch.randn(12, T, K, 721) * 0.5
+    y = torch.randint(0, C, (12,))
+    model = R.build(frames=T, k=K, width=32, depth=2, heads=2, n_classes=C, null_class=True)
+    plain = R.build(frames=T, k=K, width=32, depth=2, heads=2, n_classes=C)
+    assert model.y_emb.num_embeddings == C + 1 and plain.y_emb.num_embeddings == C
+
+    before = model.y_emb.weight.detach().clone()
+    R.train(model, x, steps=4, batch=6, lr=1e-2, warmup=1, amp=False, log_every=99, log=lambda s: None,
+            labels=y, label_drop=1.0)                                          # every label dropped
+    moved = (model.y_emb.weight.detach() - before).abs().sum(1)
+    assert float(moved[C]) > 10 * float(moved[:C].max())                       # the real rows only decay
+
+    model.eval()
+    with torch.no_grad():
+        xb, tb, yb = x[:6], torch.full((6,), 0.3), y[:6]
+        v_y = model(xb, tb, yb)
+        v_0 = model(xb, tb, torch.full_like(yb, C))
+        assert torch.allclose(R.guided(model, yb, 1.0)(xb, tb), v_y, atol=1e-5)
+        assert torch.allclose(R.guided(model, yb, 0.0)(xb, tb), v_y, atol=1e-5)
+        assert torch.allclose(R.guided(model, yb, 2.0)(xb, tb), v_0 + 2.0 * (v_y - v_0), atol=1e-5)
+
+    s = R.sample_states(model, {"frames": T, "k": K}, 3, steps=2, y=torch.zeros(3, dtype=torch.long), guidance=2.5)
+    assert s.shape == (3, T, K, 721) and np.isfinite(s).all()
+
+    with pytest.raises(ValueError):
+        R.guided(plain, y[:6], 2.0)
