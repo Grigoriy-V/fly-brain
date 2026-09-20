@@ -57,7 +57,8 @@ def structured_noise(rng, frames: int, k: int, ring: np.ndarray, rounds: int = 5
 
 def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedural_file: Path, *,
         corpus: Path | None = None, n_samples: int = 16, n_clips: int = 3, frames: int = 40, margin: int = 5, dt: float = 0.02, t_pre: float = 1.0,
-        sample_steps: int = 20, prior_steps: int = 0, guidance: float = 0.0, seed: int = 0, log=print) -> dict:
+        sample_steps: int = 20, prior_steps: int = 0, guidance: float = 0.0, noise_scale: float = 1.0,
+        seed: int = 0, log=print) -> dict:
     # 18.7: `sample_steps` drove the prior's integration and 13B's together, so it could
     # never be varied for one of them alone. `prior_steps` overrides it for the prior;
     # 0 keeps the old behaviour exactly, which is what every gate before 18.8 used.
@@ -114,7 +115,7 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
                      for i in y.tolist()]
     p_steps = int(prior_steps or sample_steps)
     prior_states = R.sample_states(prior, pmeta, n_samples, steps=p_steps, device=dev, generator=g, y=y,
-                                   guidance=guidance)
+                                   guidance=guidance, noise_scale=noise_scale)
     log(f"{n_samples} states from the prior ({pmeta.get('sources', 'all')} data, "
         f"DCT {pmeta.get('dct_k') or 'off'}"
         + (f", classes {n_cls}: {', '.join(cls_names[:4])}..." if n_cls else "")
@@ -205,7 +206,7 @@ def run(model: str, prior_ckpt, gen_ckpt, manifest: dict, columns: dict, procedu
                "bank": {"train": int(len(train_idx)), "test": int(len(test_idx))},
                "prior_meta": {k: pmeta.get(k) for k in ("sources", "dct_k", "n_train", "steps", "width", "depth",
                                                         "lr", "n_classes", "compile_mode")},
-               "sampled_classes": cls_names,
+               "sampled_classes": cls_names, "noise_scale": float(noise_scale),
                "label_pool": None if not n_cls else {"n": len(pool), "of": n_cls,
                                                      "restricted": bool(pmeta.get("trained_classes"))},
                "gates": {k: {q: group(k, q) for q in ("round_trip", "video_nn_r", "video_nn_distance")}
@@ -234,6 +235,8 @@ def main(argv=None) -> int:
     p.add_argument("--clips", type=int, default=3)
     p.add_argument("--corpus", default="")
     p.add_argument("--prior-steps", type=int, default=0, help="Euler steps for the prior alone; 0 = same as 13B's")
+    p.add_argument("--noise-scale", type=float, default=1.0,
+                   help="длина стартового шума; 1 — обычный сэмплер (18.17)")
     p.add_argument("--guidance", type=float, default=0.0,
                    help="classifier-free guidance scale; 0 = off, 1 = the plain conditional path")
     p.add_argument("--seed", type=int, default=0)
@@ -245,7 +248,7 @@ def main(argv=None) -> int:
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     r = run(a.model, Path(a.prior), Path(a.gen), manifest, columns, proc, corpus=Path(a.corpus) if a.corpus else None, n_samples=a.samples, n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0),
-            prior_steps=a.prior_steps, guidance=a.guidance, seed=a.seed)
+            prior_steps=a.prior_steps, guidance=a.guidance, noise_scale=a.noise_scale, seed=a.seed)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     gt = r["summary"]["gates"]

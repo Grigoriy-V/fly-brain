@@ -175,10 +175,17 @@ def invert(model: nn.Module, x: torch.Tensor, *, steps: int = 20, fixed_point: i
 @torch.no_grad()
 def sample(model: nn.Module, n: int, *, frames: int = 40, k: int = 8, columns: int = 721, steps: int = 20,
            device=None, generator: torch.Generator | None = None, y: torch.Tensor | None = None,
-           guidance: float = 0.0) -> torch.Tensor:
-    """(n, T, K, 721) states drawn from the prior, in 13B's conditioning units."""
+           guidance: float = 0.0, noise_scale: float = 1.0) -> torch.Tensor:
+    """(n, T, K, 721) states drawn from the prior, in 13B's conditioning units.
+
+    `noise_scale` shortens the starting draw (18.17). It is not the training
+    distribution and is therefore a measured trick, not a derivation: the
+    inversion showed that the noise a REAL state comes from sits at 0.83 of
+    the typical radius, about 73 standard deviations inside the shell every
+    unscaled draw lands on, so a shorter draw starts where the data's own
+    preimages live. 1.0 is the ordinary sampler."""
     dev = device or next(model.parameters()).device
-    x = torch.randn(n, frames, k, columns, device=dev, generator=generator)
+    x = torch.randn(n, frames, k, columns, device=dev, generator=generator) * float(noise_scale)
     return integrate(guided(model, y, guidance), x, steps=steps)
 
 
@@ -334,13 +341,13 @@ def from_model_space(meta: dict, x: torch.Tensor) -> np.ndarray:
 @torch.no_grad()
 def sample_states(model: nn.Module, meta: dict, n: int, *, steps: int = 20, device=None,
                   generator: torch.Generator | None = None, y: torch.Tensor | None = None,
-                  guidance: float = 0.0) -> np.ndarray:
+                  guidance: float = 0.0, noise_scale: float = 1.0) -> np.ndarray:
     """(n, 40, 8, 721) states in 13B's conditioning units, from either prior:
     the plain one samples frames directly, the DCT one samples coefficients,
     undoes their per-coefficient scaling and transforms back to frames."""
     dev = device or next(model.parameters()).device
     x = sample(model, n, frames=meta["frames"], k=meta.get("k", 8), steps=steps, device=dev, generator=generator,
-               y=y, guidance=guidance)
+               y=y, guidance=guidance, noise_scale=noise_scale)
     return from_model_space(meta, x)
 
 
