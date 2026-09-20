@@ -362,13 +362,16 @@ spent.
 | 18.4d K = 32 | the floor is lower (99.913 % of the energy kept against 99.32 %) and the gate is **5.9× worse**: 0.527. At width 128 the model already binds, so twice the target dimension makes it relatively smaller. Revisit **after** capacity, not instead of it. Maps file by `dct_maps` (cpu 2 / 24 GB, 106 s, ≈ $0.03) built **without touching** the 9 GB original. One T4, 1,033 s, ≈ $0.23. |
 | 18.4c 60,000 steps | **0.074** against the control's 0.090, validation 0.4046 — and converged (−0.41 % over the last 10,000 steps), which settles 18.3's open question. The four rate/length arms collapse onto the product **lr × steps**: 60 / 120 / 180 / 200 units give 0.090 / 0.080 / 0.074 / 0.076, so 60k at 3e-4 and 20k at 1e-3 are interchangeable — and the rate buys that product **2.8× cheaper** than steps. Width 192 sits at the same 60 units as the control at 0.034, off this curve entirely. One T4, 2,479 s, utilisation 95.0 %, ≈ $0.47. |
 | 18.4e classes | 110 labels (101 UCF101 + 9 procedural kinds), DiT-style label embedding: **no effect**, 0.098 against 0.090, inside the spread. The published precedent (conditioning alone, FID 26.21 → 10.94) does not transfer — the research note named the reason in advance: no study covers a label only loosely coupled to the signal. One T4, 845 s, ≈ $0.17. |
+| 18.5a **width 192 + lr 1e-3** | the two levers of 18.4 run together: gate **0.0224** against a DCT-16 floor of **0.0209**, validation 0.2480. The prior's own share falls 0.0133 → **0.0015**, below what 16 samples resolve — the two medians are indistinguishable, which is the claim, not "solved". On validation the levers **multiply to within 0.4 %** (×0.836 · ×0.589 predicts 0.2490). Novelty holds +0.452 (clip +0.554). **Consequence: no model-side lever can move the round trip at DCT-16.** One T4, 1,180 s, utilisation 95.8 %, ≈ $0.23. |
+| 18.5b **K = 32 at width 192** | capacity is **not** what K = 32 lacked: the K=32/K=16 ratio is 5.9× at width 128 and **6.6×** at width 192 — it did not shrink, which refutes 18.4d's capacity reading. Both improve absolutely (0.527 → **0.224**) and novelty recovers +0.12 → +0.35. Measured alternative, offered as a hypothesis: per-coefficient z-scoring gives the top 16 of 32 coefficients **50 % of the loss** while they carry **0.45 % of the state energy** (112× over-weighting; 14× at K = 16). One T4, 1,229 s, utilisation 96.6 %, ≈ $0.25. |
 
 `reports/2026-09-20_step18_corpus_of_ordinary_video.md`,
 `reports/2026-09-20_step18_3_prior_on_the_corpus.md`,
 `reports/2026-09-20_step18_4_throughput_and_learning_rate.md`,
+`reports/2026-09-20_step18_5_width_and_the_representation_floor.md`,
 `reports/figures/2026-09-20_malecns_check18.gif`,
 `..._prior18.gif`, `..._new_video18.gif`, `..._bench17.png`, `..._lr18.png`,
-`..._arms18.png`, `..._scaling18.png`, `..._classcmp18.gif`,
+`..._arms18.png`, `..._scaling18.png`, `..._width18.png`, `..._classcmp18.gif`,
 `..._new_video18_w192.gif`.
 
 **What the numbers answer.** Data was the limit, not the method: the same
@@ -380,11 +383,15 @@ texture, 8× a real clip's round trip.
 human decides). Of the 0.095, **0.021 is the floor** — a real state
 band-limited to the same DCT-16 scores exactly that — and **0.074 is the
 prior**. So:
-1. ~~**The floor**~~ — **measured 2026-09-20 (18.4d): K = 32 is 5.9× worse**,
-   not better, because at width 128 the model binds before the representation
-   does. The floor is still there (0.021 of today's best 0.034, i.e. two
-   thirds of what is left), so K comes back **after** width, at a width that
-   can carry it.
+1. ~~**The floor**~~ — **measured twice. 18.4d: K = 32 is 5.9× worse** at
+   width 128, read then as capacity. **18.5b tested that reading and it is
+   wrong**: at width 192 the penalty is 6.6×, no smaller. The floor is now
+   what binds — 18.5a's 0.0224 sits on the 0.0209 of DCT-16 — but raising K
+   costs more than the floor it buys, and the open lead is the loss weighting
+   (the top half of the K = 32 coefficients takes 50 % of the loss for 0.45 %
+   of the energy), not a bigger model. K = 40 needs no run: the time axis is
+   40 frames, and K = 32's floor (0.0115) is already below a real clip's own
+   round trip (0.0119).
 2. ~~**The learning rate**~~ — **closed by measurement 2026-09-20 (18.4b)**.
    The research flagged our 3e-4 at batch 32 as 8.5-24× above the
    extrapolation of DiT/SiT's 1e-4 @ 256. Run as a paired arm, nothing else
