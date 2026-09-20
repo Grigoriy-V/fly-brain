@@ -137,7 +137,42 @@ for the working K = 16 representation (k = 512 is 85.5 %, DCT K = 8 is 54.3 %).
 Variance lost is the wrong yardstick and was corrected here: the same 18.5 %
 loss means something different for PCA than for DCT.
 
-## Approved next step: a VAE with a 2,048 latent
+**18.23 measured: the pairs are learnable after all — but only the ones seen.**
+The human, 2026-09-20: *"Пары работают. Они просто лежат не там... надо
+положить пары туда куда надо"*. All 13,555 training states were inverted
+through the prior itself, each preimage put on the shell (sd 1.0000, radius
+303.8 ± 0.00) and pinned as that clip's noise. An assigned seed now returns its
+own clip **8 times out of 8** at r = 0.929, second-best of 13,555 at 0.57, with
+train loss 0.0289 against 0.2131 for the random coupling. This corrects 18.20's
+reading: an *arbitrary* assignment of 13,555 points is not learnable, but one
+that is itself the smooth inverse of a neural ODE is. No generalisation,
+though — on held-out clips the preimage moved only 0.848 → 0.880 per-axis
+(target 1.000) and a fresh draw got poorer, 24.7 % → 22.1 % sparseness. One
+real mechanism change: rescaling a held-out preimage to √D now costs 36.4 %
+error against 92.8 % before. $0.82, inversion at 20 Euler steps (approximate).
+
+**18.24 measured: the VAE takes half the acceptance test.** Per-column latent
+721 × 3 = 2,163 (42.7× compression, 3.89 M parameters), β = 1e-4, 20,000 steps.
+**B passes and it is the first time on this track**: held-out encodings sit at
+radius 46.1 ± 1.99 with per-axis sd 0.993 and a fresh draw at 46.5 / 1.000
+(√D = 46.5) — the seed is genuinely drawable, where the flow's preimages sat at
+0.85 of the shell and moved for nothing. **A fails**: through the
+encoder-decoder a held-out clip returns at r 0.604 against the 0.952 ceiling,
+and a drawn latent gives r −0.023 with 23.7 % sparseness against the raw clip's
+49.8 %. $0.85.
+
+**18.24b measured: the KL dial is cut off at both ends, and it is the wrong
+dial.** At β = 1e-5 the signal share of the latent goes 19 % → 87 %, but the
+latent leaves the shell (radius spread 1.99 → 11.01 against a Gaussian's 0.71)
+and a drawn latent lands where the brain cannot follow (gate 0.2649 against
+0.0114 for a real state). **The number that matters: 4.6× more latent signal
+bought only 0.604 → 0.651 of reconstruction, against a 0.952 ceiling and 0.890
+for linear PCA at the same dimension — so the bottleneck is the encoder-decoder
+itself, not the KL noise.** Caveat, the agent's: 20,000 steps against 8,000, so
+the comparison is not clean (at matched step 8,000, val_rec 0.3469 against
+0.3542). $0.33.
+
+## The VAE with a 2,048 latent — built, half of the test taken
 
 The human, 2026-09-20, on the evidence above: **"VAE на 2 048"**. Full argument
 and numbers: `reports/2026-09-20_the_seed_problem.md` §§ 7-8.
@@ -153,11 +188,23 @@ The consequence that matters: **if the KL does its job, z is drawable from
 N(0, I) by construction**, the seed problem is dissolved rather than patched,
 and a separate prior over states may not be needed at all.
 
-Open at the start of the build, to be decided in it: the encoder and decoder
-architecture over the hex lattice, the reconstruction/KL balance, and whether a
-flow over the latent is needed on top. Judged by the standing criterion — a
-drawn z, decoded, rendered, as a **clip against the raw corpus video**. Nothing
-is built until the human says so.
+Built as `flydream/generate/vae18.py` with the acceptance test in
+`vaeval18.py`; the latent is 721 × 3 = 2,163, the per-column reading of the
+2,048 above. The consequence held: **KL is the missing term**, and B passes to
+within 1 %. What did not hold is the reconstruction, and 18.24b showed the KL
+weight is not what is holding it back.
+
+**Open, and the live question on this track:** the encoder-decoder itself —
+depth, width, the shape of the latent over the hex lattice, and whether a flow
+over the latent is needed on top. Judged by the standing criterion — a drawn z,
+decoded, rendered, as a **clip against the raw corpus video**.
+
+**The decisive cheap test, named and not run: β = 0, a pure autoencoder**, to
+measure this architecture's reconstruction ceiling with no KL at all. Reaching
+~0.89 means the balance is the problem and the answer is between 1e-5 and 1e-4;
+stalling at 0.65 means the architecture does not reach linear PCA and no β will
+save it. 20,000 steps ≈ 46 min ≈ $0.85, or 8,000 steps ≈ $0.33. Priced, so it
+needs the human's word before it starts.
 
 ## Item 17, the brain-state prior — measured, its gates open
 
