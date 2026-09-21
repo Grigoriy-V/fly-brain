@@ -11,10 +11,16 @@ acceptance criterion is his and overrides every metric
 (`reports/2026-09-20_the_seed_problem.md` §5): a result counts only as a
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
+Since 2026-09-21 that goal has a narrower first target, also his: **a scene as
+one still picture**, not a clip - "добиться сцены не с видео а просто
+картинкой, а движение меня пока не парят" - over a static state of 721 x 2
+numbers.
 
-**Current approved step:** none. 26 is finished and negative (below); 23.2
-opened a direction the human raised and it is his call whether it becomes the
-next step. The queue below is his own disposition of the options, 2026-09-21.
+**Current approved step:** 29.2, the eight-slice static flow (queue below).
+The human fixed its composition 2026-09-21 ("1 и 4 берём на след тест") and
+excluded from it the trained renderer, the other six types and rotation
+augmentation. The run itself is **not yet authorized**: it is priced and asked
+for separately, as every priced run is.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -39,6 +45,11 @@ choices. This file alone owns current work, order and authorization.
 - **The object:** the T4a+T4b block, 721 columns x 32 channels = 23,072
   numbers, with the other six types declared absent through 13B's own type
   mask; r 0.884 against 0.952 for the whole state (22).
+- **The static object** (since 29): coefficient 0 of that same block, 721
+  columns x 2 types = 1,442 numbers, with no time axis at all. It is **not**
+  721 x 32 - the human, twice: "никаких 721*32 быть не может, в чём тогда
+  смысл выкидывания времени". It is read off the states already on the volume;
+  nothing is re-simulated.
 - **First stage:** PCA over the training states, whitened
   (`flydream/generate/pca19.py`); PCA-2048 over the whole state and PCA-1536
   over the block, basis and latents on the volume under `prior19/`. Acceptance
@@ -47,7 +58,18 @@ choices. This file alone owns current work, order and authorization.
 - **noise2state:** flow matching over the whitened latent, 16 tokens of 128
   (`prior17.py` with `train17(latent_tokens=…, latent_k=…)`); checkpoints under
   `prior19/` (2,048 of the whole state) and `prior22/` (1,536 of the block).
-  The live problem is here.
+  Since 23 the flow also runs on the lattice itself (`hexflow23.py`,
+  `train17(backbone="hex")`), checkpoints `prior23/` over the block and
+  `prior29/` over the static state. The live problem is here.
+- **Rendering a static state:** 13B cannot do it. It goes blank on a state
+  that is constant in time and no synthetic residue rescues it - the best of
+  four crutches reads r 0.351 against a 0.941 ceiling, and the donor arm
+  renders the donor's picture sharply, so the content it reads lives in the
+  temporal coefficients. The provisional judge is a least-squares matrix from
+  the 1,442 numbers to the window's mean frame, r 0.941 on held-out clips from
+  unseen classes; it blurs, because least squares draws the conditional mean.
+  A trained renderer is queue 30 and **does not exist in any form**: no
+  function on Modal, no module under `flydream/generate/`.
 - **Measurement:** `seed19.py` (the seed test: preimage geometry, a clip's own
   seed, a fresh draw, controls without the flow, interpolation, `--fix` for a
   corrected sampler), `tprofile19.py` (where the sampler leaves the truth),
@@ -55,8 +77,11 @@ choices. This file alone owns current work, order and authorization.
   `inside22.py` (how far the state can be cut), `latent22.py` (the PCA ladder
   and the compression routes), `hexcov19.py` (covariance against hex distance),
   `back21.py` (what the chain restores), `floors22.py` (the floor and range of
-  every judge), `vaeval18.py`, `roundtrip13.py`, figures under
-  `tools/fig_*.py`.
+  every judge), `accept23.py` (kurtosis, radius and transport angle against
+  matched training subsamples), `seed23.py` (the seed test without PCA),
+  `still23.py` and `static23.py` (whether one still picture survives the
+  chain), `fixdraw23.py` (corrections at draw time), `vaeval18.py`,
+  `roundtrip13.py`, figures under `tools/fig_*.py`.
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for anything that
   fits in ten minutes; Modal T4 (`flydream-generate`, `flydream-train`,
   `flydream-decode`) for GPU work, called through `tools/modal_call.py`.
@@ -220,44 +245,96 @@ Closed items, one line each, evidence in the linked report.
   `2026-09-21_prior23_{still,static}`; code
   `flydream/generate/{still23,static23}.py`.
 
+- **29a, a picture out of a state without 13B** (2026-09-21, local, free):
+  the static content is there and it is LINEAR. A least-squares matrix from
+  the 1,442-number DC to the window's mean frame reads r 0.941 on held-out
+  clips from ten unseen classes, against 0.021 for predicting the corpus mean
+  and 0.002 for shuffled pairs; from the whole block to one single frame,
+  0.902 against the DC's 0.825, so the instantaneous part of the state is what
+  a single frame needs. What it cannot do is sharpness - flat fraction 24.3
+  against the target's 45.1 - because least squares draws the conditional mean
+  over every picture compatible with the state. The same run killed the
+  crutch family: 13B on DC plus zeros 0.257, plus the mean still residue
+  0.351, plus another still's residue 0.137 (and it renders the DONOR sharply),
+  plus unit noise 0.045, against a 0.941 ceiling. Runs
+  `2026-09-21_prior23_{pic,pic_k16,resfix}`; code `tools/fig_pic23*.py`.
+
+- **29, the flow over the static state** (2026-09-21): trained on the DC of
+  the states already on the volume - no new brain pass, since the DC of a
+  moving clip and the state a still frame causes agree at r 0.922. Hex-local,
+  3x patchify, 10,000 steps at batch 256 and lr 2e-3, 2,512 s on one T4 at
+  99.0 percent utilisation, **0.42 dollars**, 0 nan, val 0.2160 against a
+  zero-velocity control of 2.0. Through the least-squares renderer a draw
+  matches a real held-out state exactly on flat fraction, 27.1 against 27.1,
+  and nearly on neighbour coherence, 0.928 against 0.949, where the no-flow
+  N(0,I) control reads 19.5 percent and 0.492 - the first time in this line
+  that a draw is not separable from a real state on a structural judge.
+  Diversity is right too: pairwise correlation between draws -0.007 mean and
+  0.819 max against 0.008 and 0.758 between real pictures. Two things bound
+  it. The renderer blurs, so matching a real state THROUGH IT is a much lower
+  bar than being a scene; and the target distribution is nearly Gaussian
+  (training DC kurtosis 3.17 +- 0.10 against a Gaussian's 2.98), because a
+  40-frame average is driven to normality, so the kurtosis gate that governed
+  22-23 is vacuous here. The human's verdict by eye: closer to a scene than
+  anything before it, and not yet a scene. Run `2026-09-21_prior29_static_ab`;
+  code `flydream/generate/hexflow23.py` with `train17(coef=1)`.
+  **Reports for 23, 26 and 29 are not written yet**; the numbers above and in
+  `reports/runs.jsonl` are the record until they are.
+
+- **29.1, why one frame and not forty** (2026-09-21, local, free): the DC is
+  a 40-frame average and that is what makes it Gaussian and blurred. A single
+  temporal slice of the same state is genuinely sparser, per-coordinate
+  kurtosis 5.26 against the DC's 3.17, and it renders its own frame at r
+  0.93-0.96 (clip 6008) and 0.88-0.92 (clip 51) for frames 5 to 35. Frame 0 is
+  broken, r -0.936 and -0.890, a flat grey field - a window-edge artefact - so
+  slices start at frame 5. Measured with a throwaway script that was not kept:
+  the numbers stand, the figures are in `reports/figures/*slices8*.png`, and
+  29.2 re-derives them in committed code.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
-is proposed. The shape of the problem has been tried and is exhausted: 20
-repaired the sampler and it was not the blocker, 22 shrank the object fourfold
-and nothing moved. What remains is the shape of the model. Evidence:
+is proposed. Two levers have been spent: the sampler (20, not the blocker)
+and the size of the object (22, nothing moved). Two have paid: the shape of
+the model (23, every number moved once the lattice was kept) and the shape of
+the target (29, a draw that a structural judge cannot separate from a real
+state). What remains on this branch is sharpness - the renderer - and a target
+that is not Gaussian, which is 29.2. Evidence:
 `reports/2026-09-21_step22_a_smaller_object.md` and
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-30. **A generative renderer, static state to picture** - not approved, priced
-    2026-09-21 at **0.15 to 0.50 dollars**, most likely about 0.25, 15 to 50
-    minutes on one T4. Input 1,442 numbers, output one 721-value picture, no
-    time axis; data is free, the pairs exist for all 15,514 clips and no brain
-    pass is needed. It is needed because the existing 13B **cannot** take a
-    721 x 2 state and no crutch rescues it: measured, DC plus zeros gives
-    r 0.257, plus the mean residue of still states 0.351, plus another still's
-    residue 0.137 and plus unit noise 0.045, against a ceiling of 0.941 - and
-    the donor arm renders a sharp picture of the DONOR, so the content 13B
-    reads lives in the temporal coefficients, not in the DC, despite those
-    carrying only 4 percent of the raw energy. Until it exists, a least
-    squares matrix renders a picture from 721 x 2 at r 0.941 to the window's
-    mean frame (0.902 from the whole block to one frame) - enough to judge a
-    flow, since the blur falls on the real state and the draw alike, and not
-    enough for a result, since least squares draws the conditional mean
-    (flat fraction 24.3 against the picture's 45.1, where 13B on a real
-    still-state reaches 46.0 against 53.0).
+29.2. **Eight slices per clip, not one average** - **the agreed next step**,
+    the human 2026-09-21: "1 и 4 берём на след тест". The flow's target stops
+    being the 40-frame average and becomes a single temporal slice of the
+    state, eight per clip at frames 5, 10, ... 35 (frame 0 is a broken
+    window edge, 29.1). Two things follow at once: the object stays 721 x 2,
+    and the corpus grows eightfold without one new simulation, which is item
+    27's lever at zero cost. The reason is measured, not aesthetic - a slice
+    has kurtosis 5.26 against the average's 3.17, so the target stops being
+    Gaussian and the acceptance gate stops being vacuous. Excluded from this
+    test by the human, explicitly: the trained renderer, the other six types,
+    rotation augmentation. Not yet authorized: it is a T4 training run and is
+    priced when it is proposed.
 
-29. **A scene as one still picture** - the human's direction, 2026-09-21
-    ("добиться сцены не с видео а просто картинкой, а движение меня пока не
-    парят"). The flow draws a static state of 1,442 numbers, 721 columns x 2
-    types, and it is **not** 721 x 32 - the human, twice: "никаких 721*32 быть
-    не может, в чём тогда смысл выкидывания времени". The bet is not that the
-    object is smaller, which 22 showed buys nothing, but that a whole factor
-    of variation is gone: a still scene has no motion to invent. Training data
-    is free either way - the DC of the states already on the volume, or true
-    still-stimulus states for one 0.12-dollar brain pass. Rendering for the
-    check is the matrix; rendering for the result is 30. Not approved.
+30. **A generative renderer, static state to picture** - not approved, and
+    the human kept it out of 29.2 ("отрисовщик не"). Priced 2026-09-21 at
+    **0.15 to 0.50 dollars**, most likely about 0.25, 15 to 50 minutes on one
+    T4. Input 1,442 numbers, output one 721-value picture, no time axis; the
+    data is free and needs no brain pass - states in `gen18/maps_dct16.npz`,
+    frames in `gen18/maps_deep.npz`, both on the volume, and the DCT-compact
+    file carries no videos, so the two halves of a pair come from two files.
+    It is needed because 13B cannot take a 721 x 2 state and no crutch
+    rescues it (29a), and because the least-squares stand-in blurs by
+    construction. Two things stand between it and a run: **no training code
+    exists** - no function on Modal, no module under `flydream/generate/` -
+    and the objective is undecided, since a squared-error renderer would
+    reproduce exactly the conditional-mean blur it is meant to remove, which
+    makes this a generative model and not a bigger matrix. Open beside it:
+    the human cannot yet confirm by eye that a still picture is correctly
+    extracted from a state, because every picture shown to him passed through
+    a local PCA-2048 reconstruction (89.5 percent of variance); the true
+    states are on the volume and that contamination is local to the laptop.
 
 27. **Corpus four to six times over** - the human, 2026-09-21: "скорее всего
     будет следующим". The reason this was deferred no longer holds: it was
@@ -266,6 +343,8 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
     vector. Since 23 it is a local net over the lattice. The clips exist as
     unused rotations of the corpus; the cost is re-simulating their states
     through the frozen brain and retraining, and is priced when proposed.
+    29.2 takes the same lever eightfold for nothing on the static branch, so
+    this item is now about the moving one, or about going past eightfold.
 
 28. **More capacity and more steps** - the human, 2026-09-21: "пока в ожидании
     после 2". Width 192 to 384 and depth 6 to 10-12 with a longer schedule;
@@ -276,7 +355,8 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
     now (kurtosis beside radius, 22.8 and 26), so this reads in an hour.
 
 24. **Conditioning, two-stage.** Draw the DC part of the state, then the
-    motion given it. Kept behind the above because its measured gains come
+    motion given it. 29 built the first half of this and measured it; what is
+    untried is the second, the motion conditioned on a drawn static state. Kept behind the above because its measured gains come
     from fine continuous conditions, and its cost is memorisation, which then
     has to be measured beside every sample. The human asked for an
     explanation of it 2026-09-21 before deciding.
