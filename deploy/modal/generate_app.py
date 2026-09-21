@@ -1048,7 +1048,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
             couple: str = "random", couple_file: str = "", couple_norm: str = "shell",
             latent_tokens: int = 0, latent_k: int = 0, types: str = "", backbone: str = "",
-            lattice: str = "third", radius: int = 2, n_global: int = 4, abs_pos: bool = False) -> dict:
+            lattice: str = "third", radius: int = 2, n_global: int = 4, abs_pos: bool = False,
+            coef: int = 0) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -1058,6 +1059,15 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     axis compressed to its first DCT coefficients, each z-scored over the
     training subset. K = 16 keeps 99.55 % of the energy and costs a round trip
     of 0.045 on real states; K = 8 costs 0.58 (measured before the run).
+
+    29 (`coef=1`): keep only the first temporal coefficients of the block, so
+    the object is the STATIC part of the state - at `coef=1` that is 721 x 2 =
+    1,442 numbers and the time axis is gone from what the flow must invent.
+    Measured beforehand: the DC of a moving clip and the state a still frame
+    causes agree at r 0.922, so nothing has to be re-simulated; the residue
+    that 13B needs to render is 76 percent predictable from the DC by a local
+    linear map, so rebuilding it is a separate deterministic step, not the
+    flow's job.
 
     23 (`types="T4a,T4b"`, `backbone="hex"`): the flow over the block of the
     state itself, 721 x 32 with the lattice intact, instead of over a PCA
@@ -1113,6 +1123,13 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         if coef_mean is not None:
             coef_mean, coef_std = np.asarray(coef_mean)[:, ch], np.asarray(coef_std)[:, ch]
         print(f"types {want} -> channels {ch}: train {tuple(m.shape)}, "
+              f"{int(np.prod(m.shape[1:]))} numbers per clip", flush=True)
+    if coef:
+        # Ось DCT режется ПОСЛЕ типов и вместе со всем, что по ней нарезано.
+        m, mv = m[:, :coef], mv[:, :coef]
+        if coef_mean is not None:
+            coef_mean, coef_std = np.asarray(coef_mean)[:coef], np.asarray(coef_std)[:coef]
+        print(f"coefficients 0..{coef - 1} of {dct_k or time_frames}: train {tuple(m.shape)}, "
               f"{int(np.prod(m.shape[1:]))} numbers per clip", flush=True)
     names, labels, val_labels, trained = [], None, None, None
     if classes:                                                      # 18.4e: the label the clip came with
@@ -1202,7 +1219,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             "trained_classes": trained,
             "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop), "couple": couple,
             "couple_file": couple_file, "couple_norm": couple_norm,
-            "types": want, "backbone": backbone, "lattice": lattice, "radius": int(radius),
+            "types": want, "coef": int(coef), "backbone": backbone, "lattice": lattice,
+            "radius": int(radius),
             "n_global": int(n_global), "abs_pos": bool(abs_pos),
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),

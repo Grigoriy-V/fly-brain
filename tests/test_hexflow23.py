@@ -152,3 +152,15 @@ def test_checkpoint_round_trip_rebuilds_the_hex_backbone(tmp_path):
     x, t = torch.randn(2, 8, 2, 721), torch.rand(2)
     with torch.no_grad():
         assert torch.allclose(back(x, t), m(x, t), atol=1e-5)
+
+
+def test_hex_backbone_works_at_one_temporal_coefficient():
+    """29: объект статики — 721 x 2. Токен несёт всего 6 чисел (3 колонки x
+    2 типа), и входная проекция обязана их поднять, а не упереться."""
+    m = H.build(frames=1, k=2, backbone_unused=None, width=32, depth=2, heads=4) \
+        if False else H.HexSiT(frames=1, k=2, width=32, depth=2, heads=4)
+    assert m.inp.in_features == 3 * 1 * 2
+    x = torch.randn(2, 1, 2, 721)
+    assert m(x, torch.rand(2)).shape == x.shape
+    out = R.integrate(R.build(frames=1, k=2, backbone="hex", width=32, depth=2), x, steps=3)
+    assert out.shape == x.shape
