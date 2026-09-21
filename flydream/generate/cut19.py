@@ -61,10 +61,22 @@ DEFAULT = ("pca=2048", "pca=512", "pca=256", "pca=128", "types=T4", "types=T4+co
 
 
 def parse_cut(text: str) -> dict:
-    """`"types=T4+complete"` -> {"kind": "types", "value": "T4", "complete": True}."""
+    """`"types=T4+complete"` -> {"kind": "types", "value": "T4", "complete": True}.
+
+    Третий суффикс — `+mask`: не обнулять отброшенное молча, а **сказать 13B,
+    что его нет**. У генератора это штатный режим (`MASK_MODES`: маска `t4` и
+    маска `t5` по 10 % обучающих батчей), и он честнее обнуления, при котором
+    модели сообщают «тип присутствует и он ровный»."""
     s = str(text).strip()
-    complete = s.endswith("+complete")
-    s = s[: -len("+complete")] if complete else s
+    flags = set()
+    while "+" in s:                                                   # суффиксы в любом порядке
+        s, _, last = s.rpartition("+")
+        if last not in ("complete", "mask"):
+            raise ValueError(f"неизвестный суффикс +{last} в срезе {text!r}")
+        flags.add(last)
+    complete, mask = "complete" in flags, "mask" in flags
+    if complete and mask:
+        raise ValueError("+complete и +mask вместе бессмысленны: достроенный тип присутствует")
     if "=" not in s:
         raise ValueError(f"не разобрать срез {text!r}: нужно вид=значение из {KINDS}")
     kind, value = (x.strip() for x in s.split("=", 1))
@@ -72,7 +84,9 @@ def parse_cut(text: str) -> dict:
         raise ValueError(f"неизвестный срез {kind!r}, есть только {KINDS}")
     if kind == "pca" and complete:
         raise ValueError("pca=k уже наименьшие квадраты в подпространстве; +complete здесь не значит ничего")
-    return {"kind": kind, "value": value, "complete": complete}
+    if mask and kind != "types":
+        raise ValueError("+mask есть только у среза по типам: маска 13B — это восемь бит по типам")
+    return {"kind": kind, "value": value, "complete": complete, "mask": mask}
 
 
 def mask_of(cut: dict, shape) -> torch.Tensor:
@@ -187,7 +201,10 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     jobs = {f"{g}|{i}": v[i] for g, v in groups.items() for i in range(n_clips)}
     names = list(jobs)
     cond = torch.as_tensor(np.stack([jobs[n] for n in names]), device=dev)
-    mask = torch.ones(len(names), len(DEEP), device=dev)
+    bits = {g: (np.asarray(G.named_mask(specs[list(cuts).index(g)]["value"].lower()), np.float32)
+                if g in cuts and specs[list(cuts).index(g)].get("mask") else np.ones(len(DEEP), np.float32))
+            for g in groups}
+    mask = torch.as_tensor(np.stack([bits[n.rsplit("|", 1)[0]] for n in names]), device=dev)
     vids = []
     with torch.no_grad():
         for i in range(0, len(names), 8):

@@ -45,7 +45,7 @@ from flydream.generate.pairs13 import simulate_states
 from flydream.generate.prompts14 import Deep
 from flydream.generate.roundtrip13 import build_states
 
-ARMS = ("полное", "types=T4", "types=T4+complete", "rings=10", "pca=128")
+ARMS = ("полное", "types=T4+mask", "types=T4", "types=T4+complete", "rings=10", "pca=128")
 
 
 def per_type(a: np.ndarray, b: np.ndarray, type_of: np.ndarray, var_ref: dict) -> dict:
@@ -131,7 +131,15 @@ def run(model: str, pca_path: Path, latent_path: Path, gen_ckpt: Path, manifest:
     names = [f"{a}|{i}" for a in arms for i in range(n_clips)]
     jobs = {f"{a}|{i}": asked[a][i] for a in arms for i in range(n_clips)}
     cond = torch.as_tensor(np.stack([jobs[n] for n in names]), device=dev)
-    mask = torch.ones(len(names), len(DEEP), device=dev)
+    # Маска типов — штатный вход 13B (MASK_MODES: t4 и t5 по 10 % обучения).
+    # Подавать ones() при обнулённой половине значит врать модели: «тип есть и
+    # он ровный». Арма с суффиксом +mask говорит правду.
+    bits = {}
+    for arm in arms:
+        c = None if arm == "полное" else C.parse_cut(arm)
+        bits[arm] = (np.asarray(G.named_mask(c["value"].lower()), np.float32)
+                     if c and c.get("mask") else np.ones(len(DEEP), np.float32))
+    mask = torch.as_tensor(np.stack([bits[n.rsplit("|", 1)[0]] for n in names]), device=dev)
     vids = []
     with torch.no_grad():
         # Пачка РОВНО в группу: 13B берёт j-й шум для j-го элемента пачки, поэтому

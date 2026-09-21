@@ -106,7 +106,8 @@ def test_velocity_profile_reports_every_step():
 # ------------------------------------------------------------------- the cuts
 
 def test_parse_cut():
-    assert C.parse_cut("types=T4+complete") == {"kind": "types", "value": "T4", "complete": True}
+    assert C.parse_cut("types=T4+complete") == {"kind": "types", "value": "T4",
+                                                "complete": True, "mask": False}
     assert C.parse_cut(" dct=8 ")["complete"] is False
     with pytest.raises(ValueError):
         C.parse_cut("pca=512+complete")
@@ -114,6 +115,21 @@ def test_parse_cut():
         C.parse_cut("colour=red")
     with pytest.raises(ValueError):
         C.parse_cut("T4")
+
+
+def test_parse_cut_mask_is_the_generators_own_input():
+    """`+mask` says "this type is not given" through 13B's own eight mask bits,
+    which it trained on; without it a zeroed half is passed off as present."""
+    from flydream.generate.gen13b import named_mask
+
+    c = C.parse_cut("types=T4+mask")
+    assert c == {"kind": "types", "value": "T4", "complete": False, "mask": True}
+    assert list(named_mask("t4")) == [1, 1, 1, 1, 0, 0, 0, 0]
+    assert list(named_mask("t5")) == [0, 0, 0, 0, 1, 1, 1, 1]
+    with pytest.raises(ValueError):                                   # a completed type is present
+        C.parse_cut("types=T4+complete+mask")
+    with pytest.raises(ValueError):                                   # the mask is per type only
+        C.parse_cut("dct=8+mask")
 
 
 def test_mask_of_counts_what_it_keeps():
