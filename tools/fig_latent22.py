@@ -22,6 +22,8 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default=str(ROOT / "data" / "prior19"))
     p.add_argument("--tag", default="latent22")
+    p.add_argument("--cells", default="")
+    p.add_argument("--title", default="")
     p.add_argument("--show", type=int, default=1)
     p.add_argument("--prefix", default="2026-09-21_malecns_latent22")
     p.add_argument("--fps", type=int, default=8)
@@ -40,10 +42,15 @@ def main(argv=None) -> int:
               f"ровного {ru(f'{100 * S['raw']['frac_flat']:.1f}')} %"),
              (Z[f"video__{base}|{i}"], f"{'+'.join(S['types'])} целиком\nбез латента",
               f"{S['block_numbers']} чисел\nr {ru(f'{G[base]['r_to_raw']:.3f}')}")]
-    for k in S["ks"]:
-        g = G[f"k = {k}"]
-        cells.append((Z[f"video__k = {k}|{i}"], f"латент k = {k}",
-                      f"{ru(f'{100 * exp[k]:.0f}')} % дисперсии\nr {ru(f'{g['r_to_raw']:.3f}')}"))
+    nums = {f"каналов {m}": m * 721 for m in S.get("channels", [])} | {f"k = {k}": k for k in S["ks"]}
+    picked = [c.strip() for c in a.cells.split(";") if c.strip()] or [f"k = {k}" for k in S["ks"]]
+    for key in picked:
+        g = G[key]
+        head = key if key.startswith("каналов") else f"латент {key}"
+        cells.append((Z[f"video__{key}|{i}"], head,
+                      f"{nums.get(key, S['block_numbers'])} чисел" + chr(10) +
+                      f"r {ru(format(g['r_to_raw'], '.3f'))}, "
+                      f"ровного {ru(format(100 * g['frac_flat'], '.1f'))} %"))
     ks = S["ks"]
     slow = f"{frames} кадров по 20 мс (0,8 с мухи), в {1 / (a.fps * 0.02):.1f}× медленнее"
     title = (
@@ -70,7 +77,7 @@ def main(argv=None) -> int:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
-    row(cells, textwrap.fill(title, 165), Path(a.outdir) / a.prefix, frames, a.fps,
+    row(cells, textwrap.fill(a.title or title, 165), Path(a.outdir) / a.prefix, frames, a.fps,
         plt, FuncAnimation, PillowWriter, dpi=110)
     print("{:24} {:>11} {:>9} {:>12}".format("латент", "r к сырому", "ровного", "дисперсии"))
     for k, v in G.items():

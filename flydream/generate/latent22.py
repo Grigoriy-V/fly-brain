@@ -53,6 +53,25 @@ def block_index(types, n_dct: int = 16, n_types: int = 8, n_cols: int = 721,
                            for c in ch for k in range(n_dct)])
 
 
+def channel_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, n_chan: int,
+                  n_cols: int = 721) -> tuple:
+    """PCA по КАНАЛАМ в колонке: одно отображение 32 -> m, общее для всех колонок.
+
+    Глобальная PCA мешает вместе каналы и пространство, и падение резкости
+    (доля ровного поля 24-28 % при любом k, 22.1) приходит от пространственной
+    части. Здесь пространство не трогается вовсе: ковариация каналов
+    усредняется по колонкам, а сжатие применяется к каждой колонке отдельно.
+    Избыточность там измерена (21б): восемь типов в колонке скоррелированы на
+    0,373 в среднем, шестнадцать коэффициентов DCT — на 0,183.
+
+    Ковариация берётся из уже посчитанного базиса: `A = B[блок]·√λ`, тогда
+    `C = mean_колонки A Aᵀ` по оси каналов."""
+    A = (basis[idx] * lam.sqrt()).reshape(n_chan, n_cols, -1)
+    C = torch.einsum("acj,bcj->ab", A, A) / n_cols
+    ev, V = torch.linalg.eigh(C)
+    return V.flip(1), ev.flip(0).clamp_min(0)
+
+
 def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: int) -> tuple:
     """Главные направления блока внутри уже посчитанного подпространства."""
     A = basis[idx] * lam.sqrt()
@@ -66,7 +85,7 @@ def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: i
 def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path, *,
         types=("T4a", "T4b"), ks=(256, 512, 1024, 1536), n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
-        block_pca: str = "", log=print) -> dict:
+        block_pca: str = "", channels=(), log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -128,6 +147,22 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     groups = {}
     full = torch.zeros_like(flat); full[:, idx] = flat[:, idx]
     groups[f"{'+'.join(types)} без сжатия"] = R.from_model_space(pmeta, full.reshape(len(full), *shape))
+    chan_ev = None
+    if channels:
+        # Ось каналов — (коэффициент DCT, тип), 16 x 2 = 32. Индексы обязаны идти
+        # в порядке карт: коэффициент снаружи, тип внутри, колонка последней.
+        cidx = block_index(types, maps_order=True)
+        n_chan = len(types) * 16
+        V, chan_ev = channel_basis(basis, lam, cidx, n_chan)
+        mu_c = mu_full[cidx].reshape(n_chan, 721)
+        xc = flat[:, cidx].reshape(len(flat), n_chan, 721) - mu_c
+        for m in channels:
+            Vm = V[:, :m]
+            back = mu_c + torch.einsum("cm,nmk->nck", Vm, torch.einsum("cm,nck->nmk", Vm, xc))
+            out = torch.zeros_like(flat)
+            out[:, cidx] = back.reshape(len(flat), -1)
+            groups[f"каналов {m}"] = R.from_model_space(pmeta, out.reshape(len(out), *shape))
+            log(f"  каналов {m:2}: {m * 721} чисел, {time.time() - t0:.0f} с")
     for k in ks:
         groups[f"k = {k}"] = state_from(min(k, p_block["k"] if p_block is not None else U.shape[1]))
 
@@ -146,7 +181,9 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     log(f"{len(videos)} видео отрисовано, {time.time() - t0:.0f} с")
 
     nb = np.asarray(L.neighbour_index(721))
-    out = {"types": list(types), "ks": list(ks), "block_numbers": int(len(idx)),
+    out = {"types": list(types), "ks": list(ks), "channels": list(channels),
+           "channel_variance": None if chan_ev is None else (chan_ev / chan_ev.sum()).tolist(),
+           "block_numbers": int(len(idx)),
            "clip_idx": clip_idx.tolist(), "n_clips": n_clips,
            "block_pca": str(block_pca or ""),
            "explained": ({int(k): float(cum[min(k, len(cum)) - 1]) for k in ks} if cum is not None else
@@ -189,6 +226,7 @@ def main(argv=None) -> int:
     p.add_argument("--clips", type=int, default=6)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--block-pca", default="", help="npz настоящей PCA по блоку вместо оценки из полного базиса")
+    p.add_argument("--channels", default="", help="лестница сжатия КАНАЛОВ в колонке: 1,2,4,8,16,32")
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
     manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
@@ -198,16 +236,17 @@ def main(argv=None) -> int:
             types=tuple(x.strip() for x in a.types.split(",") if x.strip()),
             ks=tuple(int(x) for x in a.ks.split(",")), n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
-            t_pre=g.get("t_pre", 1.0), seed=a.seed, block_pca=a.block_pca)
+            t_pre=g.get("t_pre", 1.0), seed=a.seed, block_pca=a.block_pca,
+            channels=tuple(int(x) for x in a.channels.split(",") if x.strip()))
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
-    print("\n{:24} {:>11} {:>9} {:>12}".format("латент", "r к сырому", "ровного", "дисперсии"))
+    nums = {f"каналов {m}": m * 721 for m in S["channels"]} | {f"k = {k}": k for k in S["ks"]}
+    print()
+    print("{:24} {:>9} {:>11} {:>9}".format("сжатие", "чисел", "r к сырому", "ровного"))
     for k, v in S["groups"].items():
-        kk = k.replace("k = ", "")
-        exp = S["explained"].get(kk) or S["explained"].get(int(kk)) if kk.isdigit() else None
-        print("{:24} {:11.3f} {:8.1f}% {:>12}".format(
-            k, v["r_to_raw"], 100 * v["frac_flat"], f"{100 * exp:.1f} %" if exp else "—"))
+        print("{:24} {:9} {:11.3f} {:8.1f}%".format(
+            k, nums.get(k, S["block_numbers"]), v["r_to_raw"], 100 * v["frac_flat"]))
     print(f"\nwrote {out / a.tag}.json / .npz  ({S['seconds']:.0f} s, $0)")
     return 0
 
