@@ -207,10 +207,14 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     mask = torch.as_tensor(np.stack([bits[n.rsplit("|", 1)[0]] for n in names]), device=dev)
     vids = []
     with torch.no_grad():
-        for i in range(0, len(names), 8):
-            gg = torch.Generator(device=dev).manual_seed(1000 + seed)  # один z у 13B везде
-            vids.append(G.sample(gen, cond[i:i + 8], mask[i:i + 8], steps=20, generator=gg).cpu().numpy())
-            log(f"    13B {min(i + 8, len(names))}/{len(names)}, {time.time() - t0:.0f} с")
+        # Пачка равна группе: шум 13B берётся по пачке, поэтому «один z у клипа
+        # в каждой клетке» верно только когда границы пачек совпадают с
+        # границами групп (ISS-0009).
+        for i in range(0, len(names), n_clips):
+            gg = torch.Generator(device=dev).manual_seed(1000 + seed)
+            vids.append(G.sample(gen, cond[i:i + n_clips], mask[i:i + n_clips],
+                                 steps=20, generator=gg).cpu().numpy())
+            log(f"    13B {min(i + n_clips, len(names))}/{len(names)}, {time.time() - t0:.0f} с")
     videos = np.concatenate(vids).astype(np.float32)
     target_raw = np.stack([R.from_maps(R.unscale(jobs[n][None], mean, std), d.layout, len(d.cells_all))[0]
                            for n in names])

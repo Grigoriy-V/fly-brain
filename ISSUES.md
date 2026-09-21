@@ -27,8 +27,9 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0011 | open | three functions named `nearest` live in `flydream/generate/`: `vaeval18.py:47` and `blend18.py:44` are line-for-line the same Pearson correlation over a clip bank, while `baseline17.py:67` is a different algorithm under the same name - cosine similarity with no mean-centring, a batched signature and a `skip` mask - so importing the wrong one silently changes the scale a novelty claim is read on | roadmap 17-22 |
 | ISS-0010 | open | a fresh draw's geometry is scored against the held-out split, which the flow was never trained to match: at k = 1536 the held-out latent has per-axis sd 0.829 [0.206 .. 1.075] and radius 29.67 against exactly 1.000 [0.999 .. 1.000] and 35.21 on training, so the draw's radius overshoot was reported as 44 % when it is 20 %, and `--draw-scale -1` shrinks the rendered state by 16 % toward the wrong reference | roadmap 19-22 |
-| ISS-0009 | open | 13B's sampling noise is drawn per batch, so "one z per clip in every cell" holds only when the batch boundaries fall on the group boundaries; at batch 8 and groups of 6 clips each cell of a figure got a different z, which moves a six-clip gate by about a tenth of its value (the same arm read 0.3818 in cut19 and 0.4162 in back21) | roadmap 19-21 |
+| ISS-0009 | open, narrowed | 13B's sampling noise is drawn per batch, so "one z per clip in every cell" holds only when the batch boundaries fall on the group boundaries; at batch 8 and groups of 6 clips each cell of a figure got a different z, which moves a six-clip gate by about a tenth of its value (the same arm read 0.3818 in cut19 and 0.4162 in back21) | roadmap 19-21 |
 | ISS-0008 | fixed in code, rerun pending | the class embedding was never trained: nn.Embedding starts at N(0,1) (row norm 11.3 against 29.8 for the timestep embedding it is added to, fifty times DiT's 0.02) and AdamW decayed the table like any weight, so after 20,000 steps the two independently trained tables agree on class geometry at r = +0.001 - both still their initial noise, which voids 18.4e and 18.12 as tests of conditioning | roadmap 18, ISS-0007 |
 | ISS-0007 | open | the corpus split holds out whole classes, so 10 of 110 labels have no training clips and their embedding rows are never trained - yet the gate draws sampling labels uniformly over all 110, conditioning about 9.1 % of every conditional run on a row at its initialisation | roadmap 18 |
 | ISS-0006 | open | a decoder window of even-spaced lags ([0 2 4], [0 2 4 6 8]) aliases Sintel's 24→50 Hz frame hold: taps two steps apart sit in one phase of the two-step hold, the fit averages two regimes and the reconstruction alternates frame by frame (L3 per-frame corr 0.94/0.92/0.94/0.89/0.93/0.86…); consecutive lags [0 1 2 3 4] remove it; the sweep at those two windows is being redone | roadmap 4 |
@@ -41,6 +42,36 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0011 — three different functions are called `nearest`, and one of them is a different metric
+
+- **Status:** open. Seen 2026-09-21 in the metric audit of 22.8, by a
+  delegated read of every metric path in the seven measurement scripts.
+- **Seen:** `flydream/generate/vaeval18.py:47-58` and
+  `flydream/generate/blend18.py:44-56` hold the same body (Pearson r: subtract
+  the mean, divide by the sd, chunked matmul over the bank, return the best
+  index and value); only a docstring differs. Both were added 2026-09-20, the
+  second a copy of the first rather than an import.
+  `flydream/generate/baseline17.py:67-82` is a **different function with the
+  same name**: it takes a batch of queries, L2-normalises without subtracting
+  the mean (cosine similarity, not Pearson), accepts a `skip` leave-one-out
+  mask and returns three arrays instead of a pair.
+- **Costs:** every live measurement imports the `vaeval18` copy
+  (`seed19.py:53`, `cut19.py:56`, `pcaval19.py:42`, `inside22.py:50`,
+  `floors22.py`), so no recorded number is wrong today. The cost is the trap:
+  `nearest_r` is the only number behind every "not a copy" claim in this
+  project, and one import line decides whether it is a correlation or a
+  cosine. The two disagree on any data with a non-zero mean, which every hex
+  raster has. A leave-one-out floor (22.8) needs exactly the `skip` argument
+  that only the wrong-metric copy provides, and it had to be worked around by
+  zeroing a bank row instead.
+- **Reproduce:** `grep -rn "def nearest" --include=*.py flydream/`.
+- **Cause:** known — duplication at the time of writing, then a same-name
+  function with different semantics in an older module.
+- **Evidence:** `reports/2026-09-21_step22_a_smaller_object.md` § 7;
+  `reports/2026-09-21_the_draw_distribution.md` § 8.
+- **Related:** roadmap 17-22. The fix is one shared module with one Pearson
+  `nearest` that takes `skip`, and a rename of the cosine one to what it is.
 
 ### ISS-0010 — a draw is scored against the held-out split, not the one the flow was trained on
 
@@ -78,9 +109,14 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 ### ISS-0009 — 13B's noise is batched, so a figure's cells are not drawn with the same z
 
-- **Status:** open. Fixed in `back21.py` only (its batch is the group);
-  `seed19.py`, `cut19.py`, `pcaval19.py` and every figure built on them still
-  have it. Seen 2026-09-21 while re-measuring the cut arms.
+- **Status:** open, narrowed. Fixed 2026-09-21 in `back21.py`, `inside22.py`,
+  `latent22.py`, and now `seed19.py`, `cut19.py`, `pcaval19.py` (batch =
+  `n_clips`, the group size). Still present in nine scripts of the 17-18 era,
+  whose steps are closed and whose numbers are recorded as they were measured:
+  `assigned18.py`, `blend18.py`, `noise17.py`, `pca18.py`, `reach18.py`,
+  `samples17.py`, `trunc18.py`, `vaeval18.py`, `walk18.py`. They are not fixed
+  blind: each groups its jobs differently and the batch has to be checked per
+  script. Seen 2026-09-21 while re-measuring the cut arms.
 - **Seen:** the render loop re-seeds one generator per batch —
   `for i in range(0, len(names), 8): gg = Generator().manual_seed(1000 + seed)`
   — and `gen13b.sample` draws `torch.randn(B, T, n, generator=gg)`, so element
@@ -95,13 +131,24 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
   0.0114 against 0.0124 — about a tenth of the value on six clips. Every
   conclusion of 19-21 survives at that size, but a difference of that order
   between two cells is not evidence.
+  A worse case than the measured tenth was found 2026-09-21 in `blend18` (the
+  interpolation arc of 19.5's predecessor): 5 alphas x 2 pairs = 10 jobs at
+  batch 8, so both endpoints (alpha 0 and alpha 1) fall on noise slabs 0-1 and
+  the three middle alphas take slabs 2-7. The endpoints are z-matched to each
+  other and the middle is matched to neither, which is exactly the comparison
+  the arc is read for. The dip it shows (flat fraction 36.8 and 53.0 at the
+  ends against 28.7-29.3 in the middle) is therefore not evidence of its own
+  size; what survives is the human's visual reading of the midpoint as a
+  0.5-alpha double exposure and the 19.0-degree transport measured in
+  `reports/2026-09-21_the_draw_distribution.md` section 4, neither of which
+  depends on the sampling noise.
 - **Reproduce:** render any group whose size does not divide the batch and
   compare a cell's video against the same state rendered alone.
 - **Cause:** known — the generator is re-seeded per batch, and the noise index
   inside a batch is the element's position.
 - **Evidence:** `reports/2026-09-21_state_restoration.md` § 2;
   `flydream/generate/back21.py` (the fixed form: batch = group).
-- **Related:** roadmap 19-21; the fix is one line per script (batch = the
+- **Related:** roadmap 19-22; the fix is one line per script (batch = the
   group size, or draw the noise per clip outside the loop).
 
 ### ISS-0008 — the class embedding was never trained: N(0, 1) init and weight decay on the table

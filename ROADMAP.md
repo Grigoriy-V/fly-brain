@@ -12,11 +12,15 @@ acceptance criterion is his and overrides every metric
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
 
-**Current approved step:** 20 and 21 are measured
-(`reports/2026-09-21_step20_sampler_and_cuts.md`): the sampler's overshoot is
-fixed and was not the blocker, half the state can be left unspecified if it is
-completed rather than zeroed, and the state's covariance is local — which is
-what chose the order below. Next: 22, on the human's word.
+**Current approved step:** 23, the hex-local prior over the block
+721 x 32 with 3x patchify (the human, 2026-09-21: "след шаг будет локал с
+трёхкратным патчингом"). 22 is finished and measured
+(`reports/2026-09-21_step22_a_smaller_object.md`): the object shrank fourfold
+and the flow's problem did not move. The metric audit that followed
+(`reports/2026-09-21_the_draw_distribution.md`) is what the new step is judged
+by — the flow learned the latent's second moment and not its fourth, and
+per-coordinate kurtosis of draws against matched training subsamples reads that
+for free, with no render and no card.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -38,22 +42,31 @@ choices. This file alone owns current work, order and authorization.
 - **Generator 13B:** the conditional flow model state → video
   (`flydream/generate/gen13b.py`, `data/gen13b/sit.pt`, mirrored on the
   volume). Trained on the item-13 corpus, frozen, not a bottleneck.
-- **First stage:** PCA-2048 over the training states, whitened
-  (`flydream/generate/pca19.py`); basis and latents on the volume under
-  `prior19/`. Acceptance in `pcaval19.py`.
-- **noise2state:** flow matching over the 2,048-dimensional latent, 16 tokens
-  of 128 (`prior17.py` with `train17(latent_tokens=…)`); two checkpoints under
-  `prior19/`. The live problem is here.
+- **The object:** the T4a+T4b block, 721 columns x 32 channels = 23,072
+  numbers, with the other six types declared absent through 13B's own type
+  mask; r 0.884 against 0.952 for the whole state (22).
+- **First stage:** PCA over the training states, whitened
+  (`flydream/generate/pca19.py`); PCA-2048 over the whole state and PCA-1536
+  over the block, basis and latents on the volume under `prior19/`. Acceptance
+  in `pcaval19.py`. Step 23 drops it: a linear basis keeps no lattice for a
+  local network to use.
+- **noise2state:** flow matching over the whitened latent, 16 tokens of 128
+  (`prior17.py` with `train17(latent_tokens=…, latent_k=…)`); checkpoints under
+  `prior19/` (2,048 of the whole state) and `prior22/` (1,536 of the block).
+  The live problem is here.
 - **Measurement:** `seed19.py` (the seed test: preimage geometry, a clip's own
   seed, a fresh draw, controls without the flow, interpolation, `--fix` for a
   corrected sampler), `tprofile19.py` (where the sampler leaves the truth),
-  `fix19.py` (the sampler knobs and the velocity profile), `cut19.py` (how far
-  the state can be cut), `hexcov19.py` (covariance against hex distance),
-  `vaeval18.py`, `roundtrip13.py`, figures under `tools/fig_*.py`.
+  `fix19.py` (the sampler knobs and the velocity profile), `cut19.py` and
+  `inside22.py` (how far the state can be cut), `latent22.py` (the PCA ladder
+  and the compression routes), `hexcov19.py` (covariance against hex distance),
+  `back21.py` (what the chain restores), `floors22.py` (the floor and range of
+  every judge), `vaeval18.py`, `roundtrip13.py`, figures under
+  `tools/fig_*.py`.
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for anything that
   fits in ten minutes; Modal T4 (`flydream-generate`, `flydream-train`,
   `flydream-decode`) for GPU work, called through `tools/modal_call.py`.
-- **Tests:** 122 offline tests passing (2026-09-21, 23 s), no download, no
+- **Tests:** 132 offline tests passing (2026-09-21, 26 s), no download, no
   Modal, no credential.
 
 ## Done
@@ -132,25 +145,53 @@ Closed items, one line each, evidence in the linked report.
   determines. Run `2026-09-21_prior19_back`; code `flydream/generate/back21.py`.
   `reports/2026-09-21_state_restoration.md`.
 
+- **22, a smaller object** (2026-09-21): inside T4 space is cheap to cut and
+  time is not; the four directions are unequal and the horizontal pair a+b
+  carries almost everything (0.884 against 0.904 for all four, at half the
+  numbers); decimating the lattice costs as much as cropping the field of view,
+  and 13B does not fill the gaps itself; the PCA ladder over the block is flat
+  (0.806 at 1,536 against 0.824 at 2,048); and three routes around plain PCA -
+  channel compression, a learned local residual, a block autoencoder - all lost
+  to it at a comparable budget. The flow over the block's 1,536 coordinates
+  trained for 0.05 dollars and a fresh draw is still not a scene. Runs
+  `2026-09-21_prior19_inside` and `2026-09-21_prior22_*`, 0.13 dollars in all;
+  code `flydream/generate/{inside22,latent22,resid22}.py`.
+  `reports/2026-09-21_step22_a_smaller_object.md`.
+
+- **22.7-22.8, the metric audit** (2026-09-21, on the human's stop before more
+  training): the flow learned the latent's second moment and not its fourth -
+  per-coordinate kurtosis 4.11 against 8.31 +- 1.17 on matched training
+  subsamples, a Gaussian being 2.97 - and it rotates a point by 19 degrees
+  against 90 for a random rotation, which is why an interpolation renders as a
+  double exposure. Every judge got its floor: `r_to_raw` between two different
+  real clips is 0.002 +- 0.100, so a draw's 0.017 was never evidence;
+  `nearest_r` for a real held-out clip is 0.521 against the draw's 0.526, so
+  "not a copy" is true and weak; on a noise-to-raw-video scale the renderer's
+  own ceiling is 71 and a fresh draw is 11. Found ISS-0010 and ISS-0011, closed
+  ISS-0009 in the three live scripts. Runs
+  `2026-09-21_prior22_{draw_distribution,floors}`, free; code
+  `flydream/generate/floors22.py`, `tools/fig_dist22.py`.
+  `reports/2026-09-21_the_draw_distribution.md`.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
-is proposed. The order below is what 20 and 21 measured, not a preference:
-the sampler is repaired and was not the blocker, so what remains is the shape
-of the problem (how many numbers are drawn) and the shape of the model (what
-the field can generalise from). Evidence:
-`reports/2026-09-21_step20_sampler_and_cuts.md`, with the full ladder of
-routes in `reports/2026-09-21_research_path_to_a_video_generator.md`.
+is proposed. The shape of the problem has been tried and is exhausted: 20
+repaired the sampler and it was not the blocker, 22 shrank the object fourfold
+and nothing moved. What remains is the shape of the model. Evidence:
+`reports/2026-09-21_step22_a_smaller_object.md` and
+`reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
+in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-22. **A smaller latent.** 128-512 PCA components instead of 2,048: the same
-    net on a problem 4-16 times smaller at the same N = 13,555, and the gate
-    through the chain is already measured as no worse (0.0334 at 128 against
-    0.0406 at 2,048). One training run, judged by the seed test.
-
-23. **A hex-local prior.** Column positions and a neighbour window in the
-    flow, plus a global channel — 21b measured both halves: locality is real
-    (0.876 at one step) and a window alone would miss the 0.27 background.
-    This is the only published mechanism of novelty for a diffusion model.
+23. **A hex-local prior over the block, with 3x patchify** — approved, the
+    current step. The flow runs on 721 x 32 with the lattice intact instead of
+    on a PCA vector: neighbour windows and column positions, plus a global
+    channel, because 21b measured both halves (locality is real, 0.876 at one
+    step, and a window alone would miss the 0.27 background). Locality plus
+    equivariance is the only published mechanism of novelty for a diffusion
+    model. Dropping PCA also raises the ceiling, 0.806 to 0.884 (22).
+    Acceptance: per-coordinate kurtosis of draws against matched training
+    subsamples (22.8), then the seed test.
 
 24. **Conditioning, two-stage.** Draw the DC part of the state, then the
     motion given it. Kept behind 22-23 because its measured gains come from
