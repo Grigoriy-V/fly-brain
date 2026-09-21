@@ -831,6 +831,74 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
     return summary
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=45 * MINUTES)
+def blockae22(maps_file: str = "gen18/maps_dct16.npz", types: str = "T4a,T4b", lattice: str = "third",
+              code: int = 8, width: int = 64, out: str = "prior22", name: str = "blockae_ab_third_c8",
+              steps: int = 8000, batch: int = 64, lr: float = 2e-3) -> dict:
+    """22.5: автоэнкодер блока, прореживающий РЕШЁТКУ, а не каналы.
+
+    Так выглядит вариант 2 после двух измерений. 22.3: избыточность состояния
+    лежит в пространстве (соседние колонки 0,876), а не в каналах (типы в
+    колонке 0,373). 22.4: остаток, сжимавший каналы при всех 721 колонке, не
+    окупился (0,820 при 4 420 числах против 0,824 у PCA-2048 при 2 048).
+    Здесь мест становится втрое меньше (721 -> 241 на подрешётке √3 x √3), а
+    каналов на место — `code`, и весь код это 241·code чисел.
+
+    Никакой линейной ступени под ним нет: сеть учит блок целиком.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import resid22 as Rs
+    from flydream.generate.gen13b import DEEP
+    from flydream.generate.inside22 import lattice_mask
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    ch = [DEEP.index(t.strip()) for t in types.split(",") if t.strip()]
+    z = np.load(Path(RUNS) / maps_file)
+    maps_all = z["maps"]
+    split = {}
+    for subset in ("train", "val", "test"):
+        ids = np.where(np.isin(z["index"], z[subset]))[0]
+        mm = torch.as_tensor(maps_all[ids][:, :, ch], device=dev)
+        split[subset] = mm.reshape(len(mm), -1)
+        print(f"{subset} {tuple(mm.shape)}, {time.time() - t0:.0f} s", flush=True)
+    del maps_all
+    c_in = 16 * len(ch)
+    n_cols = int(split["train"].shape[1] // c_in)
+    keep = lattice_mask(lattice, n_cols)
+    print(f"решётка {lattice}: {int(keep.sum())} мест из {n_cols}, каналов {c_in} -> код {code}, "
+          f"всего {int(keep.sum()) * code} чисел на клип, {time.time() - t0:.0f} с", flush=True)
+
+    with GpuSampler() as gpu:
+        model = Rs.BlockAE(keep, c_in=c_in, width=width, code=code, n_cols=n_cols).to(dev)
+        got = Rs.train(model, split["train"], split["val"], steps=steps, batch=batch, lr=lr,
+                       n_cols=n_cols, c_in=c_in, log=lambda s_: print(s_, flush=True))
+        model.eval()
+        taken = {}
+        with torch.no_grad():
+            for s_ in ("val", "test"):
+                x = split[s_].float().reshape(len(split[s_]), n_cols, c_in)
+                hat = torch.cat([model(x[i:i + 256]) for i in range(0, len(x), 256)])
+                taken[s_] = Rs.explained_fraction(x, hat)
+
+    summary = {"kind": "block_ae", "types": [t.strip() for t in types.split(",")], "lattice": lattice,
+               "sites": int(keep.sum()), "code": code, "width": width, "c_in": c_in, "n_cols": n_cols,
+               "numbers_total": int(keep.sum()) * code, "taken": taken,
+               "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 16384,
+               **{kk: vv for kk, vv in got.items() if kk != "history"}, "history": got["history"]}
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    torch.save({"state": model.state_dict(), "meta": summary, "keep": keep}, outdir / f"{name}.pt")
+    (outdir / f"{name}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    runs_volume.commit()
+    summary["seconds"] = round(time.time() - t0, 1)
+    print(f"blockae22 done in {summary['seconds']} s, GPU {gpu.mean}; блок восстановлен на "
+          f"{100 * taken['test']:.1f} % (test) при {summary['numbers_total']} числах", flush=True)
+    return summary
+
+
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=30 * MINUTES)
 def resid22(pca: str = "prior19/pca_ab2048.npz", k: int = 1536, code: int = 4, width: int = 64,
             maps_file: str = "gen18/maps_dct16.npz", types: str = "T4a,T4b", out: str = "prior22",

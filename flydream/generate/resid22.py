@@ -139,3 +139,74 @@ def train(model: nn.Module, E: torch.Tensor, Eval: torch.Tensor, *, steps: int =
     return {"best_val_explained": best, "best_step": best_step, "nan_steps": nan_steps,
             "history": hist, "seconds": round(time.time() - t0, 1),
             "parameters": int(sum(p.numel() for p in model.parameters()))}
+
+
+class HexPool(nn.Module):
+    """Прореживание решётки: локальное смешивание, затем подвыборка подрешётки.
+
+    22.3 измерил, что избыточность состояния лежит в пространстве, а не в
+    каналах, а 22.4 показал, что сжатие каналов при сохранённых 721 колонке не
+    окупается. Здесь наоборот: мест становится втрое меньше, каналов больше.
+    Подрешётка `third` — изотропная √3 × √3, 241 колонка из 721, и у каждой
+    выброшенной колонки есть хотя бы один оставленный сосед (проверено), так
+    что обратный ход достижим за один шаг."""
+
+    def __init__(self, keep: np.ndarray):
+        super().__init__()
+        self.register_buffer("idx", torch.as_tensor(np.where(keep)[0], dtype=torch.long))
+        self.n_out = int(keep.sum())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:                # (N, n, c) -> (N, n_out, c)
+        return x[:, self.idx]
+
+
+class HexUnpool(nn.Module):
+    """Обратный ход: разложить код по своим местам, остальные — нули.
+
+    Заполняют их следующие гекс-свёртки, а не интерполяция: пусть сеть сама
+    решает, как разносить значение по соседям."""
+
+    def __init__(self, keep: np.ndarray):
+        super().__init__()
+        self.register_buffer("idx", torch.as_tensor(np.where(keep)[0], dtype=torch.long))
+        self.n_full = int(len(keep))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:                # (N, n_out, c) -> (N, n, c)
+        out = x.new_zeros(len(x), self.n_full, x.shape[2])
+        out[:, self.idx] = x
+        return out
+
+
+class BlockAE(nn.Module):
+    """Автоэнкодер блока состояния: 721 x c_in -> 241 x code -> 721 x c_in.
+
+    Кодировщик смешивает соседей ДО подвыборки (это и есть свёртка с шагом),
+    декодер раскладывает код по решётке и двумя свёртками разносит его по
+    пропускам. Рецептивное поле каждого слоя — один шаг."""
+
+    def __init__(self, keep: np.ndarray, c_in: int = 32, width: int = 64, code: int = 8,
+                 n_cols: int = 721):
+        super().__init__()
+        self.enc = nn.ModuleList([HexConv(c_in, width, n_cols), HexConv(width, width, n_cols)])
+        self.pool = HexPool(keep)
+        self.to_code = nn.Linear(width, code)
+        self.from_code = nn.Linear(code, width)
+        self.unpool = HexUnpool(keep)
+        self.dec = nn.ModuleList([HexConv(width, width, n_cols), HexConv(width, width, n_cols),
+                                  HexConv(width, c_in, n_cols)])
+        self.code, self.sites = code, self.pool.n_out
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        h = x
+        for layer in self.enc:
+            h = F.gelu(layer(h))
+        return self.to_code(self.pool(h))
+
+    def decode(self, c: torch.Tensor) -> torch.Tensor:
+        h = self.unpool(F.gelu(self.from_code(c)))
+        h = F.gelu(self.dec[0](h))
+        h = F.gelu(self.dec[1](h))
+        return self.dec[2](h)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.decode(self.encode(x))

@@ -86,7 +86,8 @@ def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: i
 def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path, *,
         types=("T4a", "T4b"), ks=(256, 512, 1024, 1536), n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
-        block_pca: str = "", channels=(), residual: str = "", log=print) -> dict:
+        block_pca: str = "", channels=(), residual: str = "", blockae: str = "",
+        log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -164,6 +165,25 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
             out[:, cidx] = back.reshape(len(flat), -1)
             groups[f"каналов {m}"] = R.from_model_space(pmeta, out.reshape(len(out), *shape))
             log(f"  каналов {m:2}: {m * 721} чисел, {time.time() - t0:.0f} с")
+    if blockae:
+        # 22.5: автоэнкодер, прореживающий решётку; линейной ступени под ним нет.
+        ck = torch.load(blockae, map_location=dev, weights_only=False)
+        bm = ck["meta"]
+        net_b = Rs.BlockAE(ck["keep"], c_in=bm["c_in"], width=bm["width"], code=bm["code"],
+                           n_cols=bm["n_cols"]).to(dev)
+        net_b.load_state_dict(ck["state"]); net_b.eval()
+        bidx = block_index(types, maps_order=True)
+        xb = flat[:, bidx].reshape(len(flat), bm["n_cols"], bm["c_in"])
+        with torch.no_grad():
+            hat = net_b(xb)
+        took = float(1.0 - (xb - hat).pow(2).sum() / xb.pow(2).sum())
+        out_b = torch.zeros_like(flat)
+        out_b[:, bidx] = hat.reshape(len(flat), -1)
+        nm = f"автоэнкодер {bm['sites']}x{bm['code']}"
+        groups[nm] = R.from_model_space(pmeta, out_b.reshape(len(flat), *shape))
+        resid_numbers[nm] = int(bm["numbers_total"])
+        log(f"  {nm}: {bm['numbers_total']} чисел, блок восстановлен на {100 * took:.1f} % "
+            f"на этих шести")
     if residual:
         # 22.4: линейная часть заморожена, сеть добавляет только локальный остаток.
         ck = torch.load(residual, map_location=dev, weights_only=False)
@@ -252,6 +272,7 @@ def main(argv=None) -> int:
     p.add_argument("--block-pca", default="", help="npz настоящей PCA по блоку вместо оценки из полного базиса")
     p.add_argument("--channels", default="", help="лестница сжатия КАНАЛОВ в колонке: 1,2,4,8,16,32")
     p.add_argument("--residual", default="", help="чекпойнт обучаемого остатка поверх PCA (22.4)")
+    p.add_argument("--blockae", default="", help="чекпойнт автоэнкодера с прореживанием решётки (22.5)")
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
     manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
@@ -263,7 +284,7 @@ def main(argv=None) -> int:
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
             t_pre=g.get("t_pre", 1.0), seed=a.seed, block_pca=a.block_pca,
             channels=tuple(int(x) for x in a.channels.split(",") if x.strip()),
-            residual=a.residual)
+            residual=a.residual, blockae=a.blockae)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]

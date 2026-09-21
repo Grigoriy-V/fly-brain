@@ -87,3 +87,39 @@ def test_training_reduces_the_residual_on_a_tiny_problem():
     assert out["nan_steps"] == 0
     assert out["parameters"] > 0 and out["best_step"] > 0
     assert out["best_val_explained"] > before
+
+
+def test_blockae_code_is_smaller_in_places_not_in_channels():
+    """22.4 сжимал каналы при 721 колонке и не окупился; здесь наоборот —
+    мест втрое меньше, и код считается по местам."""
+    from flydream.generate.inside22 import lattice_mask
+
+    keep = lattice_mask("third")
+    m = Rs.BlockAE(keep, c_in=32, width=16, code=8)
+    x = torch.randn(2, 721, 32)
+    c = m.encode(x)
+    assert c.shape == (2, 241, 8) and m.sites == 241
+    assert c.shape[1] * c.shape[2] == 1928 < 721 * 8
+    assert m(x).shape == x.shape
+
+
+def test_unpool_puts_the_code_back_where_it_came_from():
+    from flydream.generate.inside22 import lattice_mask
+
+    keep = lattice_mask("third")
+    pool, unpool = Rs.HexPool(keep), Rs.HexUnpool(keep)
+    x = torch.arange(721 * 2, dtype=torch.float32).reshape(1, 721, 2)
+    back = unpool(pool(x))
+    idx = np.where(keep)[0]
+    assert torch.equal(back[0, idx], x[0, idx])
+    assert float(back[0, ~torch.as_tensor(keep)].abs().max()) == 0.0
+
+
+def test_every_dropped_column_has_a_kept_neighbour():
+    """Иначе декодер не дотянется до части решётки одним шагом."""
+    from flydream.generate.inside22 import lattice_mask
+
+    keep = lattice_mask("third")
+    nb = neighbour_index(721)
+    orphans = [i for i in range(721) if not keep[i] and not any(keep[j] for j in nb[i] if j >= 0)]
+    assert orphans == []
