@@ -707,7 +707,7 @@ def _load_latent(device, file: str, subset: str = "train", tokens: int = 16, lim
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=12288, timeout=30 * MINUTES)
 def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
           out: str = "prior19", name: str = "pca2048", block: int = 8192,
-          ks: str = "128,512,1024,2048", limit: int = 0) -> dict:
+          ks: str = "128,512,1024,2048", limit: int = 0, types: str = "") -> dict:
     """19.0: the linear first stage — PCA on the training states, whitened.
 
     Decided by the human 2026-09-21 (`DECISIONS.md`): the latent need not be
@@ -728,9 +728,16 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
     import numpy as np
     import torch
     from flydream.generate import pca19 as P
+    from flydream.generate.gen13b import DEEP
     from flydream.generate.invert import GpuSampler
 
     dev = torch.device("cuda")
+    # 22.2: PCA можно подгонять не по всему состоянию, а по блоку типов — 21д
+    # показал, что половину типов можно не задавать вовсе, а 22.0 что несут
+    # сцену T4a и T4b. Всё, что нарезано по оси типов (средние, ст. откл. и
+    # коэффициенты DCT), режется вместе с картами, иначе meta соврёт декодеру.
+    want = [t.strip() for t in types.split(",") if t.strip()]
+    ch = [DEEP.index(t) for t in want] if want else None
     t0 = time.time()
     if limit:                                                         # репетиция на подвыборке: своё имя и свой k,
         name, k = f"{name}_smoke{limit}", min(k, limit - 1)            # иначе она молча затрёт настоящий базис
@@ -751,10 +758,19 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
         if limit:
             ids = ids[:limit if subset == "train" else min(limit, 64)]
         mm = torch.as_tensor(maps_all[ids], device=dev)
+        if ch is not None:
+            mm = mm[:, :, ch]
         shape = tuple(int(v) for v in mm.shape[1:])
         split[subset] = (mm.reshape(len(mm), -1), z["index"][ids])
         print(f"{subset} {tuple(mm.shape)} on GPU, {time.time() - t0:.0f} s", flush=True)
     del maps_all
+    if ch is not None:                                                # те же столбцы у статистик
+        stats["mean"] = stats["mean"][ch]
+        stats["std"] = stats["std"][ch]
+        for key in ("coef_mean", "coef_std"):
+            if key in stats:
+                stats[key] = stats[key][:, ch]
+        print(f"блок типов {want} -> {shape}", flush=True)
     X, idx = split["train"]
     held = {s_: split[s_] for s_ in ("val", "test")}
     print(f"D = {X.shape[1]}, том прочитан один раз за {time.time() - t0:.0f} с", flush=True)
@@ -764,6 +780,7 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
         wanted = tuple(int(x) for x in ks.split(",") if int(x) <= k)
         summary = {"kind": "state_pca", "k": k, "dims": p["dims"], "n_fit": p["n_fit"], "shape": shape,
                    "maps_file": maps_file, "run": run, "sources": sources, "block": block,
+                   "types": want or list(DEEP),
                    "degenerate": p["degenerate"], "train_total_var": p["train_total_var"],
                    "explained": {}, "geometry": {}}
         zr = P.encode(X, p, whiten=False, block=block)             # один проход, из него и доля, и отбелённые
@@ -790,7 +807,7 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
             "dct_k": int(stats.get("dct_k", 0) or 0), "time_frames": int(stats.get("time_frames", 0) or 0),
             "coef_mean": None if "coef_mean" not in stats else stats["coef_mean"].tolist(),
             "coef_std": None if "coef_std" not in stats else stats["coef_std"].tolist(),
-            "frames": int(shape[0]), "k": int(shape[1])}
+            "frames": int(shape[0]), "k": int(shape[1]), "types": want or list(DEEP)}
     np.savez(outdir / f"{name}.npz", meta=json.dumps(meta), summary=json.dumps(summary), **P.to_numpy(p))
     np.savez(outdir / f"{name}_latent.npz", shape=np.asarray(shape),
              **{f"z_{s}": Z[s].cpu().numpy().astype(np.float32) for s in Z},

@@ -28,6 +28,7 @@ import torch
 from flydream.decode import pairs as P13
 from flydream.generate import gen13b as G
 from flydream.generate import learned as L
+from flydream.generate import pca19 as P
 from flydream.generate import prior17 as R
 from flydream.generate.edges18 import describe
 from flydream.generate.gen13b import DEEP
@@ -37,15 +38,19 @@ from flydream.generate.prompts14 import Deep
 from flydream.generate.roundtrip13 import build_states
 
 
-def block_index(types, n_dct: int = 16, n_types: int = 8, n_cols: int = 721) -> np.ndarray:
-    """Плоские индексы блока в состоянии (DCT, тип, колонка), порядок строк C."""
-    out = []
-    for t in types:
-        c = DEEP.index(t)
-        for k in range(n_dct):
-            i0 = (k * n_types + c) * n_cols
-            out.append(np.arange(i0, i0 + n_cols))
-    return np.concatenate(out)
+def block_index(types, n_dct: int = 16, n_types: int = 8, n_cols: int = 721,
+                maps_order: bool = False) -> np.ndarray:
+    """Плоские индексы блока в состоянии (DCT, тип, колонка), порядок строк C.
+
+    `maps_order=True` перечисляет их так, как их видит `maps[:, :, ch]` на
+    Modal — коэффициент снаружи, тип внутри. Базис, подогнанный там, разложен
+    именно в этом порядке, и перепутать их значит перемешать каналы."""
+    ch = [DEEP.index(t) for t in types]
+    if maps_order:
+        return np.concatenate([np.arange((k * n_types + c) * n_cols, (k * n_types + c) * n_cols + n_cols)
+                               for k in range(n_dct) for c in ch])
+    return np.concatenate([np.arange((k * n_types + c) * n_cols, (k * n_types + c) * n_cols + n_cols)
+                           for c in ch for k in range(n_dct)])
 
 
 def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: int) -> tuple:
@@ -60,7 +65,8 @@ def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: i
 
 def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path, *,
         types=("T4a", "T4b"), ks=(256, 512, 1024, 1536), n_clips: int = 6, frames: int = 40,
-        margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0, log=print) -> dict:
+        margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
+        block_pca: str = "", log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -75,11 +81,24 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     basis = torch.as_tensor(np.asarray(z["basis"], np.float32), device=dev)
     lam = torch.as_tensor(np.asarray(z["lam"], np.float32), device=dev)
     mu_full = torch.as_tensor(np.asarray(z["mean"], np.float32), device=dev)
-    idx = block_index(types)
-    U, ev = block_basis(basis, lam, idx, max(ks))
-    cum = (torch.cumsum(ev, 0) / ev.sum()).cpu().numpy()
-    log(f"блок {'+'.join(types)}: {len(idx)} чисел, базис {U.shape[1]} направлений, "
-        f"{time.time() - t0:.0f} с")
+    p_block = None
+    if block_pca:                                                     # настоящая PCA по блоку, подогнанная на карте
+        zb = np.load(block_pca)
+        p_block = P.from_numpy(zb, dev)
+        fitted = json.loads(str(zb["summary"])) if "summary" in zb.files else {}
+        idx = block_index(types, maps_order=True)
+        if p_block["dims"] != len(idx):
+            raise ValueError(f"базис на {p_block['dims']} чисел, блок на {len(idx)}")
+        cum = None
+        log(f"блок {'+'.join(types)}: {len(idx)} чисел, НАСТОЯЩИЙ базис {p_block['k']} из {block_pca}, "
+            f"{time.time() - t0:.0f} с")
+    else:
+        idx = block_index(types)
+        U, ev = block_basis(basis, lam, idx, max(ks))
+        cum = (torch.cumsum(ev, 0) / ev.sum()).cpu().numpy()
+        fitted = {}
+        log(f"блок {'+'.join(types)}: {len(idx)} чисел, ОЦЕНОЧНЫЙ базис {U.shape[1]} направлений, "
+            f"{time.time() - t0:.0f} с")
 
     built = build_states(net, index, frames=frames, margin=margin, dt=dt, t_pre=t_pre, seed=seed)
     sa = next(s for s in built if s["name"] == "clip_A")
@@ -94,20 +113,23 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     x = R.to_model_space(pmeta, real, dev)
     shape = tuple(x.shape[1:])
     flat = x.reshape(len(x), -1)
-    blk = flat[:, idx] - mu_full[idx]
-    coef = blk @ U
+    coef = None if p_block is not None else (flat[:, idx] - mu_full[idx]) @ U
     log(f"{n_clips} состояний, клипы {clip_idx.tolist()}, {time.time() - t0:.0f} с")
 
-    def state_from(c: torch.Tensor, k: int) -> np.ndarray:
+    def state_from(k: int) -> np.ndarray:
         out = torch.zeros_like(flat)
-        out[:, idx] = mu_full[idx] + c[:, :k] @ U[:, :k].T
+        if p_block is not None:
+            pk = P.truncate(p_block, k)
+            out[:, idx] = P.decode(P.encode(flat[:, idx], pk), pk)
+        else:
+            out[:, idx] = mu_full[idx] + coef[:, :k] @ U[:, :k].T
         return R.from_model_space(pmeta, out.reshape(len(out), *shape))
 
     groups = {}
     full = torch.zeros_like(flat); full[:, idx] = flat[:, idx]
     groups[f"{'+'.join(types)} без сжатия"] = R.from_model_space(pmeta, full.reshape(len(full), *shape))
     for k in ks:
-        groups[f"k = {k}"] = state_from(coef, min(k, U.shape[1]))
+        groups[f"k = {k}"] = state_from(min(k, p_block["k"] if p_block is not None else U.shape[1]))
 
     names = [f"{g}|{i}" for g in groups for i in range(n_clips)]
     cond = torch.as_tensor(np.stack([groups[n.rsplit('|', 1)[0]][int(n.rsplit('|', 1)[1])]
@@ -126,7 +148,10 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     nb = np.asarray(L.neighbour_index(721))
     out = {"types": list(types), "ks": list(ks), "block_numbers": int(len(idx)),
            "clip_idx": clip_idx.tolist(), "n_clips": n_clips,
-           "explained": {int(k): float(cum[min(k, len(cum)) - 1]) for k in ks},
+           "block_pca": str(block_pca or ""),
+           "explained": ({int(k): float(cum[min(k, len(cum)) - 1]) for k in ks} if cum is not None else
+                         {int(k): float(fitted.get("explained", {}).get("test", {}).get(str(k), {})
+                                        .get("explained", float("nan"))) for k in ks}),
            "groups": {}}
     for g in groups:
         sel = [i for i, n in enumerate(names) if n.startswith(g + "|")]
@@ -163,6 +188,7 @@ def main(argv=None) -> int:
     p.add_argument("--ks", default="256,512,1024,1536")
     p.add_argument("--clips", type=int, default=6)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--block-pca", default="", help="npz настоящей PCA по блоку вместо оценки из полного базиса")
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
     manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
@@ -172,7 +198,7 @@ def main(argv=None) -> int:
             types=tuple(x.strip() for x in a.types.split(",") if x.strip()),
             ks=tuple(int(x) for x in a.ks.split(",")), n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
-            t_pre=g.get("t_pre", 1.0), seed=a.seed)
+            t_pre=g.get("t_pre", 1.0), seed=a.seed, block_pca=a.block_pca)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
