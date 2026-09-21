@@ -12,12 +12,9 @@ acceptance criterion is his and overrides every metric
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
 
-**Current approved step:** 26, the sampling-time corrections, delegated and
-running local and free (the human, 2026-09-21: "1 делегируй агенту"). 23 is
-finished and measured (`reports/runs.jsonl`, entries
-`2026-09-21_prior23_*`): the local architecture moved every number the
-shrinking of 22 did not, and a fresh draw is still not a scene. The queue
-below is the human's own disposition of the options, 2026-09-21.
+**Current approved step:** none. 26 is finished and negative (below); 23.2
+opened a direction the human raised and it is his call whether it becomes the
+next step. The queue below is his own disposition of the options, 2026-09-21.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -189,6 +186,40 @@ Closed items, one line each, evidence in the linked report.
   dollars on one T4 at 99.9 percent utilisation, acceptance local and free;
   code `flydream/generate/{hexflow23,accept23,seed23}.py`.
 
+- **26, corrections at draw time** (2026-09-21, delegated, local, free):
+  **nothing works, and the acceptance metric turned out to be gameable.**
+  Seven arms over the drawn noise - the shell set to the inverse's own radius
+  136.2, then 140, 145 and 151.9, and a plain scale of 0.90 and 0.95. At
+  D = 23,072 the two knobs are the same knob, since `randn` concentrates
+  within well under a percent of sqrt(D). Two arms raise kurtosis above the
+  measurement noise (145 to 7.11 and scale 0.95 to 7.17 against the control's
+  5.36, where the training reference is 8.31 +- 1.17) - but their radius in
+  the PCA basis falls to 12.39 and 11.57 against the data's 35.50, a threefold
+  UNDERSHOOT, and their energy outside the PCA subspace drops from 16.3 to
+  about 6 percent where real blocks sit at 14.7. Both say the output collapsed
+  toward the corpus mean, and kurtosis rises mechanically when most
+  coordinates sit at zero. The arm that implements the measured diagnosis
+  directly, drawing at radius 136.2, is the worst of the sweep on kurtosis.
+  So the item-20 precedent holds again: a geometric gain is not a generator
+  gain. **Consequence for the acceptance metric: per-coordinate kurtosis must
+  always be read beside the radius, because shrinking the output buys kurtosis
+  for free.** Run `2026-09-21_prior23_fixdraw`; code
+  `flydream/generate/fixdraw23.py`.
+
+- **23.1-23.2, is there a still picture in this state space** (2026-09-21):
+  yes, and better than a clip. 23.1 asked it wrongly by zeroing 15 of 16
+  temporal coefficients of a real state, which hands 13B a state no clip ever
+  caused; the human called that invalid and it is withdrawn. 23.2 changes the
+  stimulus instead: a single frame held for the whole window goes stimulus ->
+  frozen brain -> state -> 13B at r 0.953 against 0.916 for the real moving
+  clip, contrast 0.128 against the stimulus's 0.130, and the render is
+  genuinely motionless, frame-to-frame 0.998 against 1.000. The still frame's
+  state carries the same energy as a clip's, so "T4 and T5 are motion
+  detectors, therefore no static picture" is false. The same frame drifting a
+  lattice step per frame is worse, 0.611. Runs
+  `2026-09-21_prior23_{still,static}`; code
+  `flydream/generate/{still23,static23}.py`.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
@@ -199,13 +230,14 @@ and nothing moved. What remains is the shape of the model. Evidence:
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-26. **Corrections at draw time** - approved 2026-09-21, delegated, running.
-    Three mismatches are measured and none needs retraining: the inverse lands
-    real blocks at radius 136.2 while we draw from a shell of 151.9, the
-    draw's radius in the PCA basis overshoots 6.4 percent, and the draw is
-    over-smooth in time. Free, local, judged on kurtosis first. Expectation is
-    low: item 20's sampler fix improved the latent geometry and was a loss on
-    video (22.8).
+29. **A scene as one still picture** - raised by the human 2026-09-21 ("добиться
+    сцены не с видео а просто картинкой, а движение меня пока не парят") and
+    shown reachable by 23.2 on the present renderer, with no retraining of 13B
+    and no change of representation. The flow would be trained on the states
+    that still frames cause, so it never has to invent motion, and the corpus
+    multiplies on the same material because every frame of every clip is its
+    own still image. The cost is one brain simulation per picture, and is
+    priced when proposed. Not approved.
 
 27. **Corpus four to six times over** - the human, 2026-09-21: "скорее всего
     будет следующим". The reason this was deferred no longer holds: it was
@@ -221,7 +253,7 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
     steps so steps alone at this schedule buy little. The diagnostic that
     separates this from 27 is the train-validation gap, 0.3464 against 0.3963,
     13 percent - mild, so neither lever is clearly the one. Acceptance is free
-    now (kurtosis against matched subsamples), so this reads in an hour.
+    now (kurtosis beside radius, 22.8 and 26), so this reads in an hour.
 
 24. **Conditioning, two-stage.** Draw the DC part of the state, then the
     motion given it. Kept behind the above because its measured gains come

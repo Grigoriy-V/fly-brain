@@ -65,7 +65,12 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
   raster has. A leave-one-out floor (22.8) needs exactly the `skip` argument
   that only the wrong-metric copy provides, and it had to be worked around by
   zeroing a bank row instead.
-- **Reproduce:** `grep -rn "def nearest" --include=*.py flydream/`.
+- **Seen again 2026-09-21**, same trap, different name: `pca19.geometry()` and
+  `accept23.geometry()` are two different functions under one name in two
+  modules, computing overlapping but not identical statistics. Found by the
+  delegated audit of the 26 sweep. No number is wrong today; the cost is the
+  same as above.
+- **Reproduce:** `grep -rn "def nearest\|def geometry" --include=*.py flydream/`.
 - **Cause:** known — duplication at the time of writing, then a same-name
   function with different semantics in an older module.
 - **Evidence:** `reports/2026-09-21_step22_a_smaller_object.md` § 7;
