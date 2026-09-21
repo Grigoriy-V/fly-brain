@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0010 | open | a fresh draw's geometry is scored against the held-out split, which the flow was never trained to match: at k = 1536 the held-out latent has per-axis sd 0.829 [0.206 .. 1.075] and radius 29.67 against exactly 1.000 [0.999 .. 1.000] and 35.21 on training, so the draw's radius overshoot was reported as 44 % when it is 20 %, and `--draw-scale -1` shrinks the rendered state by 16 % toward the wrong reference | roadmap 19-22 |
 | ISS-0009 | open | 13B's sampling noise is drawn per batch, so "one z per clip in every cell" holds only when the batch boundaries fall on the group boundaries; at batch 8 and groups of 6 clips each cell of a figure got a different z, which moves a six-clip gate by about a tenth of its value (the same arm read 0.3818 in cut19 and 0.4162 in back21) | roadmap 19-21 |
 | ISS-0008 | fixed in code, rerun pending | the class embedding was never trained: nn.Embedding starts at N(0,1) (row norm 11.3 against 29.8 for the timestep embedding it is added to, fifty times DiT's 0.02) and AdamW decayed the table like any weight, so after 20,000 steps the two independently trained tables agree on class geometry at r = +0.001 - both still their initial noise, which voids 18.4e and 18.12 as tests of conditioning | roadmap 18, ISS-0007 |
 | ISS-0007 | open | the corpus split holds out whole classes, so 10 of 110 labels have no training clips and their embedding rows are never trained - yet the gate draws sampling labels uniformly over all 110, conditioning about 9.1 % of every conditional run on a row at its initialisation | roadmap 18 |
@@ -40,6 +41,40 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0010 — a draw is scored against the held-out split, not the one the flow was trained on
+
+- **Status:** open. In `flydream/generate/seed19.py`; `pcaval19.py` and every
+  figure, caption and message built on its `draw_many` block carry the number.
+  Seen 2026-09-21 while auditing the metrics before more training, on the human's
+  question whether the metrics are right.
+- **Seen:** `latent_data` is `P.geometry(z_test)` (line 111) over `z_test`, the
+  ten held-out UCF101 classes (line 107). `radius_needed` (line 176), the
+  `--draw-scale -1` correction (line 183) and the log lines that call it "у
+  данных" (189, 192-193) all read from it, while the flow is trained on
+  `z_train`. The same function already loads `z_train` for `sd_train` in the
+  `fixes` branch (line 204), so both references sit in one function and disagree.
+- **Costs:** the reference is a different distribution, not another sample of the
+  same one. At k = 1536 the training latent is whitened exactly (per-axis sd
+  1.000, range 0.999-1.000, radius 35.21) and the held-out split is not (0.829,
+  range 0.206-1.075, radius 29.67), because ten unseen classes sit off the basis
+  fitted on training. The draw's radius overshoot was therefore reported as 44 %
+  (42.59 against 29.67) when against the right reference it is 20 % (42.59
+  against 35.50 +- 1.09 on matched 256-point subsamples). `--draw-scale -1` does
+  not only misreport: it rescales the state that goes to the renderer, by 0.836
+  instead of 1.000, a 16 % shrink.
+- **Reproduce:** load `data/prior19/pca_ab2048_latent.npz`, take the first 1536
+  columns, and compare `z_train`, `z_val` and `z_test` on per-axis sd, radius and
+  kurtosis.
+- **Cause:** known — `latent_data` was written for part A of the seed test, the
+  preimage geometry, where the held-out split is the right reference because
+  those are the latents being inverted; it was then reused as the target for the
+  forward draw, where it is not.
+- **Evidence:** `reports/2026-09-21_the_draw_distribution.md` §§ 2-3; run
+  `2026-09-21_prior22_flow_ab1536`.
+- **Related:** roadmap 19-22; ISS-0007 (the same class-level split, other harm).
+  The fix is to score the draw against `z_train` and to say which split every
+  reference number comes from.
 
 ### ISS-0009 — 13B's noise is batched, so a figure's cells are not drawn with the same z
 
