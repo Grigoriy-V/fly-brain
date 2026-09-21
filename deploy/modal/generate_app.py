@@ -1105,6 +1105,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         # absent through 13B's own mask, so the flow must never see them.
         # Everything sliced along the type axis is sliced with the maps, or
         # the meta lies to the decoder that reads the checkpoint back.
+        from flydream.generate.gen13b import DEEP                    # как в pca19: имя типа -> канал карты
+
         ch = [DEEP.index(x) for x in want]
         m, mv = m[:, :, ch], mv[:, :, ch]
         stats = {**stats, "mean": np.asarray(stats["mean"])[ch], "std": np.asarray(stats["std"])[ch]}
