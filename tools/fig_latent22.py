@@ -43,6 +43,7 @@ def main(argv=None) -> int:
              (Z[f"video__{base}|{i}"], f"{'+'.join(S['types'])} целиком\nбез латента",
               f"{S['block_numbers']} чисел\nr {ru(f'{G[base]['r_to_raw']:.3f}')}")]
     nums = {f"каналов {m}": m * 721 for m in S.get("channels", [])} | {f"k = {k}": k for k in S["ks"]}
+    nums |= {k: int(v) for k, v in S.get("residual_numbers", {}).items()}
     picked = [c.strip() for c in a.cells.split(";") if c.strip()] or [f"k = {k}" for k in S["ks"]]
     for key in picked:
         g = G[key]

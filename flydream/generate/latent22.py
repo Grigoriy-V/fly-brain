@@ -30,6 +30,7 @@ from flydream.generate import gen13b as G
 from flydream.generate import learned as L
 from flydream.generate import pca19 as P
 from flydream.generate import prior17 as R
+from flydream.generate import resid22 as Rs
 from flydream.generate.edges18 import describe
 from flydream.generate.gen13b import DEEP
 from flydream.generate.invert import device_of, load_network, pixcorr_per_frame
@@ -85,7 +86,7 @@ def block_basis(basis: torch.Tensor, lam: torch.Tensor, idx: np.ndarray, kmax: i
 def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path, *,
         types=("T4a", "T4b"), ks=(256, 512, 1024, 1536), n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
-        block_pca: str = "", channels=(), log=print) -> dict:
+        block_pca: str = "", channels=(), residual: str = "", log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -147,7 +148,7 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     groups = {}
     full = torch.zeros_like(flat); full[:, idx] = flat[:, idx]
     groups[f"{'+'.join(types)} без сжатия"] = R.from_model_space(pmeta, full.reshape(len(full), *shape))
-    chan_ev = None
+    chan_ev, resid_numbers = None, {}
     if channels:
         # Ось каналов — (коэффициент DCT, тип), 16 x 2 = 32. Индексы обязаны идти
         # в порядке карт: коэффициент снаружи, тип внутри, колонка последней.
@@ -163,6 +164,27 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
             out[:, cidx] = back.reshape(len(flat), -1)
             groups[f"каналов {m}"] = R.from_model_space(pmeta, out.reshape(len(out), *shape))
             log(f"  каналов {m:2}: {m * 721} чисел, {time.time() - t0:.0f} с")
+    if residual:
+        # 22.4: линейная часть заморожена, сеть добавляет только локальный остаток.
+        ck = torch.load(residual, map_location=dev, weights_only=False)
+        rm = ck["meta"]
+        net_r = Rs.ResidualAE(c_in=rm["c_in"], width=rm["width"], code=rm["code"],
+                              n_cols=rm["n_cols"]).to(dev)
+        net_r.load_state_dict(ck["state"]); net_r.eval()
+        ridx = block_index(types, maps_order=True)
+        pk = P.truncate(p_block, rm["k"])
+        lin = P.decode(P.encode(flat[:, ridx], pk), pk)
+        e = (flat[:, ridx] - lin).reshape(len(flat), rm["n_cols"], rm["c_in"])
+        with torch.no_grad():
+            hat = net_r(e)
+        took = float(1.0 - (e - hat).pow(2).sum() / e.pow(2).sum())
+        out_r = torch.zeros_like(flat)
+        out_r[:, ridx] = lin + hat.reshape(len(flat), -1)
+        groups[f"PCA {rm['k']} + остаток {rm['code']}"] = R.from_model_space(
+            pmeta, out_r.reshape(len(flat), *shape))
+        resid_numbers[f"PCA {rm['k']} + остаток {rm['code']}"] = int(rm["numbers_total"])
+        log(f"  остаток: код {rm['code']} на колонку, всего {rm['numbers_total']} чисел, "
+            f"снято {100 * took:.1f} % энергии остатка на этих шести")
     for k in ks:
         groups[f"k = {k}"] = state_from(min(k, p_block["k"] if p_block is not None else U.shape[1]))
 
@@ -184,6 +206,8 @@ def run(model: str, pca_path: Path, gen_ckpt: Path, manifest: dict, columns: dic
     out = {"types": list(types), "ks": list(ks), "channels": list(channels),
            "channel_variance": None if chan_ev is None else (chan_ev / chan_ev.sum()).tolist(),
            "block_numbers": int(len(idx)),
+           "residual": str(residual or ""),
+           "residual_numbers": resid_numbers,
            "clip_idx": clip_idx.tolist(), "n_clips": n_clips,
            "block_pca": str(block_pca or ""),
            "explained": ({int(k): float(cum[min(k, len(cum)) - 1]) for k in ks} if cum is not None else
@@ -227,6 +251,7 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--block-pca", default="", help="npz настоящей PCA по блоку вместо оценки из полного базиса")
     p.add_argument("--channels", default="", help="лестница сжатия КАНАЛОВ в колонке: 1,2,4,8,16,32")
+    p.add_argument("--residual", default="", help="чекпойнт обучаемого остатка поверх PCA (22.4)")
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
     manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
@@ -237,11 +262,13 @@ def main(argv=None) -> int:
             ks=tuple(int(x) for x in a.ks.split(",")), n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
             t_pre=g.get("t_pre", 1.0), seed=a.seed, block_pca=a.block_pca,
-            channels=tuple(int(x) for x in a.channels.split(",") if x.strip()))
+            channels=tuple(int(x) for x in a.channels.split(",") if x.strip()),
+            residual=a.residual)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
     nums = {f"каналов {m}": m * 721 for m in S["channels"]} | {f"k = {k}": k for k in S["ks"]}
+    nums |= {k: v for k, v in S.get("residual_numbers", {}).items()}
     print()
     print("{:24} {:>9} {:>11} {:>9}".format("сжатие", "чисел", "r к сырому", "ровного"))
     for k, v in S["groups"].items():

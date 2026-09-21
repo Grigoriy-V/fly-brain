@@ -831,6 +831,79 @@ def pca19(k: int = 2048, maps_file: str = "gen18/maps_dct16.npz", run: str = "pa
     return summary
 
 
+@app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=30 * MINUTES)
+def resid22(pca: str = "prior19/pca_ab2048.npz", k: int = 1536, code: int = 4, width: int = 64,
+            maps_file: str = "gen18/maps_dct16.npz", types: str = "T4a,T4b", out: str = "prior22",
+            name: str = "resid_ab_k1536_c4", steps: int = 4000, batch: int = 64, lr: float = 2e-3,
+            block: int = 8192) -> dict:
+    """22.4: обучаемый остаток поверх замороженной PCA (рецепт DC-AE).
+
+    Линейная часть фиксирована: базис блока, обрезанный до `k`. Сеть учит
+    только то, что PCA не взяла, и учит ЛОКАЛЬНО — гекс-свёртка с полем в один
+    шаг на слой. Требование локальности не архитектурный вкус, а вывод 22.3:
+    канальное сжатие держит резкость и теряет содержание, глобальная PCA
+    наоборот, и разница между ними — глобальность.
+
+    Итоговое число координат на клип: k + 721·code.
+    """
+    import numpy as np
+    import torch
+    from flydream.generate import pca19 as P
+    from flydream.generate import resid22 as Rs
+    from flydream.generate.gen13b import DEEP
+    from flydream.generate.invert import GpuSampler
+
+    dev = torch.device("cuda")
+    t0 = time.time()
+    ch = [DEEP.index(t.strip()) for t in types.split(",") if t.strip()]
+    z = np.load(Path(RUNS) / maps_file)
+    maps_all = z["maps"]
+    split = {}
+    for subset in ("train", "val", "test"):
+        ids = np.where(np.isin(z["index"], z[subset]))[0]
+        mm = torch.as_tensor(maps_all[ids][:, :, ch], device=dev)
+        split[subset] = mm.reshape(len(mm), -1)
+        print(f"{subset} {tuple(mm.shape)}, {time.time() - t0:.0f} s", flush=True)
+    del maps_all
+    n_cols, c_in = int(split["train"].shape[1] // (16 * len(ch))), 16 * len(ch)
+    p = P.from_numpy(np.load(Path(RUNS) / pca), dev)
+    print(f"базис {p['dims']} x {p['k']}, режу до k = {k}; каналов {c_in}, колонок {n_cols}, "
+          f"{time.time() - t0:.0f} с", flush=True)
+
+    with GpuSampler() as gpu:
+        E = {s_: Rs.residual_of(X, p, k, block=block) for s_, X in split.items()}
+        share = {s_: float(e.float().pow(2).sum() / split[s_].float().pow(2).sum()) for s_, e in E.items()}
+        print(f"доля энергии в остатке: " + ", ".join(f"{s_} {100 * v:.1f} %" for s_, v in share.items()),
+              flush=True)
+        model = Rs.ResidualAE(c_in=c_in, width=width, code=code, n_cols=n_cols).to(dev)
+        got = Rs.train(model, E["train"], E["val"], steps=steps, batch=batch, lr=lr,
+                       n_cols=n_cols, c_in=c_in, log=lambda s_: print(s_, flush=True))
+        model.eval()
+        with torch.no_grad():
+            taken = {}
+            for s_ in ("val", "test"):
+                e = E[s_].float().reshape(len(E[s_]), n_cols, c_in)
+                hat = torch.cat([model(e[i:i + 256]) for i in range(0, len(e), 256)])
+                taken[s_] = Rs.explained_fraction(e, hat)
+                left = (e - hat).pow(2).sum()
+                taken[f"{s_}_state_error"] = float(left / split[s_].float().pow(2).sum())
+
+    summary = {"kind": "residual_ae", "pca": pca, "k": k, "code": code, "width": width,
+               "types": [t.strip() for t in types.split(",")], "c_in": c_in, "n_cols": n_cols,
+               "numbers_total": int(k + n_cols * code), "residual_share": share,
+               "taken": taken, "gpu": GPU, "gpu_utilisation": gpu.mean, "cpu": 1, "memory_mb": 16384,
+               **{kk: vv for kk, vv in got.items() if kk != "history"}, "history": got["history"]}
+    outdir = Path(RUNS) / out
+    outdir.mkdir(parents=True, exist_ok=True)
+    torch.save({"state": model.state_dict(), "meta": summary}, outdir / f"{name}.pt")
+    (outdir / f"{name}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    runs_volume.commit()
+    summary["seconds"] = round(time.time() - t0, 1)
+    print(f"resid22 done in {summary['seconds']} s, GPU {gpu.mean}; остаток снят на "
+          f"{100 * taken['test']:.1f} % (test), координат на клип {summary['numbers_total']}", flush=True)
+    return summary
+
+
 @app.function(image=image, gpu=GPU, volumes={DATA: data_volume, RUNS: runs_volume}, cpu=1, memory=16384, timeout=60 * MINUTES)
 def invert17(prior: str = "prior18/corpus_dct16_w192_lr1e3_c.pt", out: str = "prior18/eps_w192.npz",
              maps_file: str = "gen18/maps_dct16.npz", run: str = "pairs18", sources: str = "all",
