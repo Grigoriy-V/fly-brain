@@ -124,6 +124,14 @@ Closed items, one line each, evidence in the linked report.
   code `flydream/generate/{fix19,cut19,hexcov19}.py`.
   `reports/2026-09-21_step20_sampler_and_cuts.md`.
 
+- **21c, state restoration through the chain** (2026-09-21): the gate in 21a
+  measured distance to the requested state, which for a cut state is
+  impossible by construction; against the real state the chain
+  state -> 13B -> video -> brain gives back a zeroed half at r 0.961 (error
+  0.5581 -> 0.0846, own floor 0.0124), restoring exactly what the video
+  determines. Run `2026-09-21_prior19_back`; code `flydream/generate/back21.py`.
+  `reports/2026-09-21_state_restoration.md`.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it

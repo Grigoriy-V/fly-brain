@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0009 | open | 13B's sampling noise is drawn per batch, so "one z per clip in every cell" holds only when the batch boundaries fall on the group boundaries; at batch 8 and groups of 6 clips each cell of a figure got a different z, which moves a six-clip gate by about a tenth of its value (the same arm read 0.3818 in cut19 and 0.4162 in back21) | roadmap 19-21 |
 | ISS-0008 | fixed in code, rerun pending | the class embedding was never trained: nn.Embedding starts at N(0,1) (row norm 11.3 against 29.8 for the timestep embedding it is added to, fifty times DiT's 0.02) and AdamW decayed the table like any weight, so after 20,000 steps the two independently trained tables agree on class geometry at r = +0.001 - both still their initial noise, which voids 18.4e and 18.12 as tests of conditioning | roadmap 18, ISS-0007 |
 | ISS-0007 | open | the corpus split holds out whole classes, so 10 of 110 labels have no training clips and their embedding rows are never trained - yet the gate draws sampling labels uniformly over all 110, conditioning about 9.1 % of every conditional run on a row at its initialisation | roadmap 18 |
 | ISS-0006 | open | a decoder window of even-spaced lags ([0 2 4], [0 2 4 6 8]) aliases Sintel's 24→50 Hz frame hold: taps two steps apart sit in one phase of the two-step hold, the fit averages two regimes and the reconstruction alternates frame by frame (L3 per-frame corr 0.94/0.92/0.94/0.89/0.93/0.86…); consecutive lags [0 1 2 3 4] remove it; the sweep at those two windows is being redone | roadmap 4 |
@@ -39,6 +40,34 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0009 — 13B's noise is batched, so a figure's cells are not drawn with the same z
+
+- **Status:** open. Fixed in `back21.py` only (its batch is the group);
+  `seed19.py`, `cut19.py`, `pcaval19.py` and every figure built on them still
+  have it. Seen 2026-09-21 while re-measuring the cut arms.
+- **Seen:** the render loop re-seeds one generator per batch —
+  `for i in range(0, len(names), 8): gg = Generator().manual_seed(1000 + seed)`
+  — and `gen13b.sample` draws `torch.randn(B, T, n, generator=gg)`, so element
+  *j* of a batch gets the *j*-th noise slab. With groups of 6 clips and a batch
+  of 8, a group straddles batch boundaries and its clips take slabs 0-5 in one
+  cell and 2-7 in the next. The captions of 19.1, 19.3, 19.5, 20 and 21a all
+  say "один z у 13B во всех клетках"; that is true only within a batch.
+- **Costs:** part of the difference between two cells of a figure is a
+  different sampling noise rather than a different state. Measured size: the
+  same arm (`types=T4`) with the same code and seed reads gate 0.3818 in
+  `cut19` (batch 8) and 0.4162 in `back21` (batch 6), and the no-cut control
+  0.0114 against 0.0124 — about a tenth of the value on six clips. Every
+  conclusion of 19-21 survives at that size, but a difference of that order
+  between two cells is not evidence.
+- **Reproduce:** render any group whose size does not divide the batch and
+  compare a cell's video against the same state rendered alone.
+- **Cause:** known — the generator is re-seeded per batch, and the noise index
+  inside a batch is the element's position.
+- **Evidence:** `reports/2026-09-21_state_restoration.md` § 2;
+  `flydream/generate/back21.py` (the fixed form: batch = group).
+- **Related:** roadmap 19-21; the fix is one line per script (batch = the
+  group size, or draw the noise per clip outside the loop).
 
 ### ISS-0008 — the class embedding was never trained: N(0, 1) init and weight decay on the table
 
