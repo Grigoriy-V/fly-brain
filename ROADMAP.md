@@ -230,14 +230,34 @@ and nothing moved. What remains is the shape of the model. Evidence:
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-29. **A scene as one still picture** - raised by the human 2026-09-21 ("добиться
-    сцены не с видео а просто картинкой, а движение меня пока не парят") and
-    shown reachable by 23.2 on the present renderer, with no retraining of 13B
-    and no change of representation. The flow would be trained on the states
-    that still frames cause, so it never has to invent motion, and the corpus
-    multiplies on the same material because every frame of every clip is its
-    own still image. The cost is one brain simulation per picture, and is
-    priced when proposed. Not approved.
+30. **A generative renderer, static state to picture** - not approved, priced
+    2026-09-21 at **0.15 to 0.50 dollars**, most likely about 0.25, 15 to 50
+    minutes on one T4. Input 1,442 numbers, output one 721-value picture, no
+    time axis; data is free, the pairs exist for all 15,514 clips and no brain
+    pass is needed. It is needed because the existing 13B **cannot** take a
+    721 x 2 state and no crutch rescues it: measured, DC plus zeros gives
+    r 0.257, plus the mean residue of still states 0.351, plus another still's
+    residue 0.137 and plus unit noise 0.045, against a ceiling of 0.941 - and
+    the donor arm renders a sharp picture of the DONOR, so the content 13B
+    reads lives in the temporal coefficients, not in the DC, despite those
+    carrying only 4 percent of the raw energy. Until it exists, a least
+    squares matrix renders a picture from 721 x 2 at r 0.941 to the window's
+    mean frame (0.902 from the whole block to one frame) - enough to judge a
+    flow, since the blur falls on the real state and the draw alike, and not
+    enough for a result, since least squares draws the conditional mean
+    (flat fraction 24.3 against the picture's 45.1, where 13B on a real
+    still-state reaches 46.0 against 53.0).
+
+29. **A scene as one still picture** - the human's direction, 2026-09-21
+    ("добиться сцены не с видео а просто картинкой, а движение меня пока не
+    парят"). The flow draws a static state of 1,442 numbers, 721 columns x 2
+    types, and it is **not** 721 x 32 - the human, twice: "никаких 721*32 быть
+    не может, в чём тогда смысл выкидывания времени". The bet is not that the
+    object is smaller, which 22 showed buys nothing, but that a whole factor
+    of variation is gone: a still scene has no motion to invent. Training data
+    is free either way - the DC of the states already on the volume, or true
+    still-stimulus states for one 0.12-dollar brain pass. Rendering for the
+    check is the matrix; rendering for the result is 30. Not approved.
 
 27. **Corpus four to six times over** - the human, 2026-09-21: "скорее всего
     будет следующим". The reason this was deferred no longer holds: it was
