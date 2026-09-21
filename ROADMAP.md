@@ -12,15 +12,12 @@ acceptance criterion is his and overrides every metric
 **clip against the raw corpus video**, and blur is accepted for a first
 version if scenes appear and a fresh draw gives a new, meaningful video.
 
-**Current approved step:** 23, the hex-local prior over the block
-721 x 32 with 3x patchify (the human, 2026-09-21: "след шаг будет локал с
-трёхкратным патчингом"). 22 is finished and measured
-(`reports/2026-09-21_step22_a_smaller_object.md`): the object shrank fourfold
-and the flow's problem did not move. The metric audit that followed
-(`reports/2026-09-21_the_draw_distribution.md`) is what the new step is judged
-by — the flow learned the latent's second moment and not its fourth, and
-per-coordinate kurtosis of draws against matched training subsamples reads that
-for free, with no render and no card.
+**Current approved step:** 26, the sampling-time corrections, delegated and
+running local and free (the human, 2026-09-21: "1 делегируй агенту"). 23 is
+finished and measured (`reports/runs.jsonl`, entries
+`2026-09-21_prior23_*`): the local architecture moved every number the
+shrinking of 22 did not, and a fresh draw is still not a scene. The queue
+below is the human's own disposition of the options, 2026-09-21.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -173,6 +170,25 @@ Closed items, one line each, evidence in the linked report.
   `flydream/generate/floors22.py`, `tools/fig_dist22.py`.
   `reports/2026-09-21_the_draw_distribution.md`.
 
+- **23, a hex-local prior over the block** (2026-09-21): the flow runs on the
+  T4a+T4b block itself, 721 x 32 with the lattice intact - 3x patchify to 241
+  patches of exactly three columns, attention restricted to the six
+  sublattice neighbours, a relative position bias shared across positions
+  instead of a learned per-token one, and four register tokens as the global
+  channel. Every measured number moved: per-coordinate kurtosis of draws 4.11
+  to 5.36 against 8.31 +- 1.17 on matched training subsamples (21 to 45
+  percent of the way from noise to data), the radius overshoot 20 to 6.4
+  percent, and the transport from a 19-degree rotation to 72 where a random
+  one is 90 - the near-identity that made interpolation render as a double
+  exposure is gone. A clip's own seed now returns its clip at 0.884, exactly
+  the ceiling, because dropping PCA removed the lossy stage. A fresh draw
+  doubled its sharpness, 11 to 22 of 100 on the scale calibrated in 22.8, and
+  is still not a scene; it is not a copy either (nearest 0.485 where a real
+  held-out clip reads 0.521). One new defect: the inverse lands real blocks at
+  radius 136.2 against a shell of 151.9. Runs `2026-09-21_prior23_*`, 0.51
+  dollars on one T4 at 99.9 percent utilisation, acceptance local and free;
+  code `flydream/generate/{hexflow23,accept23,seed23}.py`.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
@@ -183,20 +199,35 @@ and nothing moved. What remains is the shape of the model. Evidence:
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-23. **A hex-local prior over the block, with 3x patchify** — approved, the
-    current step. The flow runs on 721 x 32 with the lattice intact instead of
-    on a PCA vector: neighbour windows and column positions, plus a global
-    channel, because 21b measured both halves (locality is real, 0.876 at one
-    step, and a window alone would miss the 0.27 background). Locality plus
-    equivariance is the only published mechanism of novelty for a diffusion
-    model. Dropping PCA also raises the ceiling, 0.806 to 0.884 (22).
-    Acceptance: per-coordinate kurtosis of draws against matched training
-    subsamples (22.8), then the seed test.
+26. **Corrections at draw time** - approved 2026-09-21, delegated, running.
+    Three mismatches are measured and none needs retraining: the inverse lands
+    real blocks at radius 136.2 while we draw from a shell of 151.9, the
+    draw's radius in the PCA basis overshoots 6.4 percent, and the draw is
+    over-smooth in time. Free, local, judged on kurtosis first. Expectation is
+    low: item 20's sampler fix improved the latent geometry and was a loss on
+    video (22.8).
+
+27. **Corpus four to six times over** - the human, 2026-09-21: "скорее всего
+    будет следующим". The reason this was deferred no longer holds: it was
+    parked because the published scaling transitions were measured on
+    convolutional nets over spatial data and ours was a flat net over a PCA
+    vector. Since 23 it is a local net over the lattice. The clips exist as
+    unused rotations of the corpus; the cost is re-simulating their states
+    through the frozen brain and retraining, and is priced when proposed.
+
+28. **More capacity and more steps** - the human, 2026-09-21: "пока в ожидании
+    после 2". Width 192 to 384 and depth 6 to 10-12 with a longer schedule;
+    3.68 M parameters is small, and validation was flat over the last 2,500
+    steps so steps alone at this schedule buy little. The diagnostic that
+    separates this from 27 is the train-validation gap, 0.3464 against 0.3963,
+    13 percent - mild, so neither lever is clearly the one. Acceptance is free
+    now (kurtosis against matched subsamples), so this reads in an hour.
 
 24. **Conditioning, two-stage.** Draw the DC part of the state, then the
-    motion given it. Kept behind 22-23 because its measured gains come from
-    fine continuous conditions, and its cost is memorisation, which then has
-    to be measured beside every sample.
+    motion given it. Kept behind the above because its measured gains come
+    from fine continuous conditions, and its cost is memorisation, which then
+    has to be measured beside every sample. The human asked for an
+    explanation of it 2026-09-21 before deciding.
 
 Waiting, not in the order above:
 
@@ -210,12 +241,19 @@ Waiting, not in the order above:
 
 Recorded, not approved, not begun. One line each.
 
-- **More corpus and more capacity for the flow** — the earlier queue item 20
-  (four to six times the states from the unused rotations, the same capacity
-  retrained, then capacity). Deferred 2026-09-21: the published transitions
-  were measured on convolutional nets over spatial data, so data alone is not
-  the gap — routes B and C of
-  `reports/2026-09-21_research_path_to_a_video_generator.md`.
+- **Restoring the types that 22 cut** (T4a+T4b back to all four T4, or to all
+  eight) - **declined by the human 2026-09-21**: "4 смысла нет, востановление
+  идеальное, а сцену строить вряд-ли мешает". The numbers agree: a clip's own
+  seed returns its clip at exactly the ceiling, and the ceiling is 66 of 100
+  where a fresh draw is 22, so the ceiling binds nothing.
+- **The time axis inside the architecture** - raised 2026-09-21, not yet a
+  proposal: the human asked what it would actually mean and the honest answer
+  is that it is a diagnosis first, not an architecture change. Time is 16 DCT
+  coefficients carried as plain channels; the draws are over-smooth in time,
+  which in DCT terms means the high-index coefficients are under-produced.
+  Measuring the per-coefficient variance of draws against the data says
+  whether that is so, and the lever if it is would be `loss_weight_p`, which
+  already exists (18.6), not a new backbone.
 - **An external generator as the scene or corpus source** — unbounded clips,
   a weaker claim; route G of the same report.
 - **3', fine-tuning MaleCNS from the transplanted weights** (the human,
