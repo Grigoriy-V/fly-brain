@@ -23,13 +23,18 @@ def test_patches_partition_the_lattice_exactly_once():
 
 
 def test_every_column_is_one_step_from_its_centre_and_patches_are_three():
-    """Трёхкратное укрупнение — это среднее по 2,99 колонки, а не лозунг."""
+    """Трёхкратное укрупнение буквальное: 721 / 3. Наивная раздача давала
+    патчи от 1 до 5 колонок, и это ломало эквивариантность — одно правило во
+    всех местах поля. Сбалансированная даёт ровно по три, кроме двух патчей по
+    две, потому что 721 = 241·3 − 2."""
     lay = H.patch_layout(721, "third")
     D = hex_distance(721)
     far = [c for c in range(721) if D[c, lay["centres"][lay["owner"][c]]] > 1]
     assert far == []
+    assert lay["P"] == 3
+    assert sorted(np.bincount(lay["sizes"]).tolist()) == [0, 0, 2, 239]
     assert lay["sizes"].mean() == pytest.approx(721 / 241, abs=1e-6)
-    assert lay["P"] == int(lay["sizes"].max())
+    assert all(int(lay["members"][m, 0]) == int(c) for m, c in enumerate(lay["centres"]))
 
 
 def test_the_patch_lattice_is_itself_hexagonal():

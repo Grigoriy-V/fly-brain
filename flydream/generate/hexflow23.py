@@ -53,28 +53,60 @@ from flydream.generate.gen13b import t_embedding
 
 @lru_cache(maxsize=4)
 def patch_layout(n: int = 721, lattice: str = "third") -> dict:
-    """Разбиение решётки на патчи вокруг центров подрешётки.
+    """Разбиение решётки на патчи вокруг центров подрешётки, **сбалансированное**.
 
-    Каждая колонка отходит ближайшему центру; ничьи достаются центру с меньшим
-    индексом, что делает разбиение однозначным и воспроизводимым. Возвращается
-    `members` (M, P) с −1 на пустых местах, `owner` (n,) и `slot` (n,) — куда
-    именно в своём патче попала колонка, чтобы обратный ход был точным.
+    Наивная раздача «каждой колонке ближайший центр, ничья — меньший индекс»
+    даёт патчи размером от 1 до 5, потому что у каждой не-центральной колонки
+    центров-соседей два или три и выбор произволен. Разные патчи — это разные
+    токены, а вся конструкция стоит на эквивариантности, то есть на одном
+    правиле во всех местах поля. Поэтому раздача решается как паросочетание:
+    каждый центр берёт не больше двух соседей, и при 241 центре и 480
+    остальных колонках совершенное паросочетание существует — 239 патчей ровно
+    по три колонки и два по две, потому что 721 = 241·3 − 2.
+
+    Кун с обходом в фиксированном порядке: результат детерминирован и от
+    запуска к запуску не меняется. Возвращается `members` (M, P) с −1 на
+    пустых местах, `owner` (n,) и `slot` (n,) — куда именно в своём патче
+    попала колонка, чтобы обратный ход был точным.
     """
+    from flydream.decode.hexraster import neighbour_index
     from flydream.generate.inside22 import lattice_mask
 
-    D = hex_distance(n)
     centres = np.where(lattice_mask(lattice, n))[0]
-    owner = D[:, centres].argmin(1).astype(np.int64)                   # (n,) индекс патча
-    sizes = np.bincount(owner, minlength=len(centres))
-    P = int(sizes.max())
+    pos = {int(c): i for i, c in enumerate(centres)}
+    nb = neighbour_index(n)
+    rest = [i for i in range(n) if i not in pos]
+    cand = [sorted(pos[int(j)] for j in nb[i] if j >= 0 and int(j) in pos) for i in rest]
+    taken: list[list[int]] = [[] for _ in centres]
+
+    def augment(ci: int, seen: set[int]) -> bool:
+        for m in cand[ci]:
+            if m in seen:
+                continue
+            seen.add(m)
+            if len(taken[m]) < 2:                                      # центр + двое = патч из трёх
+                taken[m].append(ci)
+                return True
+            for k, other in enumerate(taken[m]):                       # потеснить того, кто может уйти
+                if augment(other, seen):
+                    taken[m][k] = ci
+                    return True
+        return False
+
+    order = sorted(range(len(rest)), key=lambda i: (len(cand[i]), i))  # сначала у кого выбора меньше
+    placed = sum(augment(i, set()) for i in order)
+    if placed != len(rest):
+        raise RuntimeError(f"решётка {lattice} на {n}: пристроено {placed} колонок из {len(rest)}")
+
+    P = 1 + max(len(x) for x in taken)
     members = np.full((len(centres), P), -1, np.int64)
-    slot = np.zeros(n, np.int64)
-    fill = np.zeros(len(centres), np.int64)
-    for col in range(n):                                               # порядок по индексу колонки — детерминирован
-        m = owner[col]
-        members[m, fill[m]] = col
-        slot[col] = fill[m]
-        fill[m] += 1
+    owner, slot = np.zeros(n, np.int64), np.zeros(n, np.int64)
+    for m, c in enumerate(centres):
+        cols = [int(c)] + sorted(rest[i] for i in taken[m])            # центр всегда нулевое место
+        for s, col in enumerate(cols):
+            members[m, s] = col
+            owner[col], slot[col] = m, s
+    sizes = (members >= 0).sum(1)
     return {"centres": centres, "members": members, "owner": owner, "slot": slot,
             "P": P, "M": len(centres), "n": n, "sizes": sizes}
 
