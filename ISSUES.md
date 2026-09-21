@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0012 | open | today's still-picture grids normalise every cell to mean 0.5 and sd 0.19 before display, which equalises exactly the contrast the captions beside them report - the original of clip 6008 has sd 0.226 and was shown at 0.19, and draws at sd 0.122 were shown at the same 0.19 as the reference at 0.182, so the draws looked better and the originals worse than they are | roadmap 29 |
 | ISS-0011 | open | three functions named `nearest` live in `flydream/generate/`: `vaeval18.py:47` and `blend18.py:44` are line-for-line the same Pearson correlation over a clip bank, while `baseline17.py:67` is a different algorithm under the same name - cosine similarity with no mean-centring, a batched signature and a `skip` mask - so importing the wrong one silently changes the scale a novelty claim is read on | roadmap 17-22 |
 | ISS-0010 | open | a fresh draw's geometry is scored against the held-out split, which the flow was never trained to match: at k = 1536 the held-out latent has per-axis sd 0.829 [0.206 .. 1.075] and radius 29.67 against exactly 1.000 [0.999 .. 1.000] and 35.21 on training, so the draw's radius overshoot was reported as 44 % when it is 20 %, and `--draw-scale -1` shrinks the rendered state by 16 % toward the wrong reference | roadmap 19-22 |
 | ISS-0009 | open, narrowed | 13B's sampling noise is drawn per batch, so "one z per clip in every cell" holds only when the batch boundaries fall on the group boundaries; at batch 8 and groups of 6 clips each cell of a figure got a different z, which moves a six-clip gate by about a tenth of its value (the same arm read 0.3818 in cut19 and 0.4162 in back21) | roadmap 19-21 |
@@ -42,6 +43,31 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0012 — the picture grids equalise the contrast their own captions compare
+
+- **Status:** open. Seen 2026-09-21, found by the human: "куда исчез контраст?
+  это же оригинал". Affects every still-picture grid made today
+  (`fig_pic23.py`, `fig_pic23k16.py` and the inline grids for 29); the video
+  figures are unaffected, they draw raw values on a fixed 0..1 scale.
+- **Seen:** each cell is displayed as `(v - v.mean()) / v.std() * 0.19 + 0.5`,
+  so every image is forced to mean 0.5 and sd 0.19 whatever its real contrast.
+- **Costs:** it hides the difference the captions are about. Clip 6008's frame
+  has sd 0.226 and its 40-frame mean 0.211 - averaging costs only 1.07x - yet
+  both were shown at 0.19 with the deep blacks pulled to grey. Worse, in the
+  four-row grid of 29 the reference reads sd 0.182 and the draws 0.122, and
+  both were displayed at 0.19: the draws were flattered and the reference was
+  flattened, in the same figure whose caption compared them. Recorded numbers
+  in `reports/runs.jsonl` are unaffected - they were computed before display.
+- **Reproduce:** `reports/figures/2026-09-21_malecns_contrast6008.png` shows
+  the same frame as it is and after the normalisation, side by side.
+- **Cause:** known - the normalisation was added so cells of different
+  absolute scale could be compared, which is the wrong trade when the caption
+  is about scale.
+- **Evidence:** `reports/figures/2026-09-21_malecns_static29_true.png` is the
+  same grid drawn on a fixed 0..1 scale.
+- **Related:** roadmap 29. The fix is to draw on a fixed scale and to say the
+  per-row sd in the caption, as the video figures already do.
 
 ### ISS-0011 — three different functions are called `nearest`, and one of them is a different metric
 
