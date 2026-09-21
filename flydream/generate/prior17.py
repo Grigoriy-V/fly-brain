@@ -94,6 +94,9 @@ def build(frames: int = 40, k: int = 8, **kw) -> nn.Module:
     # `n` — число токенов. До 19.2 оно всегда было 721 (токен = колонка) и в
     # build не передавалось; латент PCA даёт 16 токенов по 128 признаков, и
     # умолчание сохранено, поэтому каждый прежний чекпойнт грузится как был.
+    if kw.get("backbone", "") == "hex":                                          # 23: гекс-локальный над блоком
+        from flydream.generate import hexflow23 as H                             # контракт тензоров тот же
+        return H.build(frames=frames, k=k, **kw)
     return SiTStates(frames=frames, k=k, width=kw.get("width", 128), depth=kw.get("depth", 4),
                      heads=kw.get("heads", 4), n=kw.get("n", 721), n_classes=kw.get("n_classes", 0),
                      null_class=kw.get("null_class", False))
@@ -526,7 +529,10 @@ def load(path, device) -> tuple[nn.Module, dict]:
     m = ck["meta"]
     model = build(frames=m["frames"], k=m.get("k", 8), n=int(m.get("n", 721) or 721), width=m["width"],
                   depth=m["depth"], heads=m.get("heads", 4),
-                  n_classes=int(m.get("n_classes", 0) or 0), null_class=bool(m.get("label_drop", 0.0)))
+                  n_classes=int(m.get("n_classes", 0) or 0), null_class=bool(m.get("label_drop", 0.0)),
+                  backbone=m.get("backbone", ""), lattice=m.get("lattice", "third"),
+                  radius=int(m.get("radius", 2) or 2), n_global=int(m.get("n_global", 4) or 4),
+                  abs_pos=bool(m.get("abs_pos", False)))
     model.load_state_dict(ck["state_dict"])
     for p, s in zip(model.parameters(), ck["ema"]):
         p.data.copy_(s)                                                          # sample with the EMA weights

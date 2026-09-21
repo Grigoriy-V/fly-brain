@@ -1047,7 +1047,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
             couple: str = "random", couple_file: str = "", couple_norm: str = "shell",
-            latent_tokens: int = 0, latent_k: int = 0) -> dict:
+            latent_tokens: int = 0, latent_k: int = 0, types: str = "", backbone: str = "",
+            lattice: str = "third", radius: int = 2, n_global: int = 4, abs_pos: bool = False) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -1056,7 +1057,16 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     17.1b (`sources="sintel"`, `dct_k=16`): scene states only, and the time
     axis compressed to its first DCT coefficients, each z-scored over the
     training subset. K = 16 keeps 99.55 % of the energy and costs a round trip
-    of 0.045 on real states; K = 8 costs 0.58 (measured before the run)."""
+    of 0.045 on real states; K = 8 costs 0.58 (measured before the run).
+
+    23 (`types="T4a,T4b"`, `backbone="hex"`): the flow over the block of the
+    state itself, 721 x 32 with the lattice intact, instead of over a PCA
+    vector that has no lattice left. `types` subsets the type axis of the maps
+    and of everything cut along it, so the checkpoint's meta cannot lie to the
+    decoder; `backbone="hex"` swaps `SiTStates` for `hexflow23.HexSiT` -
+    3x patchify to 241 tokens, hex-local attention of radius `radius`,
+    relative position bias instead of a learned one, and `n_global` registers
+    as the global channel 21b asked for."""
     import numpy as np
     import torch
     from flydream.generate import prior17 as R
@@ -1089,6 +1099,19 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
         coef_mean = coef_mean[0, :, :, 0].cpu().numpy(); coef_std = coef_std[0, :, :, 0].cpu().numpy()
         print(f"DCT-{dct_k}: train {tuple(m.shape)}, coefficient sd per index "
               f"{np.round(coef_std.mean(1), 3).tolist()}", flush=True)
+    want = [x.strip() for x in types.split(",") if x.strip()]
+    if want:
+        # 21d and 22.0: the other types are not zeroed, they are declared
+        # absent through 13B's own mask, so the flow must never see them.
+        # Everything sliced along the type axis is sliced with the maps, or
+        # the meta lies to the decoder that reads the checkpoint back.
+        ch = [DEEP.index(x) for x in want]
+        m, mv = m[:, :, ch], mv[:, :, ch]
+        stats = {**stats, "mean": np.asarray(stats["mean"])[ch], "std": np.asarray(stats["std"])[ch]}
+        if coef_mean is not None:
+            coef_mean, coef_std = np.asarray(coef_mean)[:, ch], np.asarray(coef_std)[:, ch]
+        print(f"types {want} -> channels {ch}: train {tuple(m.shape)}, "
+              f"{int(np.prod(m.shape[1:]))} numbers per clip", flush=True)
     names, labels, val_labels, trained = [], None, None, None
     if classes:                                                      # 18.4e: the label the clip came with
         meta = json.loads((Path(RUNS) / run / "manifest.json").read_text(encoding="utf-8"))["meta"]
@@ -1118,9 +1141,16 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     if label_drop and not names:
         raise SystemExit("label_drop needs classes=True; there is nothing to drop")
     model = R.build(frames=m.shape[1], k=m.shape[2], n=int(m.shape[3]), width=width, depth=depth, heads=heads,
-                    n_classes=len(names), null_class=bool(label_drop))
+                    n_classes=len(names), null_class=bool(label_drop), backbone=backbone,
+                    lattice=lattice, radius=radius, n_global=n_global, abs_pos=abs_pos)
     n_par = sum(p.numel() for p in model.parameters())
-    print(f"state flow: {n_par} parameters", flush=True)
+    print(f"state flow ({backbone or 'sit'}): {n_par} parameters", flush=True)
+    if backbone == "hex":
+        g = model.geometry
+        print(f"  patches {g['M']} of up to {g['P']} columns, radius {g['radius']} on the {g['lattice']} "
+              f"sublattice -> {g['neighbours_mean']:.1f} neighbours on average, {g['n_offsets']} distinct "
+              f"relative offsets, {n_global} global tokens, absolute position {'on' if abs_pos else 'off'}",
+              flush=True)
     couple_eps = None
     if couple == "file":                                             # 18.23: pairs from invert17, already standardised
         z = np.load(Path(RUNS) / couple_file)
@@ -1170,6 +1200,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             "trained_classes": trained,
             "loss_weight_p": float(loss_weight_p), "label_drop": float(label_drop), "couple": couple,
             "couple_file": couple_file, "couple_norm": couple_norm,
+            "types": want, "backbone": backbone, "lattice": lattice, "radius": int(radius),
+            "n_global": int(n_global), "abs_pos": bool(abs_pos),
             "mean": stats["mean"].tolist(), "std": stats["std"].tolist(), "sources": sources, "dct_k": int(dct_k),
             "time_frames": time_frames, "n_train": int(m.shape[0]),
             "coef_mean": None if coef_mean is None else coef_mean.tolist(),
