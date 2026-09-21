@@ -684,7 +684,7 @@ def train_vae18(steps: int = 20000, batch: int = 32, lr: float = 1e-3, width: in
 
 
 def _load_latent(device, file: str, subset: str = "train", tokens: int = 16, limit: int = 0,
-                 k_axis: int = 8):
+                 k_axis: int = 8, k: int = 0):
     """19.2: whitened PCA coordinates from `pca19`, shaped as the flow's own
     (N, T, K, n) with n = `tokens`. There is nothing to z-score: whitening
     already did it, so the stats are the identity and `dct_k` stays 0 — the
@@ -696,6 +696,8 @@ def _load_latent(device, file: str, subset: str = "train", tokens: int = 16, lim
 
     z = np.load(Path(RUNS) / file)
     Z = np.asarray(z[f"z_{subset}"], np.float32)
+    if k:                                                             # координаты PCA вложены: первые k — это
+        Z = Z[:, :k]                                                  # ровно латент ранга k, переподгонка не нужна
     idx = np.asarray(z[f"index_{subset}"])
     if limit:
         Z, idx = Z[:limit], idx[:limit]
@@ -1045,7 +1047,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
             maps_file: str = "gen13b/maps_deep.npz", run: str = "pairs13", compile_mode: str = "",
             classes: bool = False, loss_weight_p: float = 0.0, label_drop: float = 0.0,
             couple: str = "random", couple_file: str = "", couple_norm: str = "shell",
-            latent_tokens: int = 0) -> dict:
+            latent_tokens: int = 0, latent_k: int = 0) -> dict:
     """17.1: the prior over T4/T5 states — flow matching on the same maps 13B
     was conditioned on (`prior17.train`), no condition of its own; validation
     loss every 500 steps; checkpoint with EMA weights on /runs/<out>/<name>.pt.
@@ -1063,8 +1065,8 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     dev = torch.device("cuda")
     t0 = time.time()
     if latent_tokens:                                                # 19.2: поток над латентом PCA, а не над состоянием
-        m, idx_tr, stats = _load_latent(dev, maps_file, "train", tokens=latent_tokens)
-        mv, idx_val, _ = _load_latent(dev, maps_file, "val", tokens=latent_tokens, limit=256)
+        m, idx_tr, stats = _load_latent(dev, maps_file, "train", tokens=latent_tokens, k=latent_k)
+        mv, idx_val, _ = _load_latent(dev, maps_file, "val", tokens=latent_tokens, limit=256, k=latent_k)
     else:
         _, m, idx_tr, stats = _load_maps(dev, file=maps_file, with_videos=False, sources=sources, run=run)
         _, mv, idx_val, _ = _load_maps(dev, file=maps_file, subset="val", limit=256, with_videos=False,
@@ -1162,7 +1164,7 @@ def train17(steps: int = 20000, batch: int = 32, lr: float = 3e-4, width: int = 
     outdir.mkdir(parents=True, exist_ok=True)
     meta = {"kind": "sit_states", "frames": int(m.shape[1]), "k": int(m.shape[2]), "n": int(m.shape[3]),
             "best_step": r.get("best_step"), "best_val": r.get("best_val"), "nan_steps": r.get("nan_steps"),
-            "latent_tokens": latent_tokens, "width": width, "depth": depth,
+            "latent_tokens": latent_tokens, "latent_k": latent_k, "width": width, "depth": depth,
             "heads": heads, "steps": steps, "batch": batch, "lr": lr, "parameters": int(n_par), "seed": seed,
             "compile_mode": compile_mode, "n_classes": len(names), "class_names": names,
             "trained_classes": trained,

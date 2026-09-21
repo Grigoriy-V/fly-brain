@@ -41,6 +41,7 @@ from flydream.decode import pairs as P13
 from flydream.generate import fix19 as F
 from flydream.generate import gen13b as G
 from flydream.generate import learned as L
+from flydream.generate.latent22 import block_index
 from flydream.generate import pca19 as P
 from flydream.generate import prior17 as R
 from flydream.generate.edges18 import describe
@@ -74,7 +75,8 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
         manifest: dict, columns: dict, corpus: Path, *, n_clips: int = 6, frames: int = 40,
         margin: int = 5, dt: float = 0.02, t_pre: float = 1.0, seed: int = 0,
         invert_steps=(20, 100), sample_steps: int = 20, draw_scale: float = 0.0,
-        controls: bool = False, invert_n: int = 0, fixes=(), fix_n: int = 256, log=print) -> dict:
+        controls: bool = False, invert_n: int = 0, fixes=(), fix_n: int = 256,
+        block_types: str = "", pca_k: int = 0, block_pca: str = "", log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -88,13 +90,21 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
     zf = np.load(latent_path)
     pz = np.load(pca_path)
     pmeta = json.loads(str(pz["meta"]))
-    pca = P.from_numpy(pz, dev)
+    pca = P.from_numpy(np.load(block_pca) if block_pca else pz, dev)   # мета берётся из ПОЛНОГО базиса:
+    if pca_k:                                                          # блочный описывает только свои типы                                                         # координаты PCA вложены: усечение = ранг k
+        pca = P.truncate(pca, pca_k)
+    # 22.6: базис может покрывать не всё состояние, а блок типов. Тогда декодер
+    # кладёт блок на его места, остальное остаётся средним корпуса, и 13B об
+    # этом ЗНАЕТ — маска типов его штатный вход (21д).
+    btypes = [t.strip() for t in block_types.split(",") if t.strip()]
+    bidx = None if not btypes else torch.as_tensor(
+        np.asarray(block_index(btypes, maps_order=True)), device=dev)
     k = pca["k"]
     log(f"поток {fmeta['width']}x{fmeta['depth']}, {tokens} токенов; PCA {pca['dims']} -> {k}; "
         f"{time.time() - t0:.0f} с")
 
     # --- A. геометрия прообразов на всём отложенном сплите -------------------
-    z_test = torch.as_tensor(np.asarray(zf["z_test"], np.float32), device=dev)
+    z_test = torch.as_tensor(np.asarray(zf["z_test"], np.float32), device=dev)[:, :k]
     idx_test = np.asarray(zf["index_test"])
     z_inv = z_test if not invert_n else z_test[:invert_n]              # сколько латентов обращать для геометрии
     out = {"flow": str(flow_ckpt), "pca": str(pca_path), "k": k, "tokens": tokens,
@@ -128,13 +138,19 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
     maps = L.to_maps(st_real.astype(np.float16), d.layout, len(DEEP))[:, :frames].astype(np.float32)
     real = (maps - mean[None, None, :, None]) / std[None, None, :, None]
     x_real = R.to_model_space(pmeta, real, dev)
-    z_here = P.encode(x_real.reshape(len(x_real), -1), pca)
+    flat_real = x_real.reshape(len(x_real), -1)
+    z_here = P.encode(flat_real if bidx is None else flat_real[:, bidx], pca)
     z_file = z_test[rows]
     agree = float((z_here - z_file).abs().max() / z_file.abs().max())
     log(f"сверка кодировщиков (локально против Modal): {100 * agree:.3f} % от размаха")
 
     def to_state(zl: torch.Tensor) -> np.ndarray:
-        x = P.decode(zl, pca).reshape(len(zl), *x_real.shape[1:])
+        if bidx is None:
+            x = P.decode(zl, pca).reshape(len(zl), *x_real.shape[1:])
+        else:
+            full = torch.zeros(len(zl), flat_real.shape[1], device=zl.device)
+            full[:, bidx] = P.decode(zl, pca)
+            x = full.reshape(len(zl), *x_real.shape[1:])
         return R.from_model_space(pmeta, x)
 
     # --- B. сид, заданный клипом; C. свежий розыгрыш -------------------------
@@ -185,7 +201,7 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
         # латент: на нём модель училась, отложенный слабее (десять новых классов).
         # Геометрия каждой поправки считается на `fix_n` розыгрышах, потому что на
         # шести её не видно (эксцесс при n = 6 смещён до 2,14, § 19.0).
-        sd_train = float(torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev).std())
+        sd_train = float(torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev)[:, :k].std())
         out["fix"] = {"sd_train": sd_train, "arms": {}}
         m = min(fix_n, len(e_many))
         for text in fixes:
@@ -209,7 +225,7 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
         # равномерно, радиус — из эмпирического распределения обучающих.
         gc = torch.Generator(device=dev).manual_seed(7700 + seed)
         z_iso = torch.randn(n_clips, k, device=dev, generator=gc)
-        z_tr = torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev)
+        z_tr = torch.as_tensor(np.asarray(zf["z_train"], np.float32), device=dev)[:, :k]
         rad = z_tr.norm(dim=1)
         pick = torch.randint(0, len(rad), (n_clips,), device=dev, generator=gc)
         u = torch.randn(n_clips, k, device=dev, generator=gc)
@@ -238,7 +254,9 @@ def run(model: str, flow_ckpt: Path, pca_path: Path, latent_path: Path, gen_ckpt
     jobs = {f"{g}|{i}": v[i] for g, v in groups.items() for i in range(n_clips)}
     names = list(jobs)
     cond = torch.as_tensor(np.stack([jobs[n] for n in names]), device=dev)
-    mask = torch.ones(len(names), len(DEEP), device=dev)
+    bits = (np.ones(len(DEEP), np.float32) if bidx is None else
+            np.array([1.0 if t in btypes else 0.0 for t in DEEP], np.float32))
+    mask = torch.as_tensor(np.tile(bits, (len(names), 1)), device=dev)
     vids = []
     with torch.no_grad():
         for i in range(0, len(names), 8):
@@ -297,6 +315,9 @@ def main(argv=None) -> int:
     p.add_argument("--controls", action="store_true", help="добавить розыгрыши без потока и интерполяцию")
     p.add_argument("--fix", default="", help="поправки сэмплера через ; — \"vscale=1.1;shift=2\" (пункт 20)")
     p.add_argument("--fix-n", type=int, default=256, help="сколько розыгрышей на геометрию поправки")
+    p.add_argument("--block-types", default="", help="базис покрывает только эти типы (22.6)")
+    p.add_argument("--pca-k", type=int, default=0, help="усечь базис до ранга k")
+    p.add_argument("--block-pca", default="", help="базис по блоку; мета и раскладка берутся из --pca")
     p.add_argument("--invert-n", type=int, default=0, help="сколько отложенных латентов обращать")
     p.add_argument("--seed", type=int, default=0)
     a = p.parse_args(argv)
@@ -309,7 +330,8 @@ def main(argv=None) -> int:
             dt=g.get("dt", 0.02), t_pre=g.get("t_pre", 1.0), seed=a.seed,
             invert_steps=tuple(int(x) for x in a.invert_steps.split(",")),
             sample_steps=a.sample_steps, draw_scale=a.draw_scale, controls=a.controls, invert_n=a.invert_n,
-            fixes=[x for x in a.fix.split(';') if x.strip()], fix_n=a.fix_n)
+            fixes=[x for x in a.fix.split(';') if x.strip()], fix_n=a.fix_n,
+            block_types=a.block_types, pca_k=a.pca_k, block_pca=a.block_pca)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]
