@@ -36,7 +36,7 @@ import numpy as np
 import torch
 
 from flydream.decode import pairs as P13
-from flydream.decode.hexraster import ring_of
+from flydream.decode.hexraster import axial_coords, neighbour_index, ring_of
 from flydream.generate import gen13b as G
 from flydream.generate import learned as L
 from flydream.generate import prior17 as R
@@ -49,15 +49,74 @@ from flydream.generate.prompts14 import Deep
 from flydream.generate.roundtrip13 import build_states
 from flydream.generate.vaeval18 import nearest
 
-DEFAULT = ("T4/16/15", "T4a+T4b+T4c/16/15", "T4a+T4c/16/15", "T4b+T4d/16/15", "T4a/16/15",
-           "T4/8/15", "T4/4/15", "T4/2/15", "T4/16/10", "T4/16/6", "T4/8/10")
+LATTICES = ("all", "half_rows", "half_rand", "third", "quarter")
+
+
+def fill_from_neighbours(x: torch.Tensor, keep: torch.Tensor, rounds: int = 4) -> torch.Tensor:
+    """Пустые колонки заполняются средним по имеющимся соседям на решётке.
+
+    Маски по колонкам у 13B нет — объявить «этого гекса не дано» нечем, поэтому
+    прорежённое состояние иначе подаётся как «здесь среднее корпуса», то есть
+    ложь того же рода, что обнулённый T5. Достройка по соседям опирается на
+    измеренное: корреляция соседних колонок 0,876 (21б)."""
+    nb = torch.as_tensor(np.asarray(neighbour_index(x.shape[-1])), device=x.device)
+    out = x.clone()
+    have = keep.clone()
+    for _ in range(rounds):
+        if bool(have.all()):
+            break
+        idx = nb.clamp_min(0)                                          # (n, 6)
+        ok = (nb >= 0) & have[idx]                                     # сосед есть и уже заполнен
+        vals = out[..., idx] * ok.to(out.dtype)                        # (..., n, 6)
+        cnt = ok.sum(1).to(out.dtype)
+        filled = vals.sum(-1) / cnt.clamp_min(1)
+        take = (~have) & (cnt > 0)
+        out = torch.where(take, filled, out)
+        have = have | take
+    return out
+
+DEFAULT = ("T4/16/15/all",
+           # все комбинации направлений: четыре по одному, шесть пар, четыре тройки
+           "T4a/16/15/all", "T4b/16/15/all", "T4c/16/15/all", "T4d/16/15/all",
+           "T4a+T4b/16/15/all", "T4a+T4c/16/15/all", "T4a+T4d/16/15/all",
+           "T4b+T4c/16/15/all", "T4b+T4d/16/15/all", "T4c+T4d/16/15/all",
+           "T4a+T4b+T4c/16/15/all", "T4a+T4b+T4d/16/15/all", "T4a+T4c+T4d/16/15/all",
+           "T4b+T4c+T4d/16/15/all",
+           # решётка прорежена равномерно, поле зрения целое
+           "T4/16/15/half_rows", "T4/16/15/half_rand", "T4/16/15/third", "T4/16/15/quarter",
+           "T4a+T4b+T4c/16/15/half_rand")
+
+
+def lattice_mask(kind: str, n: int = 721, seed: int = 0) -> np.ndarray:
+    """(n,) bool: какие колонки остаются при равномерном прореживании решётки.
+
+    Обрезка колец делает картинку МЕНЬШЕ; прореживание оставляет всё поле
+    зрения и снижает разрешение. Гексагональная решётка треугольная, поэтому
+    ровной двухцветной раскраски у неё нет: `half_rows` прореживает ряды (то
+    есть анизотропно), `half_rand` берёт случайную половину, а изотропные
+    подрешётки дают 1/3 (√3 × √3) и 1/4 (шаг решётки вдвое)."""
+    a = axial_coords(n)
+    u, v = a[:, 0], a[:, 1]
+    if kind == "all":
+        return np.ones(n, bool)
+    if kind == "half_rows":
+        return (v % 2) == 0
+    if kind == "half_rand":
+        keep = np.zeros(n, bool)
+        keep[np.random.default_rng(seed).permutation(n)[: n // 2]] = True
+        return keep
+    if kind == "third":
+        return ((u + 2 * v) % 3) == 0
+    if kind == "quarter":
+        return ((u % 2) == 0) & ((v % 2) == 0)
+    raise ValueError(f"неизвестное прореживание {kind!r}, есть {LATTICES}")
 
 
 def parse_arm(text: str, n_dct: int = 16, n_rings: int = 15) -> dict:
-    """`"T4a+T4c/8/10"` -> {"types": [...], "dct": 8, "rings": 10}."""
+    """`"T4a+T4c/8/10/third"` -> {"types": [...], "dct": 8, "rings": 10, "lattice": "third"}."""
     parts = [p.strip() for p in str(text).split("/")]
-    if not 1 <= len(parts) <= 3:
-        raise ValueError(f"не разобрать арму {text!r}: нужно типы/DCT/кольца")
+    if not 1 <= len(parts) <= 4:
+        raise ValueError(f"не разобрать арму {text!r}: нужно типы/DCT/кольца/решётка")
     names = []
     for token in parts[0].split("+"):
         token = token.strip()
@@ -71,7 +130,13 @@ def parse_arm(text: str, n_dct: int = 16, n_rings: int = 15) -> dict:
         raise ValueError(f"DCT {dct} вне 1..{n_dct}")
     if not 0 <= rings <= n_rings:
         raise ValueError(f"кольца {rings} вне 0..{n_rings}")
-    return {"types": sorted(set(names), key=DEEP.index), "dct": dct, "rings": rings, "name": text}
+    lat = parts[3] if len(parts) > 3 and parts[3] else "all"
+    fill = lat.endswith("+fill")
+    lat = lat[: -len("+fill")] if fill else lat
+    if lat not in LATTICES:
+        raise ValueError(f"неизвестное прореживание {lat!r}, есть {LATTICES}")
+    return {"types": sorted(set(names), key=DEEP.index), "dct": dct, "rings": rings,
+            "lattice": lat, "fill": fill, "name": text}
 
 
 def apply_arm(x: torch.Tensor, arm: dict, cols: np.ndarray) -> tuple:
@@ -81,17 +146,22 @@ def apply_arm(x: torch.Tensor, arm: dict, cols: np.ndarray) -> tuple:
     копия, и присваивание в неё ничего не записывает в `out`."""
     ch = torch.zeros(x.shape[2], dtype=torch.bool, device=x.device)
     ch[[DEEP.index(t) for t in arm["types"]]] = True
-    col = torch.as_tensor(np.asarray(cols <= arm["rings"]), device=x.device)
+    col = torch.as_tensor(np.asarray((cols <= arm["rings"]) & lattice_mask(arm.get("lattice", "all"))),
+                          device=x.device)
     tim = torch.zeros(x.shape[1], dtype=torch.bool, device=x.device)
     tim[:arm["dct"]] = True
     keep = tim[None, :, None, None] & ch[None, None, :, None] & col[None, None, None, :]
     given = int(tim.sum()) * int(ch.sum()) * int(col.sum())
-    return torch.where(keep, x, torch.zeros_like(x)), given
+    out = torch.where(keep, x, torch.zeros_like(x))
+    if arm.get("fill"):
+        out = fill_from_neighbours(out, col)
+        out = torch.where(tim[None, :, None, None] & ch[None, None, :, None], out, torch.zeros_like(out))
+    return out, given
 
 
 def run(model: str, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path, *, arms=DEFAULT,
         n_clips: int = 6, frames: int = 40, margin: int = 5, dt: float = 0.02, t_pre: float = 1.0,
-        seed: int = 0, log=print) -> dict:
+        seed: int = 0, nearest_to_bank: bool = True, log=print) -> dict:
     t0 = time.time()
     torch.manual_seed(seed); np.random.seed(seed)
     rng = np.random.default_rng(seed)
@@ -110,7 +180,7 @@ def run(model: str, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path,
 
     cz = np.load(Path(corpus) / "videos.npz")
     cm = json.loads((Path(corpus) / "pairs_manifest.json").read_text(encoding="utf-8"))
-    bank_all = np.asarray(cz["videos"][:, :frames], np.float16)
+    bank_all = np.asarray(cz["videos"][:, :frames], np.float16) if nearest_to_bank else None
     clip_idx = rng.choice(np.asarray(cm["split"]["test"]), n_clips, replace=False)
     raw = np.asarray(cz["videos"][clip_idx][:, :frames], np.float32)
     st_real = simulate_states(net, np.asarray(cz["videos"], np.float16)[clip_idx], d.cells_all,
@@ -130,8 +200,9 @@ def run(model: str, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path,
         cut, given = apply_arm(x, spec, cols)
         groups[spec["name"]] = np.einsum("kt,bkcn->btcn", dct, cut.cpu().numpy())
         info[spec["name"]] = {"given": given, "arm": spec}
-        log(f"  {spec['name']:20} {len(spec['types'])} типов x {spec['dct']} DCT x "
-            f"{int((cols <= spec['rings']).sum())} колонок = {given} чисел, {time.time() - t0:.0f} с")
+        log(f"  {spec['name']:24} {len(spec['types'])} типов x {spec['dct']} DCT x "
+            f"{given // max(len(spec['types']) * spec['dct'], 1)} колонок = {given} чисел, "
+            f"{time.time() - t0:.0f} с")
 
     names = [f"{g}|{i}" for g in groups for i in range(n_clips)]
     cond = torch.as_tensor(np.stack([groups[n.rsplit("|", 1)[0]][int(n.rsplit("|", 1)[1])]
@@ -160,7 +231,7 @@ def run(model: str, gen_ckpt: Path, manifest: dict, columns: dict, corpus: Path,
         sel = [i for i, n in enumerate(names) if n.startswith(g + "|")]
         s = describe([videos[i] for i in sel], nb)
         r = float(np.mean([pixcorr_per_frame(videos[i], raw[j]).mean() for j, i in enumerate(sel)]))
-        near = [nearest(videos[i], bank_all) for i in sel]
+        near = [nearest(videos[i], bank_all) for i in sel] if bank_all is not None else [(0, float("nan"))]
         back = per_type(st_back[sel], st_real, d.type_of, var_ref)
         out["groups"][g] = {
             "given": info[g]["given"], "r_to_raw": r, "frac_flat": s["frac_flat"]["mean"],
@@ -199,6 +270,8 @@ def main(argv=None) -> int:
     p.add_argument("--arms", default=",".join(DEFAULT))
     p.add_argument("--clips", type=int, default=6)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--no-nearest", action="store_true",
+                   help="не искать ближайшее из 15 514: на НАСТОЯЩИХ состояниях это не про новизну")
     a = p.parse_args(argv)
     pdir = Path(a.pairs13)
     manifest = json.loads((pdir / "manifest.json").read_text(encoding="utf-8"))
@@ -207,7 +280,7 @@ def main(argv=None) -> int:
     r = run(a.model, Path(a.gen), manifest, columns, Path(a.corpus),
             arms=tuple(x.strip() for x in a.arms.split(",") if x.strip()), n_clips=a.clips,
             frames=g.get("frames", 40), margin=g.get("margin", 5), dt=g.get("dt", 0.02),
-            t_pre=g.get("t_pre", 1.0), seed=a.seed)
+            t_pre=g.get("t_pre", 1.0), seed=a.seed, nearest_to_bank=not a.no_nearest)
     (out / f"{a.tag}.json").write_text(json.dumps(r["summary"], indent=1, ensure_ascii=False), encoding="utf-8")
     np.savez_compressed(out / f"{a.tag}.npz", **r["arrays"])
     S = r["summary"]

@@ -33,6 +33,9 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--run", default=str(ROOT / "data" / "prior19"))
     p.add_argument("--tag", default="inside22")
+    p.add_argument("--cells", default="")
+    p.add_argument("--head", default="")
+    p.add_argument("--title", default="")
     p.add_argument("--show", type=int, default=1)
     p.add_argument("--prefix", default="2026-09-21_malecns_inside22")
     p.add_argument("--fps", type=int, default=8)
@@ -47,14 +50,22 @@ def main(argv=None) -> int:
 
     cells = [(Z[f"raw__{i}"], f"сырое видео корпуса\nклип {S['clip_idx'][i]}",
               f"ровного {ru(f'{100 * S['raw']['frac_flat']:.1f}')} %")]
-    for key, head in SHOW:
+    show = SHOW
+    if a.cells:
+        keys = [k.strip() for k in a.cells.split(';') if k.strip()]
+        heads = [h.strip() for h in a.head.split(';')] if a.head else keys
+        show = list(zip(keys, heads))
+    for key, head in show:
         v = G[key]
         zone = "" if v["arm"] is None or v["arm"]["rings"] >= 15 else f" на кольцах ≤ {v['arm']['rings']}"
         cells.append((Z[f"video__{key}|{i}"], head,
                       f"{v['given']} чисел ({ru(f'{100 * v['given'] / D:.1f}')} %)\n"
                       f"r {ru(f'{v['central_r']['own']:.3f}')}{zone}"))
-    t4, d3 = G["T4/16/15"], G["T4a+T4b+T4c/16/15"]
-    r6, t8 = G["T4/16/6"], G["T4/8/15"]
+    t4 = G.get("T4/16/15") or G["T4/16/15/all"]
+    d3 = G.get("T4a+T4b+T4c/16/15") or G.get("T4a+T4b+T4c/16/15/all") or t4
+    r6 = G.get("T4/16/6") or t4
+    t8 = G.get("T4/8/15") or t4
+    r10 = G.get("T4/16/10") or t4
     slow = f"{frames} кадров по 20 мс (0,8 с мухи), в {1 / (a.fps * 0.02):.1f}× медленнее"
     title = (
         f"Внутри T4 дёшево режется пространство, дорого — время. Две последние клетки задают почти одинаковое "
@@ -64,7 +75,7 @@ def main(argv=None) -> int:
         f"{ru(f'{t4['central_r']['6'] - r6['central_r']['own']:.3f}')}), а срез времени рушит всё поле сразу "
         f"(r {ru(f'{t8['central_r']['own']:.3f}')} против {ru(f'{t4['central_r']['own']:.3f}')}). Порядок, в "
         f"котором стоит убирать: сначала T5 (даром, возвращается сам), потом поле зрения (это меньшая картинка, "
-        f"а не худшая: 721 -> 331 колонка стоит {ru(f'{t4['central_r']['10'] - G['T4/16/10']['central_r']['own']:.3f}')} "
+        f"а не худшая: 721 -> 331 колонка стоит {ru(f'{t4['central_r']['10'] - r10['central_r']['own']:.3f}')} "
         f"на сохранённой зоне), потом одно направление из четырёх "
         f"({ru(f'{t4['central_r']['own']:.3f}')} -> {ru(f'{d3['central_r']['own']:.3f}')}), и НИКОГДА время. "
         f"Цепочка возвращает выброшенное тем хуже, чем ближе срез ко времени: состояние′ против настоящего "
@@ -80,7 +91,7 @@ def main(argv=None) -> int:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
-    row(cells, textwrap.fill(title, 165), Path(a.outdir) / a.prefix, frames, a.fps,
+    row(cells, textwrap.fill(a.title or title, 165), Path(a.outdir) / a.prefix, frames, a.fps,
         plt, FuncAnimation, PillowWriter, dpi=110)
     print("{:20} {:>8} {:>6} {:>10} {:>11} {:>14}".format(
         "арма", "задано", "от D", "r всё поле", "r своя зона", "состояние′"))
