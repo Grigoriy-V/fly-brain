@@ -85,7 +85,7 @@ choices. This file alone owns current work, order and authorization.
 - **Compute:** the owner's machine (32 cores, 102 GB, CPU) for anything that
   fits in ten minutes; Modal T4 (`flydream-generate`, `flydream-train`,
   `flydream-decode`) for GPU work, called through `tools/modal_call.py`.
-- **Tests:** 132 offline tests passing (2026-09-21, 26 s), no download, no
+- **Tests:** 146 offline tests passing (2026-09-22, 26 s), no download, no
   Modal, no credential.
 
 ## Done
@@ -210,6 +210,7 @@ Closed items, one line each, evidence in the linked report.
   radius 136.2 against a shell of 151.9. Runs `2026-09-21_prior23_*`, 0.51
   dollars on one T4 at 99.9 percent utilisation, acceptance local and free;
   code `flydream/generate/{hexflow23,accept23,seed23}.py`.
+  `reports/2026-09-21_step23_hex_local_prior.md`.
 
 - **26, corrections at draw time** (2026-09-21, delegated, local, free):
   **nothing works, and the acceptance metric turned out to be gameable.**
@@ -230,6 +231,7 @@ Closed items, one line each, evidence in the linked report.
   always be read beside the radius, because shrinking the output buys kurtosis
   for free.** Run `2026-09-21_prior23_fixdraw`; code
   `flydream/generate/fixdraw23.py`.
+  `reports/2026-09-21_step26_corrections_at_draw_time.md`.
 
 - **23.1-23.2, is there a still picture in this state space** (2026-09-21):
   yes, and better than a clip. 23.1 asked it wrongly by zeroing 15 of 16
@@ -244,6 +246,7 @@ Closed items, one line each, evidence in the linked report.
   lattice step per frame is worse, 0.611. Runs
   `2026-09-21_prior23_{still,static}`; code
   `flydream/generate/{still23,static23}.py`.
+  `reports/2026-09-21_step29_a_scene_as_one_picture.md` §§ 1-2.
 
 - **29a, a picture out of a state without 13B** (2026-09-21, local, free):
   the static content is there and it is LINEAR. A least-squares matrix from
@@ -258,6 +261,7 @@ Closed items, one line each, evidence in the linked report.
   0.351, plus another still's residue 0.137 (and it renders the DONOR sharply),
   plus unit noise 0.045, against a 0.941 ceiling. Runs
   `2026-09-21_prior23_{pic,pic_k16,resfix}`; code `tools/fig_pic23*.py`.
+  `reports/2026-09-21_step29_a_scene_as_one_picture.md` §§ 3-4.
 
 - **29, the flow over the static state** (2026-09-21): trained on the DC of
   the states already on the volume - no new brain pass, since the DC of a
@@ -278,8 +282,9 @@ Closed items, one line each, evidence in the linked report.
   22-23 is vacuous here. The human's verdict by eye: closer to a scene than
   anything before it, and not yet a scene. Run `2026-09-21_prior29_static_ab`;
   code `flydream/generate/hexflow23.py` with `train17(coef=1)`.
-  **Reports for 23, 26 and 29 are not written yet**; the numbers above and in
-  `reports/runs.jsonl` are the record until they are.
+  `reports/2026-09-21_step29_a_scene_as_one_picture.md`, whose section 6
+  re-derives the draws' geometry from the saved array against real states in
+  the same representation.
 
 - **29.1, why one frame and not forty** (2026-09-21, local, free): the DC is
   a 40-frame average and that is what makes it Gaussian and blurred. A single
@@ -290,6 +295,7 @@ Closed items, one line each, evidence in the linked report.
   slices start at frame 5. Measured with a throwaway script that was not kept:
   the numbers stand, the figures are in `reports/figures/*slices8*.png`, and
   29.2 re-derives them in committed code.
+  `reports/2026-09-21_step29_a_scene_as_one_picture.md` § 7.
 
 ## Queue
 
