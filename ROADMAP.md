@@ -193,8 +193,9 @@ Closed items, one line each, evidence in the linked report.
   `reports/2026-09-21_the_draw_distribution.md`.
 
 - **23, a hex-local prior over the block** (2026-09-21): the flow runs on the
-  T4a+T4b block itself, 721 x 32 with the lattice intact - 3x patchify to 241
-  patches of exactly three columns, attention restricted to the six
+  T4a+T4b block itself, 721 x 32 with the lattice intact - 3x patchify by Kuhn
+  matching to 239 patches of exactly three columns and two of two, attention
+  restricted to the six
   sublattice neighbours, a relative position bias shared across positions
   instead of a learned per-token one, and four register tokens as the global
   channel. Every measured number moved: per-coordinate kurtosis of draws 4.11
@@ -272,15 +273,23 @@ Closed items, one line each, evidence in the linked report.
   matches a real held-out state exactly on flat fraction, 27.1 against 27.1,
   and nearly on neighbour coherence, 0.928 against 0.949, where the no-flow
   N(0,I) control reads 19.5 percent and 0.492 - the first time in this line
-  that a draw is not separable from a real state on a structural judge.
-  Diversity is right too: pairwise correlation between draws -0.007 mean and
-  0.819 max against 0.008 and 0.758 between real pictures. Two things bound
-  it. The renderer blurs, so matching a real state THROUGH IT is a much lower
+  that a draw is not separable from a real state on those two structural
+  judges. It is separable on the others in the same table: contrast 0.128
+  against the real state's 0.181, and nearest training picture 0.753 against
+  0.706, i.e. the draw sits closer to the training corpus than a real
+  held-out state does. Diversity, re-measured with its own control on the
+  saved array, is in range - pairwise correlation p99 0.587 against
+  0.575 +- 0.019 on training subsamples, maximum 0.957 against 0.984 +- 0.012.
+  Two things bound it. The renderer blurs, so matching a real state THROUGH IT is a much lower
   bar than being a scene; and the target distribution is nearly Gaussian
   (training DC kurtosis 3.17 +- 0.10 against a Gaussian's 2.98), because a
   40-frame average is driven to normality, so the kurtosis gate that governed
-  22-23 is vacuous here. The human's verdict by eye: closer to a scene than
-  anything before it, and not yet a scene. Run `2026-09-21_prior29_static_ab`;
+  22-23 is vacuous here. The human's verdict by eye came in two parts and
+  both stand: first, "глазами - это уже ближе к сцене точно чем было до"; then,
+  after the slice renders, that he cannot judge the flow at all while every
+  picture reaching him passes through a blurred renderer - "по отрисовке я не
+  могу сказать что это лицо... а значит говорить что поток хороший или плохой
+  я тоже не могу". The second is the binding one. Run `2026-09-21_prior29_static_ab`;
   code `flydream/generate/hexflow23.py` with `train17(coef=1)`.
   `reports/2026-09-21_step29_a_scene_as_one_picture.md`, whose section 6
   re-derives the draws' geometry from the saved array against real states in
@@ -313,8 +322,9 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 29.2. **Eight slices per clip, not one average** - **the agreed next step**,
     the human 2026-09-21: "1 и 4 берём на след тест". The flow's target stops
     being the 40-frame average and becomes a single temporal slice of the
-    state, eight per clip at frames 5, 10, ... 35 (frame 0 is a broken
-    window edge, 29.1). Two things follow at once: the object stays 721 x 2,
+    state, eight per clip spread over frames 5 to 39 (frame 0 is a broken
+    window edge, 29.1; the exact list is fixed when the step is proposed -
+    5, 10, ... 35 is seven, not eight). Two things follow at once: the object stays 721 x 2,
     and the corpus grows eightfold without one new simulation, which is item
     27's lever at zero cost. The reason is measured, not aesthetic - a slice
     has kurtosis 5.26 against the average's 3.17, so the target stops being
