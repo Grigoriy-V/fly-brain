@@ -66,8 +66,8 @@ def main(argv=None) -> int:
         d.text((48, y), "Frozen model zero on the MaleCNS wiring. For each layer, the input video is optimised until "
                         "the model reproduces", font=f_body, fill=MUTED)
         y += 26
-        d.text((48, y), "that layer's activity. Top: aimed at this clip's activity. Bottom (control): aimed at "
-                        "another clip's activity.", font=f_body, fill=MUTED)
+        d.text((48, y), "that layer's activity. Control: the same procedure aimed at another clip's activity must "
+                        "not give this clip back.", font=f_body, fill=MUTED)
         y += 44
 
         xs = [48 + i * (pw + gap) for i in range(cols)]
@@ -85,8 +85,9 @@ def main(argv=None) -> int:
             d.text((xs[i], y + ph + 6), f"r = {runs[key][3]:.2f}", font=f_num, fill=GOOD)
         y += ph + 44
 
-        d.text((xs[0], y + ph // 2 - 22), "control", font=f_lab, fill=INK)
-        d.text((xs[0], y + ph // 2 + 4), "wrong target", font=f_small, fill=MUTED)
+        d.text((xs[0], y + ph // 2 - 34), "control", font=f_lab, fill=INK)
+        d.text((xs[0], y + ph // 2 - 8), "target: another", font=f_small, fill=MUTED)
+        d.text((xs[0], y + ph // 2 + 12), "clip's activity", font=f_small, fill=MUTED)
         for i, (key, _, _) in enumerate(LAYERS, start=1):
             im.paste(hex_image(runs[key][2][k], comb), (xs[i], y))
             d.text((xs[i], y + ph + 6), f"r = {runs[key][4]:+.2f}", font=f_num, fill=BAD)
