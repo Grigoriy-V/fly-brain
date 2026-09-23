@@ -5,6 +5,7 @@ and its correlation with the frame. Evidence for ISS-0015. Local, ~40 s.
     python tools/cmp_layers_flyvis.py
 """
 import sys, numpy as np, torch
+from pathlib import Path
 sys.path.insert(0, '.')
 from flydream.generate import invert as I
 from flydream.decode import pairs as P
@@ -16,6 +17,7 @@ x = V * np.sqrt(3) / 2; y = U + V / 2
 tree = cKDTree(np.stack([x, y], 1)); nb = [tree.query_ball_point(p, 1.01) for p in np.stack([x, y], 1)]
 video = I.clip_from_sintel(3, 40, dt, 5)
 out = {}
+Path('data/figures').mkdir(parents=True, exist_ok=True)
 for model in ("malecns", "flow/0000/000"):
     net = I.load_network(model)
     types, index = P.type_index(net.connectome)
@@ -36,4 +38,4 @@ for model in ("malecns", "flow/0000/000"):
         print(f"{model[:7]:8s} {t:4s} cells {len(index[t]):4d}  roughness {rough:.2f}  corr w/ frame {rv:+.2f}")
         out[f"{model[:7]}_{t}"] = a
 out["video"] = video[:40]
-np.savez(r"C:\Users\user\AppData\Local\Temp\claude\D--ML-Fly-Brain\2071e79b-1c06-4973-86b8-ed34ce4db6c7\scratchpad\act_cmp.npz", **out)
+np.savez("data/figures/act_s3_malecns_flyvis.npz", **out)
