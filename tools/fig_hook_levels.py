@@ -1,6 +1,6 @@
 """A post-format GIF: a video read back out of a fly brain model, layer by layer.
 
-    python tools/fig_hook_levels.py --activity <act.npz> --out docs/figures/hook_levels
+    python tools/fig_hook_levels.py --out docs/figures/hook_levels
 
 For LinkedIn and the article, not for measurement. 4:5 frame (1080 x 1350), dark
 ground, the hex lattice drawn as a honeycomb. Top: what the eye saw. Below, three
@@ -80,13 +80,15 @@ def main(argv=None) -> int:
     from matplotlib import colormaps
 
     p = argparse.ArgumentParser()
-    p.add_argument("--activity", required=True)
+    p.add_argument("--activity", default=str(ROOT / "data" / "figures" / "act_s3_malecns_flyvis.npz"),
+                   help="written by tools/cmp_layers_flyvis.py")
+    p.add_argument("--prefix", default="malecns_", help="key prefix in the npz")
     p.add_argument("--out", default=str(ROOT / "docs" / "figures" / "hook_levels"))
     p.add_argument("--fps", type=int, default=10)
     a = p.parse_args(argv)
 
     A = np.load(a.activity)
-    video = np.clip(A["video"], 0, 1)
+    video = np.clip(A["video"][:40], 0, 1)
     rec = {}
     score = {}
     for t, _, _ in ROWS:
@@ -99,7 +101,7 @@ def main(argv=None) -> int:
     sm_i, sm_m = honeycomb(7)
     act_norm = {}
     for t, _, _ in ROWS:
-        x = A[t]
+        x = A[a.prefix + t]
         lo, hi = np.nanpercentile(x, 1), np.nanpercentile(x, 99)
         act_norm[t] = np.clip((x - lo) / (hi - lo + 1e-9), 0, 1)
 
