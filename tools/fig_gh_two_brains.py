@@ -6,11 +6,9 @@ Stage "model zero" of the pipeline (article part 1, sections 2 and 4). The same
 inversion - optimise the input until the frozen model reproduces one layer's
 activity - on the FlyVis reference network (member 000, its own FIB-based
 connectome) and on model zero (the same member's parameters on the MaleCNS
-wiring). Runs `data/generate/2026-09-18_flyvis_invert_<type>_s3` (20 frames, no
-end margin) and `2026-09-19_malecns_invert_<type>_s3` (40 frames + 5 margin),
-both cut to their first 20 frames and scored on those frames here, so r is on
-one footing. The FlyVis run had no end margin, so its last frames are softer
-for a reason that is not the model (article part 1, section 4).
+wiring), with identical settings: 40 frames + 5 margin, 150 steps, the same
+clip, the same control clip. Runs `data/generate/2026-09-24_flyvis_invert_<type>_s3`
+(rerun locally for this figure) and `2026-09-19_malecns_invert_<type>_s3`.
 """
 from __future__ import annotations
 
@@ -30,7 +28,7 @@ from gh_style import BG, GOOD, INK, LINE, MUTED, font, hex_image, honeycomb, pip
 LAYERS = [("R1", "retina"), ("L1", "lamina"), ("Mi1", "medulla"), ("Tm9", "medulla"), ("T4a", "motion"),
           ("T5a", "motion")]
 MODELS = [("flyvis", "FlyVis", "reference connectome"), ("malecns", "MaleCNS", "our build, model zero")]
-N = 20
+N = 40
 
 
 def score(rec, true):
@@ -43,7 +41,7 @@ def main(argv=None) -> int:
     p.add_argument("--fps", type=int, default=6)
     a = p.parse_args(argv)
 
-    date = {"flyvis": "2026-09-18", "malecns": "2026-09-19"}
+    date = {"flyvis": "2026-09-24", "malecns": "2026-09-19"}
     rec, r = {}, {}
     true = None
     for m, _, _ in MODELS:
@@ -90,14 +88,14 @@ def main(argv=None) -> int:
             y += 30
             for i, (t, _) in enumerate(LAYERS, start=1):
                 im.paste(hex_image(rec[m, t][k], comb), (xs[i], y))
-                d.text((xs[i], y + ph + 6), f"r = {r[m, t]:.2f}", font=f_num, fill=INK if m == "flyvis" else GOOD)
+                d.text((xs[i], y + ph + 6), f"r = {r[m, t]:.3f}", font=f_num, fill=INK if m == "flyvis" else GOOD)
             y += ph + 44
         mid = (top + y - 44) // 2 - ph // 2
         d.text((xs[0], mid - 30), "input", font=f_lab, fill=INK)
         im.paste(hex_image(true[k], comb), (xs[0], mid))
 
-        d.text((48, H - 40), f"Sintel clip, frame {k + 1}/{N} · 20 ms per frame · r over these 20 frames · runs "
-                             "2026-09-18_flyvis_invert_*_s3, 2026-09-19_malecns_invert_*_s3", font=f_small,
+        d.text((48, H - 40), f"Sintel clip, frame {k + 1}/{N} · 20 ms per frame · identical settings for both · runs "
+                             "2026-09-24_flyvis_invert_*_s3, 2026-09-19_malecns_invert_*_s3", font=f_small,
                fill=MUTED)
         frames.append(im)
 

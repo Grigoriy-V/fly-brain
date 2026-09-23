@@ -47,6 +47,9 @@ def main(argv=None) -> int:
         runs[key] = (z["true"], z["recovered"], z["control"], m["inversion"], m["control"])
     true = runs["R1"][0]
     n = len(true)
+    from flydream.generate.invert import clip_from_sintel
+    other = clip_from_sintel(10, n, 0.02, 0)            # clip B: whose activity the control aimed at
+    to_b = {key: float(np.mean([corr(c, b) for c, b in zip(runs[key][2], other)])) for key, _, _ in LAYERS}
 
     comb = honeycomb(5)
     pw, ph = comb[0].shape[1], comb[0].shape[0]
@@ -63,15 +66,15 @@ def main(argv=None) -> int:
         y = pipeline_strip(d, 48, 24, W - 96, "invert") + 26
         d.text((48, y), "Inversion: the video recovered from one layer's activity", font=f_title, fill=INK)
         y += 44
-        d.text((48, y), "Frozen model zero on the MaleCNS wiring. For each layer, the input video is optimised until "
-                        "the model reproduces", font=f_body, fill=MUTED)
+        d.text((48, y), "Frozen model zero on the MaleCNS wiring. For each layer, a video is optimised until the "
+                        "model reproduces that layer's", font=f_body, fill=MUTED)
         y += 26
-        d.text((48, y), "that layer's activity. Control: the same procedure aimed at another clip's activity must "
-                        "not give this clip back.", font=f_body, fill=MUTED)
+        d.text((48, y), "recorded activity. Aimed at clip A's activity it returns clip A; aimed at clip B's, it "
+                        f"returns clip B (r to A: {runs['R1'][4]:+.2f}).", font=f_body, fill=MUTED)
         y += 44
 
         xs = [48 + i * (pw + gap) for i in range(cols)]
-        d.text((xs[0], y), "input", font=f_lab, fill=INK)
+        d.text((xs[0], y), "clip A", font=f_lab, fill=INK)
         d.text((xs[0], y + 24), "what the eye saw", font=f_small, fill=MUTED)
         for i, (key, name, depth) in enumerate(LAYERS, start=1):
             d.text((xs[i], y), name, font=f_lab, fill=INK)
@@ -82,19 +85,18 @@ def main(argv=None) -> int:
         im.paste(hex_image(true[k], comb), (xs[0], y))
         for i, (key, _, _) in enumerate(LAYERS, start=1):
             im.paste(hex_image(runs[key][1][k], comb), (xs[i], y))
-            d.text((xs[i], y + ph + 6), f"r = {runs[key][3]:.2f}", font=f_num, fill=GOOD)
+            d.text((xs[i], y + ph + 6), f"r to A = {runs[key][3]:.3f}", font=f_num, fill=GOOD)
         y += ph + 44
 
-        d.text((xs[0], y + ph // 2 - 34), "control", font=f_lab, fill=INK)
-        d.text((xs[0], y + ph // 2 - 8), "target: another", font=f_small, fill=MUTED)
-        d.text((xs[0], y + ph // 2 + 12), "clip's activity", font=f_small, fill=MUTED)
+        d.text((xs[0], y - 30), "clip B · control", font=f_lab, fill=INK)
+        im.paste(hex_image(other[k], comb), (xs[0], y))
         for i, (key, _, _) in enumerate(LAYERS, start=1):
             im.paste(hex_image(runs[key][2][k], comb), (xs[i], y))
-            d.text((xs[i], y + ph + 6), f"r = {runs[key][4]:+.2f}", font=f_num, fill=BAD)
+            d.text((xs[i], y + ph + 6), f"r to B = {to_b[key]:.3f}", font=f_num, fill=GOOD)
         y += ph + 44
 
         d.text((48, H - 40), f"Sintel clip, frame {k + 1}/{n} · 20 ms per frame, shown {int(round(50 / a.fps))}× slower · "
-                             "r = mean per-frame correlation with the input · run 2026-09-19_malecns_invert_*_s3",
+                             "r = mean per-frame correlation · run 2026-09-19_malecns_invert_*_s3",
                font=f_small, fill=MUTED)
         frames.append(im)
 
