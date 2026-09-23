@@ -26,9 +26,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from gh_style import BG, INK, LINE, MUTED, font, hex_image, honeycomb, pipeline_strip, save_gif  # noqa: E402
 
 TYPES = [("R1", "photoreceptor", "retina"), ("L1", "ON pathway", "lamina"), ("L3", "OFF pathway", "lamina"),
-         ("Mi1", "ON pathway", "medulla"), ("Tm9", "OFF pathway", "medulla"),
-         ("T4a", "ON motion →", "motion detector"), ("T4b", "ON motion ←", "motion detector"),
-         ("T5a", "OFF motion →", "motion detector")]
+         ("Mi1", "ON pathway", "medulla"), ("Tm1", "OFF pathway", "medulla"), ("Tm9", "OFF pathway", "medulla"),
+         ("T4a", "ON motion", "motion detector"), ("T5a", "OFF motion", "motion detector")]
 
 
 def main(argv=None) -> int:
@@ -40,15 +39,17 @@ def main(argv=None) -> int:
     p.add_argument("--activity", required=True)
     p.add_argument("--out", default=str(ROOT / "docs" / "figures" / "layers_activity"))
     p.add_argument("--fps", type=int, default=8)
+    p.add_argument("--prefix", default="", help="key prefix in the npz, e.g. 'flow/00_' for the FlyVis network")
+    p.add_argument("--model-label", default="the FlyVis reference network, member 000")
     a = p.parse_args(argv)
 
     A = np.load(a.activity)
-    video = A["video"]
+    video = A["video"][:40]
     n = len(video)
     cmap = colormaps["RdBu_r"]
     shown = {}
     for t, _, _ in TYPES:
-        x = A[t]
+        x = A[a.prefix + t]
         c = x - np.nanmedian(x)
         s = np.nanpercentile(np.abs(c), 99) + 1e-9
         shown[t] = np.nan_to_num(0.5 + 0.5 * np.clip(c / s, -1, 1), nan=0.5)
@@ -57,7 +58,8 @@ def main(argv=None) -> int:
     pw, ph = comb[0].shape[1], comb[0].shape[0]
     gap = 22
     per_row = 4
-    W = 48 * 2 + (1 + per_row) * pw + per_row * gap
+    W = 1216
+    gap = (W - 96 - (1 + per_row) * pw) // per_row
     H = 760
     f_title, f_body, f_lab, f_small = font(30, True), font(19), font(19, True), font(16)
 
@@ -66,13 +68,13 @@ def main(argv=None) -> int:
         im = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(im)
         y = pipeline_strip(d, 48, 24, W - 96, "model") + 26
-        d.text((48, y), "What the layers look like: model zero's own activity", font=f_title, fill=INK)
+        d.text((48, y), "What the layers look like: the network's own activity", font=f_title, fill=INK)
         y += 44
-        d.text((48, y), "Each panel is one cell type on the 721-column lattice while the eye watches the clip. "
-                        "Red: depolarised,", font=f_body, fill=MUTED)
+        d.text((48, y), "One cell type per panel, on the 721-column lattice, while the eye watches the clip. Red: "
+                        "depolarised, blue: hyperpolarised.", font=f_body, fill=MUTED)
         y += 26
-        d.text((48, y), "blue: hyperpolarised. ON cells copy the picture, OFF cells invert it, motion detectors "
-                        "keep only moving edges.", font=f_body, fill=MUTED)
+        d.text((48, y), "Photoreceptors copy the picture, lamina cells invert it, the medulla splits it into ON "
+                        "and OFF, motion detectors keep moving edges.", font=f_body, fill=MUTED)
         y += 46
         x0 = 48
         d.text((x0, y), "input", font=f_lab, fill=INK)
@@ -88,7 +90,7 @@ def main(argv=None) -> int:
             d.text((px, py + 24), role, font=f_small, fill=MUTED)
             im.paste(hex_image(shown[t][k], comb, cmap=cmap), (px, py + 52))
         d.text((48, H - 40), f"Sintel clip, frame {k + 1}/{n} · 20 ms per frame, shown {int(round(50 / a.fps))}× slower"
-                             " · MaleCNS model zero, member 000 · each type on its own colour range",
+                             f" · {a.model_label} · each type on its own colour range",
                font=f_small, fill=MUTED)
         frames.append(im)
 

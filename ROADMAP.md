@@ -346,6 +346,22 @@ renderer - and a target that is not Gaussian, which is 29.2. Evidence:
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
+31. **Repair model zero's OFF pathway (ISS-0015)** - recorded by the human
+    2026-09-24 as a work item, not yet ordered against the static branch.
+    Drawn as pictures against FlyVis for the first time, model zero's L3 is a
+    regular lattice of isolated hyperpolarised cells, Tm9 and T5a carry
+    periodic stripes and Tm1 has the wrong sign; the ON side is clean. Not
+    quick: the cause is unknown and the candidates sit in the export and the
+    transplant. First the cause (local, free), then the fix, then a check
+    that is a picture beside FlyVis and not only a flash protocol.
+    What a fix would force: every state in the generator line comes from this
+    model, so a repaired brain means re-simulating the corpus states and
+    retraining what was trained on them - 13B, the state priors - which is
+    cheap in money (each of those runs cost 0.05-0.51 dollars) and long in
+    work. Until then the ML results stand as results about THIS encoder, and
+    any claim about the fly's OFF pathway, T5 selectivity or the
+    MaleCNS-against-FlyVis comparison carries this defect beside it.
+
 29.3. **Is the dynamic-to-static conversion correct** - first, and a gate for
     everything after it. The human's concern, 2026-09-23: the conversion from
     a moving clip's state to a static state has never had a visual control,

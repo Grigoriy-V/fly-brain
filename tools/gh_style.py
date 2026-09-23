@@ -22,7 +22,7 @@ BAD = (185, 28, 28)
 
 PIPELINE = [
     ("connectome", "connectome"),
-    ("model", "model zero"),
+    ("model", "brain model"),
     ("decode", "decoding"),
     ("invert", "inversion"),
     ("render", "state → video"),
