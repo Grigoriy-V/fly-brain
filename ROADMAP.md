@@ -311,6 +311,28 @@ Closed items, one line each, evidence in the linked report.
   29.2 re-derives them in committed code.
   `reports/2026-09-21_step29_a_scene_as_one_picture.md` § 7.
 
+## Publication
+
+The human's track, 2026-09-23/24, separate from the research queue and
+running while the static branch is paused. The repository goes public as it
+is, history not rewritten; new commits are kept clean.
+
+- **P1, the master article** - part 1 revised after a number check, part 2
+  drafted; Russian until approved, then English. No chat, quotes or agent
+  process in public text.
+- **P2, README** - Russian draft done; the final is English and longer, with
+  three figures: video recovered from layers of the state, generation from a
+  known seed, a fresh draw rendered as a static scene. `LICENSE`: MIT.
+- **P3, figures for GitHub and the article** - classic style, light ground,
+  every figure opens with the pipeline strip and its own stage highlighted
+  (`tools/gh_style.py`), each with its control and run id. Includes the
+  FlyVis-against-MaleCNS comparison.
+- **P4, figures for LinkedIn posts** - a separate set: hook first, dark
+  post format (`tools/fig_hook_levels.py` is the first draft); the mood is
+  approved, the content will be edited.
+- **P5, local against public** - after P3 fixes the true list: what stays
+  local, what is published, and a check of `reports/` before the switch.
+
 ## Queue
 
 One item at a time; the human's word starts each, and each is priced when it
