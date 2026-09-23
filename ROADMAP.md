@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated:** 2026-09-21
+**Updated:** 2026-09-23
 
 **Project status:** the chain `video → frozen brain → T4/T5 state → generator →
 video → frozen brain` works end to end and is measured, so the project can
@@ -16,11 +16,15 @@ one still picture**, not a clip - "добиться сцены не с виде�
 картинкой, а движение меня пока не парят" - over a static state of 721 x 2
 numbers.
 
-**Current approved step:** 29.2, the eight-slice static flow (queue below).
-The human fixed its composition 2026-09-21 ("1 и 4 берём на след тест") and
-excluded from it the trained renderer, the other six types and rotation
-augmentation. The run itself is **not yet authorized**: it is priced and asked
-for separately, as every priced run is.
+**Current approved step:** none - **paused by the human 2026-09-23**: "перед
+дальнейшей работой я хочу заняться другой вещью". When this branch resumes,
+the order is the one he accepted the same day: 29.3 (re-derive the foundation
+in committed code), then 30 (the renderer), then 29.2 (eight slices). The
+reason for that order: every picture shown to him so far goes through a
+blurring stand-in renderer, so no flow can be judged by eye until 30 exists,
+and 30 checked on real states is also the answer to his open question whether
+a still picture is extracted from a state correctly. No run in it is
+authorized; each is priced and asked for separately.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -313,28 +317,27 @@ is proposed. Two levers have been spent: the sampler (20, not the blocker)
 and the size of the object (22, nothing moved). Two have paid: the shape of
 the model (23, every number moved once the lattice was kept) and the shape of
 the target (29, a draw that a structural judge cannot separate from a real
-state). What remains on this branch is sharpness - the renderer - and a target
-that is not Gaussian, which is 29.2. Evidence:
+state). What remains on this branch is a judge the human can use - the
+renderer - and a target that is not Gaussian, which is 29.2. Evidence:
 `reports/2026-09-21_step22_a_smaller_object.md` and
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-29.2. **Eight slices per clip, not one average** - **the agreed next step**,
-    the human 2026-09-21: "1 и 4 берём на след тест". The flow's target stops
-    being the 40-frame average and becomes a single temporal slice of the
-    state, eight per clip spread over frames 5 to 39 (frame 0 is a broken
-    window edge, 29.1; the exact list is fixed when the step is proposed -
-    5, 10, ... 35 is seven, not eight). Two things follow at once: the object stays 721 x 2,
-    and the corpus grows eightfold without one new simulation, which is item
-    27's lever at zero cost. The reason is measured, not aesthetic - a slice
-    has kurtosis 5.26 against the average's 3.17, so the target stops being
-    Gaussian and the acceptance gate stops being vacuous. Excluded from this
-    test by the human, explicitly: the trained renderer, the other six types,
-    rotation augmentation. Not yet authorized: it is a T4 training run and is
-    priced when it is proposed.
+29.3. **The foundation, re-derived in committed code** - first, local and
+    free. Two numbers carry the whole static branch and neither survives in
+    code or in an artefact: r 0.922 between a moving clip's DC and the state
+    of its own held still frame (the reason no brain pass was needed), and
+    "a slice renders its own frame at 0.88-0.96, frame 0 broken" (the reason
+    for 29.2). Both are re-measured by a script in the repository, on true
+    states rather than the local PCA-2048 reconstruction, and logged.
 
-30. **A generative renderer, static state to picture** - not approved, and
-    the human kept it out of 29.2 ("отрисовщик не"). Priced 2026-09-21 at
+30. **A generative renderer, static state to picture** - second in the
+    order the human accepted 2026-09-23, ahead of 29.2 (he had kept it out of
+    29.2 itself, "отрисовщик не", and that still holds: they are two steps).
+    Proposed form: a conditional flow state -> picture on the `hexflow23`
+    code, by 13B's recipe, not a squared-error net. Its first check is on
+    REAL held-out states against their real frames, shown to the human -
+    which is also the verification he asked for. Priced 2026-09-21 at
     **0.15 to 0.50 dollars**, most likely about 0.25, 15 to 50 minutes on one
     T4. Input 1,442 numbers, output one 721-value picture, no time axis; the
     data is free and needs no brain pass - states in `gen18/maps_dct16.npz`,
@@ -351,6 +354,21 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
     extracted from a state, because every picture shown to him passed through
     a local PCA-2048 reconstruction (89.5 percent of variance); the true
     states are on the volume and that contamination is local to the laptop.
+
+29.2. **Eight slices per clip, not one average** - composition agreed by
+    the human 2026-09-21, third in order since 2026-09-23: "1 и 4 берём на след тест". The flow's target stops
+    being the 40-frame average and becomes a single temporal slice of the
+    state, eight per clip spread over frames 5 to 39 (frame 0 is a broken
+    window edge, 29.1; the exact list is fixed when the step is proposed -
+    5, 10, ... 35 is seven, not eight). Two things follow at once: the
+    object stays 721 x 2, and the corpus grows eightfold without one new simulation, which is item
+    27's lever at zero cost. The reason is measured, not aesthetic - a slice
+    has kurtosis 5.26 against the average's 3.17, so the target stops being
+    Gaussian and the acceptance gate stops being vacuous. Excluded from this
+    test by the human, explicitly: the trained renderer, the other six types,
+    rotation augmentation. Its training may run beside 30, but its result
+    is read only through 30. Not yet authorized: it is a T4 training run and is
+    priced when it is proposed.
 
 27. **Corpus four to six times over** - the human, 2026-09-21: "скорее всего
     будет следующим". The reason this was deferred no longer holds: it was
