@@ -18,12 +18,13 @@ numbers.
 
 **Current approved step:** none - **paused by the human 2026-09-23**: "перед
 дальнейшей работой я хочу заняться другой вещью". When this branch resumes,
-the order is the one he accepted the same day: 29.3 (re-derive the foundation
-in committed code), then 30 (the renderer), then 29.2 (eight slices). The
-reason for that order: every picture shown to him so far goes through a
-blurring stand-in renderer, so no flow can be judged by eye until 30 exists,
-and 30 checked on real states is also the answer to his open question whether
-a still picture is extracted from a state correctly. No run in it is
+the order is: 29.3 (the dynamic-to-static conversion, verified against
+ground truth), then 30 (the renderer), then 29.4 (a scene metric), then 29.2
+(eight slices) - accepted 2026-09-23, 29.4 added by the human the same day.
+The reason for that order: every picture shown so far goes through a blurring
+stand-in renderer, so no flow can be judged by eye until 30 exists; and 30 is
+trained on converted static states, so it inherits any error in the
+conversion unless 29.3 has closed it first. No run in it is
 authorized; each is priced and asked for separately.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
@@ -323,13 +324,31 @@ renderer - and a target that is not Gaussian, which is 29.2. Evidence:
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
 
-29.3. **The foundation, re-derived in committed code** - first, local and
-    free. Two numbers carry the whole static branch and neither survives in
-    code or in an artefact: r 0.922 between a moving clip's DC and the state
-    of its own held still frame (the reason no brain pass was needed), and
-    "a slice renders its own frame at 0.88-0.96, frame 0 broken" (the reason
-    for 29.2). Both are re-measured by a script in the repository, on true
-    states rather than the local PCA-2048 reconstruction, and logged.
+29.3. **Is the dynamic-to-static conversion correct** - first, and a gate for
+    everything after it. The human's concern, 2026-09-23: the conversion from
+    a moving clip's state to a static state has never had a visual control,
+    because there was no renderer, and even the renderer needs either to SEE
+    the conversion work or a metric that proves it; otherwise 30 learns from
+    pairs whose left half may be wrong. Today the whole branch rests on two
+    numbers that survive in no code and no artefact: r 0.922 between a moving
+    clip's DC and the state of its own held still frame, and "a slice renders
+    its own frame at 0.88-0.96, frame 0 broken".
+    The check needs no trained renderer, because ground truth exists: a frame
+    held still for the whole window, pushed through the frozen brain, gives
+    the true static state for that frame, and 13B renders such a state at
+    r 0.953 (23.2). So, on held-out clips, in committed code, on true states
+    rather than the local PCA-2048 reconstruction:
+    - **numeric:** the converted state (the DC, or slice k) against the true
+      static state of the frame it should stand for, per column and per type,
+      beside the same number for a different clip's frame as the control;
+    - **visual:** for each clip one row - the frame itself, 13B's render of
+      the true still state, and the converted state through the same
+      least-squares map fitted on true states - on a fixed grey scale, so the
+      human sees whether the conversion and the truth draw the same picture.
+    Local brain simulation of a few hundred held frames, no Modal. If the
+    conversion fails here, the fallback is to train the static branch on true
+    still-frame states directly (one brain pass over the corpus, priced when
+    proposed) instead of converted ones.
 
 30. **A generative renderer, static state to picture** - second in the
     order the human accepted 2026-09-23, ahead of 29.2 (he had kept it out of
@@ -354,6 +373,18 @@ in `reports/2026-09-21_research_path_to_a_video_generator.md`.
     extracted from a state, because every picture shown to him passed through
     a local PCA-2048 reconstruction (89.5 percent of variance); the true
     states are on the volume and that contamination is local to the laptop.
+
+29.4. **A scene metric** - the human, 2026-09-23: the static flow's draws
+    have structure that no earlier generator in this line had, and whether it
+    is a scene is unproven partly because no judge answers that question - all
+    of ours are structural or indirect (flat fraction, coherence, kurtosis,
+    radius, nearest). Borrowed from ordinary image generation: a distribution
+    distance on features of a pretrained image network (FID/KID-like) and
+    precision/recall on the same features, computed on renders, always beside
+    the same numbers for real states through the same renderer and for the
+    no-flow control. Needs 30, since through the least-squares blur every
+    distribution looks alike. Adapting a pretrained network to a 721-hexal
+    grey picture is part of the item, not assumed.
 
 29.2. **Eight slices per clip, not one average** - composition agreed by
     the human 2026-09-21, third in order since 2026-09-23: "1 и 4 берём на след тест". The flow's target stops
