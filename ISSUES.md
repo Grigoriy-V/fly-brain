@@ -27,6 +27,7 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0015 | open | model zero's OFF pathway is spatially broken: on a Sintel clip L3's activity is a regular lattice of isolated strongly hyperpolarised cells over a near-flat field where FlyVis's L3 is a smooth image, and Tm9 and T5a downstream carry periodic diagonal stripes (neighbour roughness 0.58 and 0.46 against FlyVis's 0.38 and 0.18); Tm1 has the wrong sign (correlation with the frame +0.93 against FlyVis's -0.78) | roadmap 2, ISS-0002, ISS-0005 |
 | ISS-0014 | open | the round trips of 13A and 13B are normalised by different variances - 13A divides by the variance over all eight target states together (`learned.py:249`), 13B by clip A's own variance (`roundtrip13.py:130`, `generate_app.py:1831`) - so 13A's CNN 0.029 and 13B's 0.031 on the same eight clips are not on one scale, and "SiT equals the 13A CNN" (13B report, 13B design, article part 1) is unsupported; an approximate rescale puts the CNN near 0.033 | roadmap 13A, 13B |
 | ISS-0013 | open | 13B's "shuffled state" control scores the video made from the shuffled state against clip A's TRUE state (`generate_app.py:1860`, target taken from `j[1]` at 1886-1888; `states["control_shuffled"]` is never used as a target), so its 0.957 measures how far a foreign video is from clip A, not whether the video obeys its own condition; step 14's control of the same name scores against the shuffled state and reads 19.1, twenty times larger | roadmap 13B, 14 |
 | ISS-0012 | open | today's still-picture grids normalise every cell to mean 0.5 and sd 0.19 before display, which equalises exactly the contrast the captions beside them report - the original of clip 6008 has sd 0.226 and was shown at 0.19, and draws at sd 0.122 were shown at the same 0.19 as the reference at 0.182, so the draws looked better and the originals worse than they are | roadmap 29 |
@@ -45,6 +46,35 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0015 — model zero's OFF pathway is spatially broken (L3 dots, Tm9/T5a stripes, Tm1 sign)
+
+- **Status:** open. Seen 2026-09-24 while drawing each layer's activity for a
+  public figure; never looked at as a picture before.
+- **Seen:** on Sintel clip 3, frame 20, member 000, model zero against the
+  FlyVis network with the same parameters on its own connectome:
+  - **L3** is a regular sublattice of isolated, strongly hyperpolarised cells
+    on a near-flat field; FlyVis's L3 is a smooth OFF image of the scene;
+  - **Tm9** (L3's main target) and **T5a** (downstream) carry periodic
+    diagonal stripes; neighbour roughness 0.58 and 0.46 against FlyVis's
+    0.38 and 0.18 (mean |cell - its six neighbours' mean| / spatial sd);
+  - **Tm1** has the opposite sign: correlation with the frame +0.93 against
+    FlyVis's -0.78, i.e. it behaves as an ON cell;
+  - the ON side is clean: R1, L1, Mi1 match FlyVis in roughness and sign.
+- **Costs:** every state the generator line uses comes from this model, so
+  the OFF half of T4/T5 (T5) is built on a periodic artefact. It is a
+  candidate cause of the weak T5 selectivity (DSI 0.01-0.03, article part 1
+  section 2), which was put down to the missing CT1 (ISS-0002) and weak
+  Tm9 -> T5. Flash polarity (0.922) did not catch it: a full-field flash
+  cannot see a spatial pattern.
+- **Reproduce:** `python tools/cmp_layers_flyvis.py` (local, ~40 s).
+- **Cause:** unknown. Candidates, none checked: the export's per-type
+  sampling of L3 or its R1-R6 inputs (a stride would draw exactly a regular
+  sublattice), the column offsets of L3 -> Tm9, the transplant's capped gain
+  on lamina pairs (ISS-0005 a), Tm1's input signs.
+- **Evidence:** `reports/figures/2026-09-24_malecns_layers_vs_flyvis.png`
+  (top FlyVis, bottom model zero, L1 L3 Mi1 Tm1 Tm9 T4a T5a).
+- **Related:** roadmap 2; ISS-0002, ISS-0005.
 
 ### ISS-0014 — 13A and 13B round trips are normalised differently and compared as equal
 
