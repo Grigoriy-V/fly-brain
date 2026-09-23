@@ -27,6 +27,8 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 
 | Id | Status | Defect | Related |
 |---|---|---|---|
+| ISS-0014 | open | the round trips of 13A and 13B are normalised by different variances - 13A divides by the variance over all eight target states together (`learned.py:249`), 13B by clip A's own variance (`roundtrip13.py:130`, `generate_app.py:1831`) - so 13A's CNN 0.029 and 13B's 0.031 on the same eight clips are not on one scale, and "SiT equals the 13A CNN" (13B report, 13B design, article part 1) is unsupported; an approximate rescale puts the CNN near 0.033 | roadmap 13A, 13B |
+| ISS-0013 | open | 13B's "shuffled state" control scores the video made from the shuffled state against clip A's TRUE state (`generate_app.py:1860`, target taken from `j[1]` at 1886-1888; `states["control_shuffled"]` is never used as a target), so its 0.957 measures how far a foreign video is from clip A, not whether the video obeys its own condition; step 14's control of the same name scores against the shuffled state and reads 19.1, twenty times larger | roadmap 13B, 14 |
 | ISS-0012 | open | today's still-picture grids normalise every cell to mean 0.5 and sd 0.19 before display, which equalises exactly the contrast the captions beside them report - the original of clip 6008 has sd 0.226 and was shown at 0.19, and draws at sd 0.122 were shown at the same 0.19 as the reference at 0.182, so the draws looked better and the originals worse than they are | roadmap 29 |
 | ISS-0011 | open | three functions named `nearest` live in `flydream/generate/`: `vaeval18.py:47` and `blend18.py:44` are line-for-line the same Pearson correlation over a clip bank, while `baseline17.py:67` is a different algorithm under the same name - cosine similarity with no mean-centring, a batched signature and a `skip` mask - so importing the wrong one silently changes the scale a novelty claim is read on | roadmap 17-22 |
 | ISS-0010 | open | a fresh draw's geometry is scored against the held-out split, which the flow was never trained to match: at k = 1536 the held-out latent has per-axis sd 0.829 [0.206 .. 1.075] and radius 29.67 against exactly 1.000 [0.999 .. 1.000] and 35.21 on training, so the draw's radius overshoot was reported as 44 % when it is 20 %, and `--draw-scale -1` shrinks the rendered state by 16 % toward the wrong reference | roadmap 19-22 |
@@ -43,6 +45,54 @@ authorizes nothing; `ROADMAP.md` alone orders work. Evidence lives in
 ---
 
 ## Open
+
+### ISS-0014 — 13A and 13B round trips are normalised differently and compared as equal
+
+- **Status:** open. Seen 2026-09-23 in the number check of the master article,
+  part 1.
+- **Seen:** 13A's round trip divides the squared error by the variance of all
+  eight target states pooled (`flydream/generate/learned.py:249`,
+  `var = tg[:, :, sel].var()`); 13B's divides by the variance of the one clip
+  being scored (`flydream/generate/roundtrip13.py:130`,
+  `deploy/modal/generate_app.py:1831`). Per-type variance ratios between the
+  two range 0.60 (T4a) to 1.64 (T5d).
+- **Costs:** "13B's round trip equals the 13A CNN's" (13B report, 13B design,
+  article part 1 before its revision) compares two scales. An approximate
+  local rescale onto 13B's scale gives CNN ≈ 0.033, linear ≈ 0.039, inversion
+  ≈ 0.009 - SiT slightly better than the CNN, not equal. The rescale held the
+  last frame for the 5-frame margin because the pairs13 shards are not local,
+  so it is approximate.
+- **Reproduce:** score the eight 13A test clips' CNN videos with
+  `roundtrip13.py` and compare with `data/train13/summary.json`.
+- **Cause:** known - two functions written for two steps, never unified.
+- **Evidence:** the verification pass of 2026-09-23 (article part 1, § 8).
+- **Related:** ISS-0011 (the same class of defect: one name, two metrics).
+
+### ISS-0013 — 13B's shuffled-state control is scored against the wrong state
+
+- **Status:** open. Seen 2026-09-23 in the number check of the master article,
+  part 1.
+- **Seen:** the control job is added as
+  `add("clip_A", ..., maps=maps_of(st_sh), tag="control_shuffled")`
+  (`deploy/modal/generate_app.py:1860`); the round-trip target is looked up by
+  the job's first field, `state_of[k] = j[1]` = "clip_A" (1886-1888), so the
+  video made FROM the shuffled state is compared with clip A's TRUE state.
+  `states["control_shuffled"] = st_sh` (1861) is never used as a target.
+- **Costs:** the recorded 0.957 (`data/gen13b/samples.json`,
+  `control_shuffled__full__s1`) measures the distance of a foreign video from
+  clip A - a zero state against clip A reads 0.854 by the same route - and not
+  whether the generator obeyed the shuffled condition. Step 14 builds a
+  control of the same name correctly and gets 19.1, so the project carries
+  two numbers under one name, twenty times apart. The article printed 0.957
+  beside r 0.966 as if it were a correlation; it now uses the same-z output
+  correlation (0.03) instead. The control was also computed on clip A alone,
+  four seeds, not on the eight held-out clips it stood beside.
+- **Reproduce:** read the job list in `generate_app.py` around 1855-1890.
+- **Cause:** known - the target is keyed by clip name, and the control reused
+  clip A's name.
+- **Evidence:** `reports/2026-09-20_step13b_generative_decoder.md:83`,
+  `reports/2026-09-20_step14_controllable_generator.md:50`.
+- **Related:** roadmap 13B, 14.
 
 ### ISS-0012 — the picture grids equalise the contrast their own captions compare
 
