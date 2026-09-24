@@ -2,7 +2,7 @@
 
 **Video from the brain state of a connectome-constrained model of the fruit fly visual system.**
 
-[Article, part 1](reports/2026-09-19_article_part1_en.md) ([на русском](reports/2026-09-19_article_part1_ru.md)) · [Article, part 2](reports/2026-09-23_article_part2_en.md) ([на русском](reports/2026-09-23_article_part2_ru.md)) · [Figures](docs/figures/) · [Run log](reports/runs.jsonl)
+[Article, part 1](docs/articles/part1_en.md) ([на русском](docs/articles/part1_ru.md)) · [Article, part 2](docs/articles/part2_en.md) ([на русском](docs/articles/part2_ru.md)) · [Figures](docs/figures/) · [Run log](reports/runs.jsonl)
 
 ![Activity of eight cell types of the model while the eye watches a clip](docs/figures/layers_activity.gif)
 
@@ -129,8 +129,9 @@ uv run python tools/fig_gh_static.py      # docs/figures/static_draws.png
 flydream/        data (MaleCNS export) · model (model zero) · decode · generate (generators, priors)
 deploy/modal/    GPU functions: training, decoding, generation
 tools/           figure scripts, run log
+docs/articles/   the articles, part 1 and part 2, in English and Russian
 docs/figures/    figures of this README and the articles
-reports/         the working lab notebook: step reports, the articles, runs.jsonl — one record per measured outcome
+reports/         the working lab notebook: step reports, runs.jsonl — one record per measured outcome
 ROADMAP.md · DECISIONS.md · ISSUES.md   plan · design decisions · known defects
 ```
 

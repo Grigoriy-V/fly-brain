@@ -1,9 +1,9 @@
 # What Does a Fly Dream Of? Part 2. From rendering a state to generation without a source clip
 
-*Grigoriy Voyakin, September 2026.* [Русская версия](2026-09-23_article_part2_ru.md).
+*Grigoriy Voyakin, September 2026.* [Русская версия](part2_ru.md).
 Code, run records and every figure are in the
 [fly-brain](https://github.com/Grigoriy-V/fly-brain) repository.
-[Part 1](2026-09-19_article_part1_en.md) ends at step 14: the chain
+[Part 1](part1_en.md) ends at step 14: the chain
 `video → frozen brain → T4/T5 state → generator → video` works and is
 measured. This part is about the next task: **getting a new video that has no
 source clip**, through a drawn brain state. It is an account of what was
@@ -74,7 +74,7 @@ of four training clips finds **its own** clip as the nearest in 4 cases out of
 
 The videos are new in the same sense as a real held-out clip is new - and
 they are not scenes. Hence the need for a prior.
-[Report 17.0](2026-09-20_step17_0_unconditional_baseline.md) (step reports are in Russian).
+[Report 17.0](../../reports/2026-09-20_step17_0_unconditional_baseline.md) (step reports are in Russian).
 
 ## 3. The first prior over states: a flow, but no manifold
 
@@ -93,7 +93,7 @@ state′.
 | control: white noise in the types | 2.19 |
 
 A drawn state sits next to the shuffled one, not the real one. The video is
-"salt and pepper". [Report 17.1](2026-09-20_step17_state_prior.md).
+"salt and pepper". [Report 17.1](../../reports/2026-09-20_step17_state_prior.md).
 
 **17.1b.** Three quarters of 17.1's training states came from procedural
 stimuli, while the goal is a video generator. The prior was retrained on
@@ -112,9 +112,9 @@ state 0.019.
 The last row is the control: the basis alone creates neither spatial
 structure nor type coupling. The model learned them. The round trip fell
 eightfold, to 0.142 - but there are no scenes, only oriented texture and
-large moving blobs. [Report 17.1b](2026-09-20_step17_1b_scene_dct_prior.md).
+large moving blobs. [Report 17.1b](../../reports/2026-09-20_step17_1b_scene_dct_prior.md).
 
-![Fig. 1](../docs/figures/first_priors.gif)
+![Fig. 1](../figures/first_priors.gif)
 
 *Fig. 1. Every cell is a 13B video. Top: from a held-out clip's state; below:
 from 13B's empty condition, from a draw of prior 17.1 and from a draw of
@@ -137,7 +137,7 @@ inversion is exact. Everything that follows rests on this.
 - The preimages of real states lie **just outside** the typical set of
   Gaussian noise; a shuffled state lies four times further out.
 
-![Fig. 2](../docs/figures/flow_inversion.gif)
+![Fig. 2](../figures/flow_inversion.gif)
 
 *Fig. 2. Top: clip A, 13B from its state, the same state through its own noise
 and back, and a control with a shuffled state. Bottom: a straight line between
@@ -145,7 +145,7 @@ the noises of clips A and B; the midpoint matches the average of the two
 videos at r 0.85 - a double exposure. Script `tools/fig_gh_part2.py`, data
 `data/prior17/noise17_local`.*
 
-[Report 17.3b](2026-09-20_step17_3b_noise_inversion.md).
+[Report 17.3b](../../reports/2026-09-20_step17_3b_noise_inversion.md).
 
 ## 5. A corpus of ordinary video, training levers, and the judge that lied
 
@@ -164,7 +164,7 @@ own implementation of the FlyVis chain:
   columns and ~61 rows that hold a receptor. The whole corpus in 9 minutes
   instead of 57.
 
-[Report 18](2026-09-20_step18_corpus_of_ordinary_video.md).
+[Report 18](../../reports/2026-09-20_step18_corpus_of_ordinary_video.md).
 
 **The levers (18.3-18.5).** Step 18.4 ran seven arms against one control -
 learning rate, length, width, number of coefficients, class conditioning
@@ -180,9 +180,9 @@ learning rate, length, width, number of coefficients, class conditioning
 
 All four predictions taken from the literature pointed the wrong way; width
 turned out to be the lever. Reports
-[18.3](2026-09-20_step18_3_prior_on_the_corpus.md),
-[18.4](2026-09-20_step18_4_throughput_and_learning_rate.md),
-[18.5](2026-09-20_step18_5_width_and_the_representation_floor.md).
+[18.3](../../reports/2026-09-20_step18_3_prior_on_the_corpus.md),
+[18.4](../../reports/2026-09-20_step18_4_throughput_and_learning_rate.md),
+[18.5](../../reports/2026-09-20_step18_5_width_and_the_representation_floor.md).
 
 **And then the judge failed.** The round trip reached the representation
 floor, while the videos stayed clouds. On inspection the gate was giving good
@@ -199,7 +199,7 @@ field is compatible with anything. From that day the gate was removed from
 its post as judge, and the criterion of section 1 applies: a clip against the
 raw video.
 
-![Fig. 3](../docs/figures/levers_and_judge.png)
+![Fig. 3](../figures/levers_and_judge.png)
 
 *Fig. 3. Left: the round trip of every arm of 18.3-18.5 beside the
 representation floor. Right: an almost blank grey field scores better than a
@@ -210,7 +210,7 @@ real clip. Script `tools/fig_gh_part2.py`, runs `2026-09-20_prior18_*`.*
 The statement is simple, and we kept it fixed: as long as one cannot feed a
 seed into noise2state and get a video like a real clip, there is no result.
 Everything ruled out along the way is recorded
-[separately](2026-09-20_the_seed_problem.md), so as not to return to it.
+[separately](../../reports/2026-09-20_the_seed_problem.md), so as not to return to it.
 
 | where the noise comes from | r to the real clip |
 |---|---|
@@ -241,7 +241,7 @@ What we tried and ruled out:
 The last two rows together mean: **the geometry of the preimage and the
 quality of a sample are two different diseases.**
 
-![Fig. 4](../docs/figures/seed_shell.gif)
+![Fig. 4](../figures/seed_shell.gif)
 
 *Fig. 4. Six held-out clips from unseen classes. Top to bottom: 13B from the
 real state; the same state from its own noise (radius under each cell: for
@@ -264,7 +264,7 @@ real data are encoded. A column-wise VAE, latent 721 × 3.
 with the flow over its latent. The decomposition through the 13,555 × 13,555
 Gram matrix, right on the card: 43 seconds on a T4, **$0.02**; `eigh` took
 21 s instead of the expected minutes.
-[Report 19](2026-09-21_step19_linear_first_stage.md).
+[Report 19](../../reports/2026-09-21_step19_linear_first_stage.md).
 
 **20.** The sampler's overshoot is not a constant factor but a **skew in
 time**: the velocity field is 0.07 of the true one at t = 0.4 and about 2.5 at
@@ -272,7 +272,7 @@ t = 0.6-0.8. That is why the literature's fixes with a constant divisor do not
 catch it. Projecting onto the measured trajectory fixes the geometry and
 improves the gate 2.2 times - **and gives no scene**. For the second time a
 win in geometry was not a win for the generator.
-[Report 20](2026-09-21_step20_sampler_and_cuts.md).
+[Report 20](../../reports/2026-09-21_step20_sampler_and_cuts.md).
 
 **21c-21d.** Two useful properties of the chain:
 - **The chain restores what was thrown away.** Half a state, zeroed and run
@@ -280,7 +280,7 @@ win in geometry was not a win for the generator.
   point), returns with an error of 0.0433 against 0.5581 before the chain -
   12.9 times smaller. The first measurement, through the full mask, gave
   0.0846 and understated the effect.
-  [Report](2026-09-21_state_restoration.md).
+  [Report](../../reports/2026-09-21_state_restoration.md).
 - **13B has a type mask, and it must be used honestly.** Every run before
   this fed the full mask over a zeroed half, i.e. told the model "the type is
   there and it is flat". With an honest mask T4 alone gives r 0.904 against
@@ -305,14 +305,14 @@ against 0.824 at 2,048). Three ways around PCA - compressing channels, a
 learned local residual, an autoencoder of the block - lost to it at a
 comparable budget. A flow over 1,536 coordinates was trained for $0.05; a
 fresh draw is still not a scene.
-[Report 22](2026-09-21_step22_a_smaller_object.md).
+[Report 22](../../reports/2026-09-21_step22_a_smaller_object.md).
 
 ## 9. An audit of the metrics before the next training run
 
 After one judge had already turned out to be false, we stopped training and
 rechecked every metric: what it measures, what its floor is, and whether it
 is computed on the wrong distribution.
-[Report](2026-09-21_the_draw_distribution.md).
+[Report](../../reports/2026-09-21_the_draw_distribution.md).
 
 **The flow learned the second moment of the distribution, not the fourth.**
 The spread of the draws' radius is almost right, while the per-coordinate
@@ -347,7 +347,7 @@ built on top. Yet the state's covariance is local: 0.876 at one lattice step
 against 0.267 for a shuffled control.
 
 **23.** The flow runs directly on the 721 × 32 block, the lattice intact, no
-PCA ([report](2026-09-21_step23_hex_local_prior.md), code
+PCA ([report](../../reports/2026-09-21_step23_hex_local_prior.md), code
 `flydream/generate/hexflow23.py`):
 
 | element | choice |
@@ -379,14 +379,14 @@ The double exposure is gone. A clip's own seed returns its clip exactly at
 the ceiling, because no lossy stage is left between the request and the
 answer. There is still no scene.
 
-![Fig. 5](../docs/figures/hex_flow.png)
+![Fig. 5](../figures/hex_flow.png)
 
 *Fig. 5. The same T4a+T4b block and the same data: a flow over PCA-1536 (grey)
 and a flow on the hex lattice (green), each beside the data or the ceiling.
 Script `tools/fig_gh_part2.py`, runs `2026-09-21_prior22_*`,
 `2026-09-21_prior23_accept`, `2026-09-21_prior23_seed`.*
 
-![Fig. 6](../docs/figures/seed_known_and_random.gif)
+![Fig. 6](../figures/seed_known_and_random.gif)
 
 *Fig. 6. The flow on the lattice. Top: held-out clips from unseen classes;
 middle: their own seeds, run forwards through the flow and 13B; bottom: random
@@ -400,9 +400,9 @@ against 35.5), and the energy outside PCA from 16.3 to 6.5 and 6.1 %. The
 output collapsed toward the corpus mean, and kurtosis rises mechanically when
 most coordinates sit at zero. The rule that survived the step: **kurtosis is
 always read beside the radius.**
-[Report 26](2026-09-21_step26_corrections_at_draw_time.md).
+[Report 26](../../reports/2026-09-21_step26_corrections_at_draw_time.md).
 
-![Fig. 7](../docs/figures/bought_kurtosis.png)
+![Fig. 7](../figures/bought_kurtosis.png)
 
 *Fig. 7. The seven arms of step 26 on radius-kurtosis axes; the bands are the
 data's range. The red arms raised kurtosis by dropping the radius. Script
@@ -416,7 +416,7 @@ temporal coefficient), not 721 × 32: the point of narrowing is to remove time
 from the task entirely, not to shrink it. The bet is not on the size of the
 object - step 22 showed size buys nothing - but on a whole factor of
 variation leaving the task.
-[Report 29](2026-09-21_step29_a_scene_as_one_picture.md).
+[Report 29](../../reports/2026-09-21_step29_a_scene_as_one_picture.md).
 
 **Is there a still picture in this space at all?** Tested by changing the
 stimulus: a single frame held for the whole window goes through
@@ -439,7 +439,7 @@ The most informative arm is the third: 13B draws a sharp picture, but the
 **donor's** picture. The content 13B reads lives in the temporal
 coefficients, although they hold only 4 % of the energy.
 
-![Fig. 8](../docs/figures/static_chain.png)
+![Fig. 8](../figures/static_chain.png)
 
 *Fig. 8. Left: what 13B makes of a 721 × 2 state with each crutch, and what a
 least-squares map gives. Right: draws of the static flow through that map,
@@ -490,7 +490,7 @@ are closer to a scene than anything before, but from pictures that went
 through a blurring renderer one cannot tell whether the flow is good or bad.
 Even a real state is hard to recognise through it.
 
-![Fig. 9](../docs/figures/static_draws.png)
+![Fig. 9](../figures/static_draws.png)
 
 *Fig. 9. Top: the pictures of six held-out clips (the window's mean frame),
 chosen by eye as recognisable; middle: their real static states through the
@@ -525,7 +525,7 @@ most experiments ran locally on a CPU, for free.
 ## 13. Mistakes caught along the way
 
 For an ML engineer this section may be more useful than the results. We
-recorded every mistake in [ISSUES](../ISSUES.md) or in the step's report.
+recorded every mistake in [ISSUES](../../ISSUES.md) or in the step's report.
 
 - **The gate lied** (section 5): compatibility with the brain is not a scene;
   a grey field is compatible with everything.
@@ -589,7 +589,7 @@ temporal slices.
 
 ## Reproducing
 
-All figures are in [`docs/figures/`](../docs/figures/) and are built locally
+All figures are in [`docs/figures/`](../figures/) and are built locally
 by the scripts in `tools/` from saved runs:
 
 ```bash
@@ -599,8 +599,8 @@ uv run python tools/fig_gh_static.py     # fig. 9
 ```
 
 Every number in the article leads to a step report in `reports/` (step
-reports are in Russian) and to a record in [`reports/runs.jsonl`](runs.jsonl)
-with its run id; known defects are in [`ISSUES.md`](../ISSUES.md).
+reports are in Russian) and to a record in [`reports/runs.jsonl`](../../reports/runs.jsonl)
+with its run id; known defects are in [`ISSUES.md`](../../ISSUES.md).
 
 ## References
 

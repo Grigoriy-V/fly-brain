@@ -318,10 +318,11 @@ running while the static branch is paused. The repository goes public as it
 is, history not rewritten; new commits are kept clean.
 
 - **P1, the master article** - Russian until approved, then English. No
-  chat, quotes or agent process in public text.
+  chat, quotes or agent process in public text. The articles live in
+  `docs/articles/` (moved from `reports/` 2026-09-24).
   - **Part 1** finalised 2026-09-24 and approved by the human the same day;
-    both versions stay in the repository - `reports/2026-09-19_article_part1_ru.md`
-    and its English translation `reports/2026-09-19_article_part1_en.md`
+    both versions stay in the repository - `docs/articles/part1_ru.md`
+    and its English translation `docs/articles/part1_en.md`
     (the one the README links). Figures from
     `docs/figures` in place, the v7/v9 table recomputed from the saved runs
     into the step-2 report § 7 (the run log's T4 record was misadded, 0.377 ->
@@ -330,8 +331,8 @@ is, history not rewritten; new commits are kept clean.
     text: the batched-inversion speed-up as a range (one run, ~0.05 dollars,
     would settle it) and the 13A/13B round-trip caveat (ISS-0014).
   - **Part 2** finalised 2026-09-24 and approved by the human the same day;
-    both versions stay - `reports/2026-09-23_article_part2_ru.md` and its
-    English translation `reports/2026-09-23_article_part2_en.md` (the one the
+    both versions stay - `docs/articles/part2_ru.md` and its
+    English translation `docs/articles/part2_en.md` (the one the
     README links): a number check of every
     section by four agents (seven fixes, among them two claims the step reports
     had themselves retracted - the field-of-view cut and the restoration error
@@ -350,7 +351,8 @@ is, history not rewritten; new commits are kept clean.
   FlyVis-against-MaleCNS comparison.
 - **P4, figures for LinkedIn posts** - a separate set: hook first, dark
   post format (`tools/fig_hook_levels.py` is the first draft); the mood is
-  approved, the content will be edited.
+  approved, the content will be edited. To be discussed separately (the
+  human, 2026-09-24); these figures may stay out of the repository.
 - **P5, local against public** - audit done 2026-09-24 (no secrets in any
   commit; profanity, the Modal profile, other repositories' paths and local
   absolute paths removed; the lab notebook published as it is, by the

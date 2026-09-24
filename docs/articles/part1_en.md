@@ -1,9 +1,9 @@
 # What Does a Fly Dream Of? Part 1. From the MaleCNS connectome to video from a brain state
 
-*Grigoriy Voyakin, September 2026.* [Русская версия](2026-09-19_article_part1_ru.md).
+*Grigoriy Voyakin, September 2026.* [Русская версия](part1_ru.md).
 Code, run records and every figure are in the
 [fly-brain](https://github.com/Grigoriy-V/fly-brain) repository. Part 2 -
-[generation without a source clip](2026-09-23_article_part2_en.md).
+[generation without a source clip](part2_en.md).
 
 ## The project in brief
 
@@ -67,7 +67,7 @@ of the axes, signs and the scale of inputs.
   every column, get three times as many neighbours as it really has, and the
   loop TmY4 → TmY5a → T2a would drive the network to 10⁸.
 
-![Fig. 1](../docs/figures/connectome_export.png)
+![Fig. 1](../figures/connectome_export.png)
 
 *Fig. 1. Left: reconstructed MaleCNS neurons of three columnar types, placed
 in their home columns. Right: the total input of each type pair in the FlyVis
@@ -85,7 +85,7 @@ the outputs of FlyVis's standard task were limited to types with a columnar
 map. **The current model:** 60 types, 31,526 nodes on 721 columns, 1.35 M
 edges. Nodes are the model's cells on the lattice, not reconstructed neurons:
 the right lobe of MaleCNS itself has 51,875 of those.
-[Data report](2026-09-18_step1_data.md) (in Russian).
+[Data report](../../reports/2026-09-18_step1_data.md) (in Russian).
 
 ## 2. "Model zero": the dynamics ran, and validation found our own bug
 
@@ -107,7 +107,7 @@ underweighted T5's main drive and overweighted its inhibition.
 | **v9 (current)** | plus an exception for weak pairs in the export | 0.200 / 0.191 / 0.065 | **0.152** | 39.2° |
 | FlyVis, same members | - | 0.547 / 0.344 / 0.281 | 0.391 | 31.7° |
 
-![Fig. 2](../docs/figures/dsi_by_version.png)
+![Fig. 2](../figures/dsi_by_version.png)
 
 *Fig. 2. T4/T5 direction selectivity on the MaleCNS wiring, transfer version
 by version, beside the FlyVis member the parameters came from. Script
@@ -135,18 +135,18 @@ is not established; the candidates are the sparse lattice stride from
 section 1, the incomplete lamina, the capped transfer coefficients on lamina
 pairs, and the signs of Tm1's inputs. Every state the generators use below
 and in part 2 was taken from this model, so the T5 in them carries this
-defect ([ISS-0015](../ISSUES.md)).
+defect ([ISS-0015](../../ISSUES.md)).
 
 The lesson: a DSI of 0.020 could not be sold as a property of the MaleCNS
 connectome - at least in part it was a scaling bug in the transfer, and what
 remains is partly explained by a defect that only a picture found.
-[Step 2 report](2026-09-18_step2_model_zero.md) (in Russian; the v7 and v9
+[Step 2 report](../../reports/2026-09-18_step2_model_zero.md) (in Russian; the v7 and v9
 table by subtype is its section 7), the cause of the first bug - ISS-0003 in
-[ISSUES](../ISSUES.md).
+[ISSUES](../../ISSUES.md).
 
 ## 3. What can be read back out of the different levels
 
-![Fig. 3](../docs/figures/layers_activity.gif)
+![Fig. 3](../figures/layers_activity.gif)
 
 *Fig. 3. What the levels look like: the activity of eight cell types on the
 721-column lattice while the eye watches a Sintel clip. Red is
@@ -175,14 +175,14 @@ Sintel's frame hold (24 frames per second, raised to 50), and the
 reconstruction alternates from frame to frame. With consecutive lags 0, 1
 the same T5a gives 0.495.
 
-![Fig. 4](../docs/figures/decoder_window.png)
+![Fig. 4](../figures/decoder_window.png)
 
 *Fig. 4. How much of the frame a linear decoder reads from each stage beyond
 a time-shuffled control, as a function of its window. FlyVis network,
 member 000; windows of every second lag (80 and 160 ms) hit the frame-hold
 artefact and are drawn as hollow points. Script `tools/fig_gh_charts.py`.*
 
-![Fig. 5](../docs/figures/decoding_by_type.gif)
+![Fig. 5](../figures/decoding_by_type.gif)
 
 *Fig. 5. Linear readout of model zero: a ridge decoder per type on frames t
 and t−1, fitted on Sintel scenes, r computed on held-out scenes. Bottom row -
@@ -199,7 +199,7 @@ only 0.12.
 Hence a careful conclusion: **a linear readout does weaken with depth, but
 that does not mean the picture is lost in the deep layers.** The next section
 recovers it from every level. We do not claim a monotonic loss of visual
-information. [Decoder report](2026-09-18_step4_decoder_stack.md) (in
+information. [Decoder report](../../reports/2026-09-18_step4_decoder_stack.md) (in
 Russian), ISS-0004 and ISS-0006.
 
 ## 4. From reading a state to video: input inversion
@@ -208,7 +208,7 @@ The model is frozen, a target state of the chosen level is set, and the input
 video is optimised until another pass produces that state. This is **encoder
 inversion**, not a trained video model.
 
-![Fig. 6](../docs/figures/inversion_by_layer.gif)
+![Fig. 6](../figures/inversion_by_layer.gif)
 
 *Fig. 6. Inversion of model zero. Top row: the video recovered from one
 level's activity and its correlation with clip A. Bottom row - the control:
@@ -227,7 +227,7 @@ gives almost the same numbers; the difference shows only on T5a - 0.971 for
 FlyVis against 0.933 for model zero, which is exactly the OFF pathway of
 section 2.
 
-![Fig. 7](../docs/figures/two_brains.gif)
+![Fig. 7](../figures/two_brains.gif)
 
 *Fig. 7. One clip, two brains: the same inversion on the FlyVis connectome
 (top) and on the MaleCNS build (bottom), the same parameters of member 000,
@@ -243,7 +243,7 @@ comparison is not clean: the window length changed together with the margin
 The exact statement of the result: we found a stimulus compatible with the
 state of **this model** under this optimiser and regularisation. Later
 (section 7) the same inversion on eight held-out clips gave r 0.999-1.000 for
-three groups of types. [Report](2026-09-19_step9_window_margin.md), code
+three groups of types. [Report](../../reports/2026-09-19_step9_window_margin.md), code
 `flydream/generate/invert.py`.
 
 ## 5. Engineering: where a GPU is needed and how to fill it
@@ -252,7 +252,7 @@ three groups of types. [Report](2026-09-19_step9_window_margin.md), code
 full export takes about 17 s per iteration on a loaded CPU against
 0.36-0.43 s on a T4 at batch 4. Fine-tuning is postponed: the generator does
 not need it as long as model zero does not limit it.
-[Training options report](2026-09-18_step3_training_options.md).
+[Training options report](../../reports/2026-09-18_step3_training_options.md).
 
 **Batched inversion is the main speed-up of this part.** Ten levels and ten
 control targets used to be optimised one after another. We packed 20
@@ -270,9 +270,9 @@ whole ladder; a range rather than one number because the timing of the
 sequential run does not separate the optimisation from the whole ladder. The
 video correlations agree to three decimals. This speeds up not training but
 *optimising video through the brain*.
-[Timing table](2026-09-19_step9_window_margin.md#item-10-the-ladder-batched-same-day).
+[Timing table](../../reports/2026-09-19_step9_window_margin.md#item-10-the-ladder-batched-same-day).
 
-![Fig. 8](../docs/figures/speedups.png)
+![Fig. 8](../figures/speedups.png)
 
 *Fig. 8. Left: one inversion ladder on a T4, one task at a time and batched.
 Right: the throughput of model zero's training step by batch size. Script
@@ -295,7 +295,7 @@ The losses agree within tolerance; the final states of the decoder head
 formally do not (a difference of up to 4.3e-4 where two reference runs
 differ by 3.0e-4). Thirty iterations do not test convergence: this is a
 measured code optimisation, not proof of equivalent training.
-[Benchmark](2026-09-18_training_optimization_bench.md).
+[Benchmark](../../reports/2026-09-18_training_optimization_bench.md).
 
 **The GPU rule.** Every GPU function does GPU work only and requests the
 minimum CPU and memory; independent tasks are packed into one pass until
@@ -316,14 +316,14 @@ shuffled state.
   at most 0.008), black by frame 20. There is no bright "dream picture".
 - **Noise in the cells:** faint ripples.
 
-![Fig. 9](../docs/figures/inversion_chart.png)
+![Fig. 9](../figures/inversion_chart.png)
 
 *Fig. 9. Inversion across all ten levels of model zero: a Sintel clip
 (section 4) and white noise in the eye, each beside its control. Script
 `tools/fig_gh_charts.py`, runs `2026-09-19_malecns_invert_*_s3` and
 `2026-09-19_malecns_dream_eye_noise_*`.*
 
-[Report](2026-09-19_step11_dreams_lite.md).
+[Report](../../reports/2026-09-19_step11_dreams_lite.md).
 
 Then we edited states already recorded:
 
@@ -341,7 +341,7 @@ Then we edited states already recorded:
   to T4/T5 at 0.88 and the other at 0.15. The round trip stays at 0.15.
 
 So even before a trained generator, the boundary of a reachable state was
-visible. [Report](2026-09-19_step12_manipulated_states.md).
+visible. [Report](../../reports/2026-09-19_step12_manipulated_states.md).
 
 ## 7. Amortised inversion: a linear model and a CNN
 
@@ -363,7 +363,7 @@ shuffled cells gives 2.9-4.5.
 This is a cheap one-step approximation of the inverse map - **amortised
 inversion** - not proof that the CNN follows any arbitrary state. These
 numbers have no time-shuffle control.
-[13A report](2026-09-19_step13a_amortised_inversion.md).
+[13A report](../../reports/2026-09-19_step13a_amortised_inversion.md).
 
 ## 8. SiT: generation conditioned on neurons
 
@@ -372,7 +372,7 @@ mask of available types and noise `z` give all 40 frames of a video in 20
 Euler steps. 20,000 training steps on a T4, ≈ $0.22. This generator, **13B**,
 is the renderer of all of part 2.
 
-![Fig. 10](../docs/figures/state_to_video.gif)
+![Fig. 10](../figures/state_to_video.gif)
 
 *Fig. 10. 13B on held-out clips. Top: the clip; below: video from its T4/T5
 state under two different noises. Right: the control on clip A - the same
@@ -405,9 +405,9 @@ Two caveats on the numbers:
 - **The round trips of 13A and 13B are normalised differently** (over all
   eight clips against one clip), so the CNN's 0.029 and SiT's 0.031 cannot be
   compared directly. An approximate rescale onto a common scale puts the CNN
-  near 0.033 ([ISS-0014](../ISSUES.md)).
+  near 0.033 ([ISS-0014](../../ISSUES.md)).
 
-[13B report](2026-09-20_step13b_generative_decoder.md).
+[13B report](../../reports/2026-09-20_step13b_generative_decoder.md).
 
 ## 9. The generator's limits: new conditions and a closed loop
 
@@ -435,7 +435,7 @@ video", matches the requested one in two cases out of six (three
 compositions × two seeds). This is a narrow way of specifying a new state,
 not a language of neural prompts.
 
-![Fig. 11](../docs/figures/round_trips.png)
+![Fig. 11](../figures/round_trips.png)
 
 *Fig. 11. 13B's round trip on conditions no clip caused. The ignored stripe
 (orange) looks more compatible than every composition. Script
@@ -447,13 +447,13 @@ r to the starting clip falls from 0.99 to 0.26 over 11 passes. These are the
 dynamics of the *pair* of generator and encoder, not an attractor of the
 fly's brain.
 
-![Fig. 12](../docs/figures/closed_loop.png)
+![Fig. 12](../figures/closed_loop.png)
 
 *Fig. 12. The closed loop from three starts: the video's similarity to the
 starting clip by pass, and the round trip of each pass. Script
 `tools/fig_gh_charts.py`, run `2026-09-20_prompts14_loop`.*
 
-[Step 14 report](2026-09-20_step14_controllable_generator.md).
+[Step 14 report](../../reports/2026-09-20_step14_controllable_generator.md).
 
 ## 10. What we have, and where part 2 begins
 
@@ -488,7 +488,7 @@ about learning the distribution of states and drawing new ones from it.
 
 ## Reproducing
 
-All figures are in [`docs/figures/`](../docs/figures/) and are built locally
+All figures are in [`docs/figures/`](../figures/) and are built locally
 by the scripts in `tools/` from saved runs:
 
 ```bash
@@ -502,8 +502,8 @@ uv run python tools/fig_gh_charts.py       # fig. 2, 4, 8, 9, 11, 12
 ```
 
 Every number in the article leads to a step report in `reports/` (step
-reports are in Russian) and to a record in [`reports/runs.jsonl`](runs.jsonl)
-with its run id; known defects are in [`ISSUES.md`](../ISSUES.md).
+reports are in Russian) and to a record in [`reports/runs.jsonl`](../../reports/runs.jsonl)
+with its run id; known defects are in [`ISSUES.md`](../../ISSUES.md).
 
 ## References
 
