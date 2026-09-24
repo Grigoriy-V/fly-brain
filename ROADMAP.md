@@ -359,7 +359,9 @@ is, history not rewritten; new commits are kept clean.
   human's choice). Working figures are no longer committed. Removing the 45
   figures cited by nothing (`reports/orphan_figures.md`) from history was
   tried and rolled back the same day - the human: not worth it; history is
-  unchanged. Pending: the switch to public.
+  unchanged. Done 2026-09-24 on the human's word: master pushed (2bc4bfd..de4b182,
+  fast-forward, new commits scanned for tokens first) and the repository
+  made public, https://github.com/Grigoriy-V/fly-brain.
 
 ## Queue
 
