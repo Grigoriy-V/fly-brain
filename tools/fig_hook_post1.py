@@ -40,6 +40,13 @@ from fig_hook_levels import ACCENT, BG, DIM, FG, colorise, font, honeycomb  # no
 W, H = 1080, 1350
 COLS = [("R1", "Photoreceptors", "inversion"), ("Mi1", "Medulla", "inversion"),
         ("T4a", "Motion detectors", "inversion"), ("T5a", "Generator 13B", "one pass")]
+# how far each column is from the eye (R1 -> L1 -> Mi1 -> T4a); 13B reads all eight T4/T5 types
+DEPTH = {"R1": "R1 · the eye itself", "Mi1": "Mi1 · 2 synapses in", "T4a": "T4a · 3 synapses in",
+         "T5a": "8 types × 721 columns"}
+# a linear ridge decoder from the same layer, r over held-out Sintel scenes - the numbers printed by
+# tools/fig_gh_decoding.py on pairs 2026-09-18_decode_sintel_malecns_v9, lags (0, 1)
+LINEAR = {"R1": 1.00, "Mi1": 0.99, "T4a": 0.83}
+HELD_OUT_13B = 0.966  # run 2026-09-20_gen13b_samples, mean over 8 held-out clips
 
 
 def corr(a, b):
@@ -102,7 +109,7 @@ def main(argv=None) -> int:
         y = ey + eye.height + 30
         for (t, name, how), x in zip(COLS, xs):
             d.text((x, y), name, font=f_lab, fill=ACCENT if t == "T5a" else FG)
-            d.text((x, y + 32), "all T4/T5 types" if t == "T5a" else t, font=f_small, fill=DIM)
+            d.text((x, y + 32), DEPTH[t], font=f_small, fill=DIM)
         y += 72
         for (t, _, _), x in zip(COLS, xs):
             im.paste(colorise(np.nan_to_num(act[t][k], nan=0.0), sm_i, sm_m, heat), (x, y))
@@ -113,12 +120,18 @@ def main(argv=None) -> int:
         y += 56
         for (t, _, _), x in zip(COLS, xs):
             im.paste(colorise(rec[t][k], sm_i, sm_m, gray), (x, y))
-        y += sm_i.shape[0] + 30
+            if t in LINEAR:
+                d.text((x, y + sm_i.shape[0] + 8), f"linear decoder: {LINEAR[t]:.2f}", font=f_small, fill=DIM)
+            else:
+                d.text((x, y + sm_i.shape[0] + 8), f"held-out clips: {HELD_OUT_13B:.3f}", font=f_small,
+                       fill=ACCENT)
+        y += sm_i.shape[0] + 52
         d.text((50, y), "Inversion: the video is optimised until the frozen model reproduces that activity.",
                font=f_small, fill=DIM)
-        d.text((50, y + 28), "13B: a trained flow draws the video from the motion detectors in one go; this clip was",
+        d.text((50, y + 28), "Linear decoder: a plain regression from the same layer loses the picture with depth.",
                font=f_small, fill=DIM)
-        d.text((50, y + 56), "in its training scenes, on held-out clips it reads r = 0.966.", font=f_small, fill=DIM)
+        d.text((50, y + 56), "13B: a trained flow, one pass; this clip was in its training scenes.",
+               font=f_small, fill=DIM)
         bar = int((W - 100) * (k + 1) / n)
         d.rectangle([50, H - 22, 50 + bar, H - 16], fill=ACCENT)
         frames.append(im)
