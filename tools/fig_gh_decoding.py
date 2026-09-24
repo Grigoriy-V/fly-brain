@@ -5,11 +5,12 @@
 Stage "decoding" (article part 1, section 3). Ridge regression from one cell
 type's activity (two frames: now and one step back, the window without the
 aliasing of ISS-0006) to the 721 pixels of the frame, fitted on Sintel scenes
-and shown on a scene held out whole. The FlyVis network's own responses
-(`data/decode/2026-09-18_decode_sintel_flyvis_v2/pairs.npz`), so the figure does
-not carry model zero's OFF-pathway defect (ISS-0015). Control: the same
-decoder fitted on activity whose frames are shuffled in time. Grey on a fixed
-0..1 scale; r is per-frame correlation over the held-out scene.
+and scored on the scenes held out whole. Model zero on the MaleCNS wiring
+(`data/decode/2026-09-18_decode_sintel_malecns_v9/pairs.npz`). The clip shown is
+Sintel clip 3, the same one as docs/figures/inversion_by_layer, so the two
+figures sit side by side; that clip is one of the decoder's training scenes,
+while r is over the held-out scenes. Control: the same decoder fitted on
+activity whose frames are shuffled in time. Grey on a fixed 0..1 scale.
 """
 from __future__ import annotations
 
@@ -39,15 +40,15 @@ def corr(a, b):
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--pairs", default=str(ROOT / "data" / "decode" / "2026-09-18_decode_sintel_flyvis_v2" / "pairs.npz"))
-    p.add_argument("--sample", type=int, default=None, help="held-out sample to show; default the first")
+    p.add_argument("--pairs", default=str(ROOT / "data" / "decode" / "2026-09-18_decode_sintel_malecns_v9" / "pairs.npz"))
+    p.add_argument("--sample", type=int, default=3, help="clip to show; 3 = the inversion figure's clip")
     p.add_argument("--out", default=str(ROOT / "docs" / "figures" / "decoding_by_type"))
     p.add_argument("--fps", type=int, default=8)
     a = p.parse_args(argv)
 
     pairs = P.Pairs.load(a.pairs)
     train_i, test_i = P.split_by_group(pairs.groups, 0.2, 0)
-    show = a.sample if a.sample is not None else int(test_i[0])
+    show = a.sample
     shuffled = P.Pairs(stimulus=pairs.stimulus, activity=R.shuffle_time(pairs.activity, 0), groups=pairs.groups,
                        cell_types=pairs.cell_types, index=pairs.index)
     rec, ctrl, r_rec, r_ctrl = {}, {}, {}, {}
@@ -82,14 +83,14 @@ def main(argv=None) -> int:
         y = pipeline_strip(d, 48, 24, W - 96, "decode") + 26
         d.text((48, y), "Decoding: the picture read out of one cell type", font=f_title, fill=INK)
         y += 44
-        d.text((48, y), "A linear decoder per cell type, fitted on some Sintel scenes, shown on one it never saw. "
-                        "Retina and lamina give the picture", font=f_body, fill=MUTED)
+        d.text((48, y), "A linear decoder per cell type of model zero, fitted on Sintel scenes and scored on held-out "
+                        "ones. Retina and lamina give the picture", font=f_body, fill=MUTED)
         y += 26
         d.text((48, y), "back whole; deeper types only in part - inversion, the next stage, recovers it from every "
-                        "layer. Control: time-shuffled activity.", font=f_body, fill=MUTED)
+                        "layer. Control, time-shuffled: the scene survives, the frame does not.", font=f_body, fill=MUTED)
         y += 44
         xs = [48 + i * (pw + gap) for i in range(cols)]
-        d.text((xs[0], y), "held-out scene", font=f_lab, fill=INK)
+        d.text((xs[0], y), "clip A", font=f_lab, fill=INK)
         d.text((xs[0], y + 24), "what the eye saw", font=f_small, fill=MUTED)
         for i, (t, depth) in enumerate(TYPES, start=1):
             d.text((xs[i], y), t, font=f_lab, fill=INK)
@@ -107,8 +108,8 @@ def main(argv=None) -> int:
         for i, (t, _) in enumerate(TYPES, start=1):
             im.paste(hex_image(np.nan_to_num(ctrl[t][k], nan=0.5), comb), (xs[i], y))
             d.text((xs[i], y + ph + 6), f"r = {r_ctrl[t]:+.2f}", font=f_num, fill=BAD)
-        d.text((48, H - 40), f"FlyVis network, Sintel, split by scene · frame {k + 1}/{n} · ridge on frames t and t−1 "
-                             "· r over all held-out scenes", font=f_small, fill=MUTED)
+        d.text((48, H - 40), f"MaleCNS model zero · Sintel, split by scene · frame {k + 1}/{n} · ridge on frames t and t−1 "
+                             "· r over the held-out scenes", font=f_small, fill=MUTED)
         frames.append(im)
 
     out = Path(a.out)
