@@ -56,13 +56,15 @@ plt.rcParams.update({"font.family": ["Segoe UI", "DejaVu Sans"], "font.size": 11
                      "axes.labelcolor": "#3a3f47", "xtick.color": "#6e747e", "ytick.color": "#6e747e",
                      "axes.spines.top": False, "axes.spines.right": False, "axes.grid": True,
                      "grid.color": "#e6e8ec", "grid.linewidth": 1, "axes.axisbelow": True,
-                     "legend.frameon": False})
+                     "legend.frameon": False, "xtick.labelsize": 10.5, "ytick.labelsize": 10.5,
+                     "axes.labelsize": 11, "axes.titlesize": 12, "legend.fontsize": 10.5})
 
 
 def page(fig, stage: str, title: str, lines: list[str], footer: str, out: Path) -> None:
     """The matplotlib chart under the house header: pipeline strip, title, subtitle; footer names the run."""
     buf = io.BytesIO()
-    fig.savefig(buf, dpi=100, facecolor="white")
+    fig.savefig(buf, format="png", dpi=100, facecolor="white")
+    buf.seek(0)
     plt.close(fig)
     chart = Image.open(buf).convert("RGB")
     if chart.width > W - 64:

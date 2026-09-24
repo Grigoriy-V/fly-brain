@@ -329,11 +329,16 @@ is, history not rewritten; new commits are kept clean.
     ISS-0015 stated as a limitation, references added. Kept as stated in the
     text: the batched-inversion speed-up as a range (one run, ~0.05 dollars,
     would settle it) and the 13A/13B round-trip caveat (ISS-0014).
-  - **Part 2** - drafted; before its final version: a number check of
-    sections 1-11 like part 1's, the flat-field numbers of the static figure
-    (25.3 %) against the run record (27.1 %), and two static-branch numbers
-    with no artefact yet - r 0.922 and the slice numbers (29.3) - and
-    "DC -> one frame" reads 0.791 in one run and 0.825 in another.
+  - **Part 2** (`reports/2026-09-23_article_part2_ru.md`) finalised in
+    Russian 2026-09-24, awaiting the human's approval: a number check of every
+    section by four agents (seven fixes, among them two claims the step reports
+    had themselves retracted - the field-of-view cut and the restoration error
+    through the full mask), nine figures in place (`tools/fig_gh_part2.py`), the
+    static figure's 25.3 % explained in its caption against the recorded 27.1 %
+    (six hand-picked clips, a refit map), references added. Still stated in the
+    text as unverified: the slice numbers (29.3). Open elsewhere: the step-23
+    report labels its sharpness ceiling 71 as the full state, while both 66 and
+    71 trace to block runs; the article uses 66 for the block.
 - **P2, README** - Russian draft done; the final is English and longer, with
   three figures: video recovered from layers of the state, generation from a
   known seed, a fresh draw rendered as a static scene. `LICENSE`: MIT.
