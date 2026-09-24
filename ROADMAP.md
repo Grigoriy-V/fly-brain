@@ -319,8 +319,10 @@ is, history not rewritten; new commits are kept clean.
 
 - **P1, the master article** - Russian until approved, then English. No
   chat, quotes or agent process in public text.
-  - **Part 1** (`reports/2026-09-19_article_part1_ru.md`) finalised in
-    Russian 2026-09-24, awaiting the human's approval: figures from
+  - **Part 1** finalised 2026-09-24 and approved by the human the same day;
+    both versions stay in the repository - `reports/2026-09-19_article_part1_ru.md`
+    and its English translation `reports/2026-09-19_article_part1_en.md`
+    (the one the README links). Figures from
     `docs/figures` in place, the v7/v9 table recomputed from the saved runs
     into the step-2 report § 7 (the run log's T4 record was misadded, 0.377 ->
     0.369, and "T5 0.01-0.03 on every member" was wrong for member 000),

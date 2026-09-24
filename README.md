@@ -2,7 +2,7 @@
 
 **Video from the brain state of a connectome-constrained model of the fruit fly visual system.**
 
-[Article, part 1](reports/2026-09-19_article_part1_ru.md) · [Article, part 2](reports/2026-09-23_master_article_part2_draft.md) · [Figures](docs/figures/) · [Run log](reports/runs.jsonl)
+[Article, part 1](reports/2026-09-19_article_part1_en.md) ([на русском](reports/2026-09-19_article_part1_ru.md)) · [Article, part 2 (Russian draft)](reports/2026-09-23_master_article_part2_draft.md) · [Figures](docs/figures/) · [Run log](reports/runs.jsonl)
 
 ![Activity of eight cell types of the model while the eye watches a clip](docs/figures/layers_activity.gif)
 
