@@ -9,7 +9,9 @@ brain activity on top and the video rebuilt from it below.
 
 - Columns 1-3, inversion: one layer of model zero (R1, Mi1, T4a), the video
   optimised until the frozen model reproduces that layer's activity. Runs
-  `2026-09-19_malecns_invert_<type>_s3`, r from their meta.json.
+  `2026-09-19_malecns_invert_<type>_s3`. No r on the frame: an inversion of the
+  model's own activity reads 0.99-1.00 on every layer, which looks like a typo
+  in a post; the pictures carry it.
 - Column 4, the 13B generator: the activity of all eight T4/T5 types (T5a
   shown) turned into 40 frames by a conditional flow, no per-clip optimisation.
   Run `2026-09-20_gen13b_samples`, `clip_A__full__s1__seed0`. This clip is from
@@ -111,8 +113,7 @@ def main(argv=None) -> int:
         y += 56
         for (t, _, _), x in zip(COLS, xs):
             im.paste(colorise(rec[t][k], sm_i, sm_m, gray), (x, y))
-            d.text((x, y + sm_i.shape[0] + 8), f"r = {score[t]:.2f}", font=f_num, fill=ACCENT)
-        y += sm_i.shape[0] + 52
+        y += sm_i.shape[0] + 30
         d.text((50, y), "Inversion: the video is optimised until the frozen model reproduces that activity.",
                font=f_small, fill=DIM)
         d.text((50, y + 28), "13B: a trained flow draws the video from the motion detectors in one go; this clip was",
