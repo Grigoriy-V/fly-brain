@@ -104,7 +104,7 @@ resume, штатный цикл solver на синтетическом stub (pen
 ```powershell
 $env:FLYDREAM_GPU = 'T4'
 $env:PYTHONIOENCODING = 'utf-8'
-.venv\Scripts\python.exe -m modal run --profile grigoriy98smile deploy/modal/train_app.py::benchmark
+.venv\Scripts\python.exe -m modal run --profile <your-profile> deploy/modal/train_app.py::benchmark
 ```
 
 Объём: MaleCNS `filters_R_w5wk50m500oc.json`, штатный Sintel, инициализация
@@ -119,7 +119,7 @@ T4-worker, не ансамбль и не измерение сходимости
 [Modal](https://modal.com/pricing): T4 $0.000164/s, CPU $0.0000131/core/s,
 RAM $0.00000222/GiB/s; при 4 cores и 16 GiB это примерно $0.907/час,
 или $0.454 за 30 минут worker, без build/хранения. Это оценка, не счёт.
-Текущий локальный профиль прочитан: `grigoriy98smile`.
+Текущий локальный профиль прочитан.
 
 Результаты: Volume `flydream-runs`, `/benchmarks/<run>/`; `manifest.json`,
 `records.json`, `comparisons.json`, логи и состояния каждого варианта.

@@ -1,6 +1,6 @@
 # flyvis 1.2.0: the per-step ops, batch scaling, the schedule, and what can be sped up
 
-Scout: one Sonnet subagent, read-only over `D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis`, 2026-09-18 evening; 122,125 tokens, 2.2 min. Requested by the project agent after the T4 smoke (0.434 s/iter, ~$18 per member) and the human's "поищи как ускорить обучение и сократить расходы". The text below is the scout's report as returned, lightly trimmed; it is data the project agent checked against the source lines it cites. Nothing here was measured by the scout; the batch-size and memory claims are inferences from shapes, to be measured by `smoke_batch`.
+Scout: one Sonnet subagent, read-only over `.venv/Lib/site-packages/flyvis`, 2026-09-18 evening; 122,125 tokens, 2.2 min. Requested by the project agent after the T4 smoke (0.434 s/iter, ~$18 per member) and the human's "поищи как ускорить обучение и сократить расходы". The text below is the scout's report as returned, lightly trimmed; it is data the project agent checked against the source lines it cites. Nothing here was measured by the scout; the batch-size and memory claims are inferences from shapes, to be measured by `smoke_batch`.
 
 ## 1. The step function
 

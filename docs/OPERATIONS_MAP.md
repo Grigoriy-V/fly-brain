@@ -124,12 +124,10 @@ gate (`AGENTS.md`).
 
 ## Modal
 
-Account: the owner's second Modal account, profile `grigoriy98smile` (the
-human, 2026-09-18); `modal profile current` must print it before any
-command below. The `modal` client is in the project `.venv`
-(`.venv\Scripts\python.exe -m modal ...`). Patterns follow
-`D:/ML/pinocchio-finetune/modal_apps/` and
-`D:/ML/local-multimodal-agent/deploy/modal/`.
+Account: the owner's own Modal account; `modal profile current` must print
+the intended profile before any command below. The `modal` client is in the project `.venv`
+(`.venv\Scripts\python.exe -m modal ...`). Patterns follow the owner's
+earlier Modal projects.
 
 - **App `flydream-train`** (`deploy/modal/train_app.py`): `smoke` (a few
   iterations on the GPU, the price measurement), `smoke_packed` (N members
@@ -181,7 +179,7 @@ to the baseline CUDA variation — `reports/2026-09-18_training_optimization_ben
 # The following starts ONE priced worker and requires separate permission:
 $env:FLYDREAM_GPU = 'T4'
 $env:PYTHONIOENCODING = 'utf-8'
-.venv\Scripts\python.exe -m modal run --profile grigoriy98smile deploy/modal/train_app.py::benchmark
+.venv\Scripts\python.exe -m modal run --profile <your-profile> deploy/modal/train_app.py::benchmark
 ```
 
 `config.toml [benchmark]`: four variants, two repeats in reverse order,

@@ -9,7 +9,7 @@ flyvis has NO hexal→image function. The only hexal→2D mapping in the package
 """721-hexal vector -> 2D raster. Validated end-to-end against a BoxEye render:
 nearest-hexal assignment reproduces HexEye.is_inside exactly on covered pixels,
 and quadrant means of the raster track the source cartesian frame (no transpose,
-no mirror). Requires numpy + scipy (both already in D:/ML/Fly_Brain/.venv).
+no mirror). Requires numpy + scipy (both already in .venv).
 """
 import numpy as np
 from scipy.spatial import cKDTree
@@ -127,105 +127,105 @@ if __name__ == "__main__":
  {
   "name": "get_hex_coords",
   "signature": "get_hex_coords(extent: int, astensor: bool = False) -> Tuple[NDArray, NDArray]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:15",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:15",
   "returns": "(u, v), each int64 shape (get_num_hexals(extent),). extent=15 -> (721,), (721,). Range -15..15 each, with -15 <= u+v <= 15.",
   "notes": "THE canonical ordering. Double loop: `for q in range(-extent, extent+1): for r in range(max(-extent,-extent-q), min(extent,extent-q)+1)`. Verified: sort_u_then_v_index(u,v) == np.arange(721), i.e. the order IS lexsort by u then v."
  },
  {
   "name": "ActivityDecoder.__init__ / DecoderGAVP.forward  (the axial 'map storage')",
   "signature": "self.u, self.v = get_hex_coords(connectome.config.extent); self.u -= self.u.min(); self.v -= self.v.min(); self.H, self.W = self.u.max()+1, self.v.max()+1  ->  x_map[..., self.u, self.v] = x",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:46 (coords), 304-305 (scatter), 323-325 (gather back)",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:46 (coords), 304-305 (scatter), 323-325 (gather back)",
   "returns": "(n_samples, n_frames, in_channels, 31, 31) for extent=15; 721 of the 961 cells written, the other 240 left at 0.",
   "notes": "This is the ONLY hexal-to-2D-array code in flyvis and the closest thing to a 'hex_to_square'. It is axial map storage (https://www.redblobgames.com/grids/hexagons/#map-storage), i.e. a sheared lattice: in this array (u+1,v-1) is a diagonal that IS a hex neighbour while (u+1,v+1) is a diagonal that is NOT (hex distance 2). Conv2dHexSpace compensates by masking the kernel; a plain square SSIM window on it would not."
  },
  {
   "name": "Conv2dHexSpace.__init__ (hex-shaped mask for a square kernel in axial storage)",
   "signature": "u, v = get_hex_coords(kernel_size // 2); u -= u.min(); v -= v.min(); mask = np.zeros(self.weight.shape); mask[:, :, u, v] = 1",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:160-165",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:160-165",
   "returns": "mask of shape (out_ch, in_ch, kernel_size, kernel_size) with 1 at the get_num_hexals(kernel_size//2) hex positions.",
   "notes": "Reusable directly as the hexagonal window for a hex-masked SSIM on the 31x31 axial map, if you go that route. kernel_size must be odd."
  },
  {
   "name": "hex_to_pixel",
   "signature": "hex_to_pixel(u, v, size: float = 1, mode: Literal['default','flat','pointy'] = 'default') -> Tuple[NDArray, NDArray]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:45",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:45",
   "returns": "(x, y) float arrays, same shape as u/v. mode='default': x = 1.5*v, y = -sqrt(3)*(u + v/2). Note `size` is IGNORED in 'default' mode.",
   "notes": "The only hexal -> continuous (x,y) function. Its 'default' mode y is SIGN-FLIPPED relative to the renderer (BoxEye uses y = +d*(u+v/2)), and its x scale (1.5) is not the renderer's. Used only by hex_scatter for plotting. Do not mix conventions."
  },
  {
   "name": "BoxEye / BoxEye._receptor_centers / BoxEye.hex_render",
   "signature": "BoxEye(extent: int = 15, kernel_size: int = 13); __call__(sequence, ftype='mean', hex_sample=True) -> Tensor",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:29 (class), 71-89 (centers), 153 (hex_render), 169-170 (the actual indexing)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:29 (class), 71-89 (centers), 153 (hex_render), 169-170 (the actual indexing)",
   "returns": "__call__ -> (samples, frames, 1, 721). receptor_centers: torch.long (721, 2) as (y, x) with y = kernel_size*(u + v/2), x = kernel_size*v. min_frame_size = [391, 391] for the defaults.",
   "notes": "Verified numerically: receptor_centers ordering == get_hex_coords(15) ordering, y == (13*(u+v/2)).astype(int64), x == 13*v. Image row increases with (u+v/2), image column with v -- this is the orientation your raster should match. NOTE the grid is anisotropic (x should be v*d*sqrt(3)/2 for a regular lattice); the correct line is commented out at eye.py:88."
  },
  {
   "name": "HexEye / HexEye.is_inside  (the one real rasteriser in the package)",
   "signature": "HexEye(n_ommatidia=721, ppo=25, monitor_height_px=None, monitor_width_px=None, device=..., dtype=torch.float16); .is_inside",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:225 (class), 282-292 (is_inside), utils.py:211 (is_inside_hex)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:225 (class), 282-292 (is_inside), utils.py:211 (is_inside_hex)",
   "returns": "is_inside: bool tensor (monitor_h*monitor_w, n_ommatidia). For 721 at ppo=7 -> (47089, 721), 34 MB; at the default ppo=25 -> (600625, 721), 433 MB.",
   "notes": "img = (is_inside.float() @ values).reshape(H, W) is a correct upright raster -- I verified it agrees 100% with nearest-hexal-centre assignment on all covered pixels. Caveats: only 61.9% of pixels are covered (gaps between hexagons; zero overlap), and it works only because monitor_height_px == monitor_width_px by default (the x/y swap at eye.py:283-286 cancels the x-major product() flattening at eye.py:271-278 only for a square monitor)."
  },
  {
   "name": "hex_center_coordinates",
   "signature": "hex_center_coordinates(n_hex_area: int, img_width: int, img_height: int, center: bool = True) -> Tuple[NDArray, NDArray, Tuple[float, float]]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/rendering/utils.py:175",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/rendering/utils.py:175",
   "returns": "(xs, ys, (dist_w, dist_h)); xs = dist_w*v (+ W//2), ys = dist_h*(u + v/2) (+ H//2); dist_w = img_width/(2n+1), n = floor(sqrt(n_hex_area/3)).",
   "notes": "Same double loop as get_hex_coords, so same ordering. This is the cleanest existing hexal -> (x, y) pixel-position function that agrees with the renderer's orientation (unlike hex_to_pixel)."
  },
  {
   "name": "ConnectomeFromAvgFilters.nodes / add_strided_nodes / layer_index",
   "signature": "add_strided_nodes(seq, typ, extent, strides=(u_stride, v_stride)); connectome.nodes.layer_index[cell_type] -> int64 indices; connectome.nodes.u / .v -> int32 (45669,)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/connectome/connectome.py:326 (add_strided_nodes), 235-241 (nodes dict), 266-271 (layer_index), 262-264 (central_cells_index)",
+  "file": ".venv/Lib/site-packages/flyvis/connectome/connectome.py:326 (add_strided_nodes), 235-241 (nodes dict), 266-271 (layer_index), 262-264 (central_cells_index)",
   "returns": "layer_index[ct] is (721,) for 63 of 65 cell types; nodes.u[layer_index[ct]] == get_hex_coords(15)[0] exactly.",
   "notes": "Verified for all 65 types: 63 give (True, True) against get_hex_coords(15); only Lawf1 and Lawf2 have 123 nodes (strided), and neither is an output_cell_type, so a decoder reading output types is unaffected. LayerActivity (utils/activity_utils.py:204) slices activity by exactly these indices, so network activity is in the same order as the renderer's target."
  },
  {
   "name": "Hexal.neighbours / HexLattice.valid_neighbours",
   "signature": "Hexal(u, v, value).neighbours() -> 6-tuple of Hexal, CCW from east; HexLattice(extent=15).valid_neighbours() -> tuple of 721 ragged index tuples",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:420 (neighbours), 397-418 (E/NE/NW/W/SW/SE), 825 (_get_neighbour_indices), 834 (valid_neighbours)",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:420 (neighbours), 397-418 (E/NE/NW/W/SW/SE), 825 (_get_neighbour_indices), 834 (valid_neighbours)",
   "returns": "valid_neighbours(): 721 tuples, lengths 6 (631 hexals), 4 (84), 3 (6). ~0.9 s to build for extent 15.",
   "notes": "YES, the package exposes nearest neighbours. Direction order is E=(+1,0), NE=(0,+1), NW=(-1,+1), W=(-1,0), SW=(0,-1), SE=(+1,-1). But the return is RAGGED -- missing border neighbours are dropped, not padded -- so you cannot recover direction from position at the border. I verified my fixed-shape (721, 6) table with -1 padding is identical to valid_neighbours() element-for-element on all 721 hexals."
  },
  {
   "name": "get_num_hexals / get_hextent",
   "signature": "get_num_hexals(extent) -> int  (1 + 3*extent*(extent+1)); get_hextent(num_hexals) -> int  (floor(sqrt(num_hexals/3)))",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:218, 233",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:218, 233",
   "returns": "get_num_hexals(15) == 721; get_hextent(721) == 15.",
   "notes": "Use get_hextent to derive extent from a vector length, as quick_hex_scatter and HexScatter do."
  },
  {
   "name": "pad_to_regular_hex / crop_to_extent / sort_u_then_v_index",
   "signature": "pad_to_regular_hex(u, v, values, extent, value=np.nan) -> (u_pad, v_pad, values_pad); crop_to_extent(u, v, color, max_extent); sort_u_then_v_index(u, v) -> NDArray",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:145, 308, 269",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:145, 308, 269",
   "returns": "pad_to_regular_hex broadcasts over leading axes: values (..., n) -> (..., get_num_hexals(extent)).",
   "notes": "Useful for going between a partial hexal set (e.g. a receptive field) and the full 721 lattice. sort_u_then_v_index is the canonical-order operator."
  },
  {
   "name": "rotation_permutation_index / flip_permutation_index / rotate_Nx60",
   "signature": "rotation_permutation_index(extent: int, n_rot: int) -> Tensor; flip_permutation_index(extent: int, axis: Literal[1,2,3]) -> Tensor",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/augmentation/utils.py:37, 111, 52",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/augmentation/utils.py:37, 111, 52",
   "returns": "(get_num_hexals(extent),) int permutation applied directly to the last axis of a hexal tensor.",
   "notes": "Independent confirmation that the hexal vector is in get_hex_coords order: these are built as sort_u_then_v_index(*rotate(get_hex_coords(extent))) and applied straight to the 721-axis by HexRotate/HexFlip (datasets/augmentation/hex.py:25, 110)."
  },
  {
   "name": "hex_scatter / quick_hex_scatter / HexScatter",
   "signature": "hex_scatter(u, v, values, max_extent=None, fig=None, ax=None, figsize=(1,1), ..., mode='default', origin='lower', ...) -> (Figure, Axes, (Line2D, ScalarMappable)); quick_hex_scatter(values, cmap=..., **kw)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/analysis/visualization/plots.py:153, 605; animations/hexscatter.py:19",
+  "file": ".venv/Lib/site-packages/flyvis/analysis/visualization/plots.py:153, 605; animations/hexscatter.py:19",
   "returns": "A matplotlib Figure/Axes -- NOT an array. Draws one RegularPolygon patch per hexal (plots.py:325-345).",
   "notes": "quick_hex_scatter(values) is the one-liner for eyeballing a 721-vector: it infers extent via get_hextent and coords via get_hex_coords. There is no figure->array helper in the package, so do not try to route metrics through this."
  },
  {
   "name": "MultiTaskSintel / MultiTaskSintelDataset targets",
   "signature": "MultiTaskSintel(tasks=['flow'], boxfilter=dict(extent=15, kernel_size=13), ...); stored keys `<seq>/lum` (frames, 1, 721), `<seq>/flow` (frames, 2, 721), `<seq>/depth` (frames, 1, 721)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:70-71 (render), 116-161 (storage), 227-272 (dataset), 658/691 (cartesian_* reloads)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:70-71 (render), 116-161 (storage), 227-272 (dataset), 658/691 (cartesian_* reloads)",
   "returns": "All targets already in 721-hexal space, in canonical order, produced by BoxEye.",
   "notes": "The decoder target is a hexal vector, not an image. cartesian_lum/cartesian_flow/cartesian_depth do NOT un-render -- they reload the original frames from disk. There is no inverse rendering anywhere in flyvis."
  },
  {
   "name": "l2norm / epe / correlation (flyvis' own metrics)",
   "signature": "l2norm(y_est, y_gt); epe(y_est, y_gt); correlation(x, x_pred, epsilon=0); quick_correlation_one_to_many(x, Y, zero_nans=True)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/objectives.py:10, 25; analysis/correlation.py:31, 52",
+  "file": ".venv/Lib/site-packages/flyvis/task/objectives.py:10, 25; analysis/correlation.py:31, 52",
   "returns": "scalars / arrays; all reduce over the hexal axis directly.",
   "notes": "flyvis never rasterises to compute a metric, and contains no SSIM. So there is no in-package precedent to match either way -- the choice is yours."
  }
@@ -245,7 +245,7 @@ if __name__ == "__main__":
  "SSIM window sizing is the real trap. A 7x7 Gaussian window at pix_per_hex=6 sits entirely inside one flat hexal: local variance is 0, the structure term degenerates and SSIM saturates near 1. Size win_size so the window spans at least 3 hexals (win_size >= 2*pix_per_hex+1), or keep pix_per_hex at 2-3. Any SSIM number you report is meaningless without stating pix_per_hex, win_size and the mask/fill convention.",
  "HexLattice(extent=15).valid_neighbours() (hex_utils.py:834) does give correct neighbour indices -- I verified it agrees element-for-element with my table -- but it returns a RAGGED tuple-of-tuples with off-lattice neighbours dropped rather than padded, so you cannot recover the direction from the tuple position at the border, and it takes ~0.9 s to build for extent 15 (it iterates Hexal objects). Prefer a fixed (721, 6) table with -1 padding.",
  "Two of 65 connectome cell types are strided and have only 123 nodes: Lawf1 and Lawf2. Every other type has exactly 721 in get_hex_coords(15) order. Neither is in output_cell_types, so a decoder reading output types is safe -- but never assume `layer_index[ct].shape == (721,)` without checking, and never assume node indices are contiguous per type.",
- "scikit-image is NOT installed in D:/ML/Fly_Brain/.venv (scipy 1.18.1, torch 2.14.0+cpu, matplotlib 3.11.2 are). You need `uv add scikit-image` or a hand-rolled SSIM over scipy.ndimage.gaussian_filter.",
+ "scikit-image is NOT installed in .venv (scipy 1.18.1, torch 2.14.0+cpu, matplotlib 3.11.2 are). You need `uv add scikit-image` or a hand-rolled SSIM over scipy.ndimage.gaussian_filter.",
  "flyvis computes no image metrics on rasters at all: l2norm and epe (task/objectives.py:10, 25) reduce over the hexal axis directly, and analysis/correlation.py works on flat vectors. There is no SSIM in the package, so there is no in-package convention to match -- and no published flyvis SSIM number to compare against.",
  "flyvis has no inverse rendering. MultiTaskSintel.cartesian_lum / cartesian_flow / cartesian_depth (sintel.py:658, 691 and nearby) reload the ORIGINAL frames from disk via sample_lum/sample_flow/sample_depth -- they do not un-render a hexal vector. If you want 'reconstruction vs. original image', you rasterise; there is no shortcut."
 ]
@@ -255,7 +255,7 @@ if __name__ == "__main__":
 [
  "Whether this project's own axial coordinates (flydream/data/columns_roi.py, optic_lobe.py, export.py use hex1/hex2 from the FlyWire/optic-lobe `assignedOlHex1/Hex2`) share flyvis' u/v axis convention, origin and sign. The FlyWire values are 1-based and centred differently. I did not establish a mapping -- if you plan to move activity between the two coordinate systems you must verify this separately, and a wrong mapping would be a silent 60-degree rotation or reflection, not a crash.",
  "The absolute retinotopic orientation. Both eye.py:87 and rendering/utils.py:203 carry the same unresolved comment, 'either must be negative or origin must be upper', flagging a sign ambiguity the flyvis authors left open. I verified internal consistency (renderer -> hexal vector -> my raster preserves the source frame's up/down and left/right, checked by quadrant means on an asymmetric test image) but NOT correctness against the fly's real visual field. If a figure needs to be right way up biologically, confirm against a published flyvis figure.",
- "Which target this project's decoder actually uses. I confirmed sintel stores lum as (frames, 1, 721) and flow as (frames, 2, 721), both BoxEye-rendered at extent 15, but nothing in D:/ML/Fly_Brain/flydream currently references flyvis or 721 -- so I could not check what the reconstruction target is here.",
+ "Which target this project's decoder actually uses. I confirmed sintel stores lum as (frames, 1, 721) and flow as (frames, 2, 721), both BoxEye-rendered at extent 15, but nothing in flydream currently references flyvis or 721 -- so I could not check what the reconstruction target is here.",
  "The right pix_per_hex / win_size for this project. There is no flyvis precedent and no published hex-SSIM baseline, so absolute SSIM values will not be comparable to any external number regardless of what you pick. I validated that the machinery works; I did not calibrate it.",
  "Whether area-weighted (anti-aliased) rasterisation would change the SSIM ranking versus the nearest-neighbour rasterisation I tested. Nearest-neighbour produces hard hexagonal blocks, which inflates the local-structure term at small window sizes; I did not measure the difference against a smooth interpolant.",
  "Whether the 2 strided types (Lawf1, Lawf2, 123 nodes) matter for anything downstream in this project. They are not output cell types, so the decoder path is clear, but I did not check other consumers."

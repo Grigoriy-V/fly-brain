@@ -130,9 +130,14 @@ flydream/        data (MaleCNS export) · model (model zero) · decode · genera
 deploy/modal/    GPU functions: training, decoding, generation
 tools/           figure scripts, run log
 docs/figures/    figures of this README and the articles
-reports/         step reports, the articles, runs.jsonl — one record per measured outcome
+reports/         the working lab notebook: step reports, the articles, runs.jsonl — one record per measured outcome
 ROADMAP.md · DECISIONS.md · ISSUES.md   plan · design decisions · known defects
 ```
+
+The project was carried out together with an AI coding agent, and `reports/`, `ROADMAP.md`,
+`DECISIONS.md` and `ISSUES.md` are kept as they were written during the work: a lab notebook,
+with the owner's instructions, the agent's own mistakes and every correction. The articles and
+this README are the edited account.
 
 ## Status and limitations
 

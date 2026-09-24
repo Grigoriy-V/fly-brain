@@ -32,3 +32,6 @@ htmlcov/
 
 # Stray logs (flyvis CLI writes train_single.log into the cwd)
 *.log
+
+# working figures stay local; public figures live in docs/figures/
+reports/figures/

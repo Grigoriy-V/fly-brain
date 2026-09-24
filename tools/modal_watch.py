@@ -5,7 +5,7 @@
     python tools/modal_watch.py --logs <app-id>       # save the app's log now
     python tools/modal_watch.py --volume /benchmarks  # list a path on flydream-runs
 
-Wraps the modal CLI of the project venv (profile `grigoriy98smile`, see
+Wraps the modal CLI of the project venv (the active modal profile, see
 docs/OPERATIONS_MAP.md). Logs go to data/modal_logs/<app-id>.log, which is
 ignored by git; the numbers that matter are copied into reports/runs.jsonl by
 hand with tools/run_log.py. Reads only; never starts a worker.

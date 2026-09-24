@@ -2,7 +2,7 @@
 
 Every function here is a priced worker and starts only on the human's explicit
 word, per action, with the price stated first (AGENTS.md, Human gates). The
-Modal account is the project's second one (profile `grigoriy98smile`). The GPU
+Modal account is the owner's own (any profile; `modal profile activate`). The GPU
 is a T4, L4 as the alternative, nothing above (the human, 2026-09-18).
 
     modal volume put flydream-data data/ol/filters_R_w5wk50m500oc.json /ol/filters_R_w5wk50m500oc.json

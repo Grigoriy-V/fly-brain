@@ -109,7 +109,7 @@ Decision (the human, 2026-09-18): the owner's machine prepares data and runs
 short checks; every training run, ensemble simulation and inversion batch is
 a Modal Function on a GPU, with data and checkpoints on Modal Volumes. The
 patterns (Apps, Volumes, secrets from `.env`, scale-to-zero) are taken from
-the owner's harness repository (`D:/ML/local-multimodal-agent/deploy/modal/`)
+another of the owner's repositories
 when the training step is reached.
 
 Why: there is no local GPU sized for a 250k-iteration ensemble; the owner
@@ -182,7 +182,7 @@ word, in the roadmap, with the reason here.
 
 Decision (the human, 2026-09-18): `AGENTS.md`, `CLAUDE.md`, `ROADMAP.md`,
 `DECISIONS.md`, `ISSUES.md`, `docs/` and `reports/` follow the rules and
-structure of `D:/ML/local-multimodal-agent`, adapted to a research project:
+structure of another of the owner's repositories, adapted to a research project:
 a run log instead of a work log, a measurement beside its control as the
 unit of done, priced Modal runs as the human gate.
 

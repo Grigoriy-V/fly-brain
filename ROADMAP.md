@@ -319,7 +319,13 @@ is, history not rewritten; new commits are kept clean.
 
 - **P1, the master article** - part 1 revised after a number check, part 2
   drafted; Russian until approved, then English. No chat, quotes or agent
-  process in public text.
+  process in public text. Open before the final version: the model-zero v9
+  table (DSI, direction error, polarity per member) is only in the run log
+  and belongs in the step-2 report; the batched-inversion speed-up is a range
+  because the source record is ambiguous (one run, ~0.05 dollars, settles it);
+  13A and 13B round trips need one function (ISS-0014); two static-branch
+  numbers have no artefact yet - r 0.922 and the slice numbers (29.3) - and
+  "DC -> one frame" reads 0.791 in one run and 0.825 in another.
 - **P2, README** - Russian draft done; the final is English and longer, with
   three figures: video recovered from layers of the state, generation from a
   known seed, a fresh draw rendered as a static scene. `LICENSE`: MIT.

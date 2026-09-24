@@ -2,19 +2,19 @@
 
 ## summary
 
-The naturalistic dataset is `flyvis.datasets.sintel.AugmentedSintel` (subclass of `MultiTaskSintel`), which pre-renders Sintel through a `BoxEye(extent=15, kernel_size=13)` filter into exactly 721 hexals and caches every sequence in RAM as float32. One sample is a dict, not a tuple: `{"lum": (n_out, 1, 721), "flow": (n_out, 2, 721)}` float32, where `n_out = ceil(19 / (24*dt))` — 40 frames at dt=1/50, 80 at dt=1/100 (19 raw frames at Sintel's 24 fps, resampled). Sintel itself is NOT in the pretrained download you already fetched; it must sit at `<FLYVIS_ROOT_DIR>/SintelDataSet/{training/final,training/flow,test}`, and `FLYVIS_ROOT_DIR` is not currently set in D:/ML/Fly_Brain/.env, so flyvis resolves root_dir to site-packages/flyvis/data and cannot see D:/ML/Fly_Brain/data/flyvis at all. The rendered 721-value hexal input comes back for free as the first element of every `Network.stimulus_response(...)` yield — shape (batch, frames, 1, 721) float32 numpy, frame-aligned 1:1 with the response (batch, frames, 45669), because the t_pre/t_fade_in frames go into the initial state only and never into the output. AugmentedSintel is already deterministic with its own defaults (contrast/brightness/noise/gamma std all None, p_flip=p_rot=0, geometric augmentation baked per-sample into `flip_ax`/`n_rot` columns), so you must NOT set augment=False — that short-circuits `get_item` and silently skips resampling. I verified all shapes, dtypes, determinism, the split logic and the paired extraction against pretrained network flow/0000/000; one hard Windows blocker (datamate's `_write_h5` leaves an h5py handle open before `unlink()`, WinError 32) stops the Sintel rendering step and needs the monkeypatch included in the snippet.
+The naturalistic dataset is `flyvis.datasets.sintel.AugmentedSintel` (subclass of `MultiTaskSintel`), which pre-renders Sintel through a `BoxEye(extent=15, kernel_size=13)` filter into exactly 721 hexals and caches every sequence in RAM as float32. One sample is a dict, not a tuple: `{"lum": (n_out, 1, 721), "flow": (n_out, 2, 721)}` float32, where `n_out = ceil(19 / (24*dt))` — 40 frames at dt=1/50, 80 at dt=1/100 (19 raw frames at Sintel's 24 fps, resampled). Sintel itself is NOT in the pretrained download you already fetched; it must sit at `<FLYVIS_ROOT_DIR>/SintelDataSet/{training/final,training/flow,test}`, and `FLYVIS_ROOT_DIR` is not currently set in .env, so flyvis resolves root_dir to site-packages/flyvis/data and cannot see data/flyvis at all. The rendered 721-value hexal input comes back for free as the first element of every `Network.stimulus_response(...)` yield — shape (batch, frames, 1, 721) float32 numpy, frame-aligned 1:1 with the response (batch, frames, 45669), because the t_pre/t_fade_in frames go into the initial state only and never into the output. AugmentedSintel is already deterministic with its own defaults (contrast/brightness/noise/gamma std all None, p_flip=p_rot=0, geometric augmentation baked per-sample into `flip_ax`/`n_rot` columns), so you must NOT set augment=False — that short-circuits `get_item` and silently skips resampling. I verified all shapes, dtypes, determinism, the split logic and the paired extraction against pretrained network flow/0000/000; one hard Windows blocker (datamate's `_write_h5` leaves an h5py handle open before `unlink()`, WinError 32) stops the Sintel rendering step and needs the monkeypatch included in the snippet.
 
 ## code_example
 
 """Paired (rendered hexal stimulus, network activity) samples from flyvis on Sintel.
 VERIFIED end-to-end against pretrained flow/0000/000 using a synthetic 2-scene
 Sintel tree; full file at
-C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--ML-Fly-Brain\\58d705f7-d20e-4cd9-a480-ee9f8c4e5cc2\\scratchpad\\flyvis_pairs_final.py
+a local scratch directory (flyvis_pairs_final.py)
 
 Prereqs:
-  1) D:/ML/Fly_Brain/.env must gain   FLYVIS_ROOT_DIR=D:/ML/Fly_Brain/data/flyvis
+  1) .env must gain   FLYVIS_ROOT_DIR=data/flyvis
      (flyvis reads it at import via dotenv; flyvis/__init__.py:45-58)
-  2) Sintel must live at D:/ML/Fly_Brain/data/flyvis/SintelDataSet/ with
+  2) Sintel must live at data/flyvis/SintelDataSet/ with
          training/final/<scene>/frame_XXXX.png
          training/flow/<scene>/frame_XXXX.flo
          test/
@@ -174,128 +174,128 @@ print(hexal_frames.shape, activity.shape)
 [
  {
   "name": "AugmentedSintel",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:733 (__init__ at :780)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:733 (__init__ at :780)",
   "signature": "AugmentedSintel(n_frames=19, flip_axes=[0,1], n_rotations=[0,1,2,3,4,5], build_stim_on_init=True, temporal_split=False, augment=True, dt=1/50, tasks=['flow'], interpolate=True, all_frames=False, random_temporal_crop=False, boxfilter={'extent':15,'kernel_size':13}, vertical_splits=3, contrast_std=None, brightness_std=None, gaussian_white_noise=None, gamma_std=None, center_crop_fraction=0.7, indices=None, unittest=False, **kwargs)",
   "returns": "torch Dataset. dataset[i] -> Dict[str, torch.Tensor]: 'lum' (n_out,1,721) float32 in ~[0,1]; 'flow' (n_out,2,721) float32; 'depth' (n_out,1,721) if requested. n_out = ceil(n_frames/(24*dt)) = 40 @ dt=1/50, 80 @ dt=1/100. len(dataset) = n_temporal_splits * len(flip_axes) * len(n_rotations).",
   "notes": "THE naturalistic dataset. `tasks` must include 'lum' to get the rendered input in the sample dict ('lum' is always rendered and cached, but only returned if listed). It calls super().__init__ with p_flip=0, p_rot=0 and passes flip/rot through _build deterministically. **kwargs is silently DISCARDED (never forwarded to super) — misspelled args are no-ops. `indices` subsets cached_sequences and arg_df after _build."
  },
  {
   "name": "AugmentedSintel.arg_df",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:885",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:885",
   "returns": "pandas.DataFrame with columns ['name','original_index','vertical_split_index','temporal_split_index','frames','flip_ax','n_rot']; len(arg_df) == len(dataset). 'name' is e.g. 'sequence_00_alley_1_split_00'; 'frames' is the RAW (19) count, not n_out.",
   "notes": "This is your split key. Sample ordering is itertools.product(sequences, flip_axes, n_rotations) — sequence outermost, rotation innermost (verified). After `indices=`, arg_df keeps its ORIGINAL index labels (e.g. 0,3,5) while positional order is 0..len-1."
  },
  {
   "name": "MultiTaskSintel",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:182 (__init__ at :229)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:182 (__init__ at :229)",
   "signature": "MultiTaskSintel(tasks=['flow'], boxfilter={'extent':15,'kernel_size':13}, vertical_splits=3, n_frames=19, center_crop_fraction=0.7, dt=1/50, augment=True, random_temporal_crop=True, all_frames=False, resampling=True, interpolate=True, p_flip=0.5, p_rot=5/6, contrast_std=0.2, brightness_std=0.1, gaussian_white_noise=0.08, gamma_std=None, _init_cache=True, unittest=False, flip_axes=[0,1], sintel_path=None)",
   "returns": "Same dict shape as AugmentedSintel. len == n_scenes * vertical_splits (69 for real Sintel: 23 scenes x 3).",
-  "notes": "The training-time dataset (the pretrained flow nets used exactly this with dt=0.02, flip_axes=[0,1,2,3], p_rot=0.5, contrast_std=0.2, brightness_std=0.1, gaussian_white_noise=0.08 — see D:/ML/Fly_Brain/data/flyvis/results/flow/0000/000/_meta.yaml). Random per-call augmentation by default. Unlike AugmentedSintel, augment=False here STILL resamples to 1/dt (verified: 40 frames at dt=1/50)."
+  "notes": "The training-time dataset (the pretrained flow nets used exactly this with dt=0.02, flip_axes=[0,1,2,3], p_rot=0.5, contrast_std=0.2, brightness_std=0.1, gaussian_white_noise=0.08 — see data/flyvis/results/flow/0000/000/_meta.yaml). Random per-call augmentation by default. Unlike AugmentedSintel, augment=False here STILL resamples to 1/dt (verified: 40 frames at dt=1/50)."
  },
  {
   "name": "RenderedSintel",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:47 (__init__ at :68)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:47 (__init__ at :68)",
   "signature": "RenderedSintel(tasks=['flow'], boxfilter={'extent':15,'kernel_size':13}, vertical_splits=3, n_frames=19, center_crop_fraction=0.7, unittest=False, sintel_path=None)",
   "returns": "datamate Directory at <FLYVIS_ROOT_DIR>/renderings/RenderedSintel_0000 with sequence_<i>_<scene>_split_<j>/{lum,flow[,depth]}.h5; lum (frames,1,721), flow (frames,2,721), frames = N_scene_files - 1.",
   "notes": "Built automatically on first MultiTaskSintel/AugmentedSintel construction; one-off and slow. Only renders scenes where len(files)-1 >= n_frames. `sintel_path` is captured into the datamate config (verified in _meta.yaml), so the absolute Sintel path is part of the directory identity — moving your data root forces a full re-render."
  },
  {
   "name": "download_sintel",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel_utils.py:295",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel_utils.py:295",
   "signature": "download_sintel(delete_if_exists=False, depth=False) -> Path",
   "returns": "Path == flyvis.sintel_dir == <FLYVIS_ROOT_DIR>/SintelDataSet",
   "notes": "Fetches http://files.is.tue.mpg.de/sintel/MPI-Sintel-complete.zip (and, for depth, .../jwulff/sintel/MPI-Sintel-depth-training-20150305.zip) and unzips in place. Existence test requires training/, test/, training/flow/ (and training/depth/ when depth=True). Line 325 does `assert not sintel_zip.exists()` — a leftover partial zip makes it die on a bare AssertionError."
  },
  {
   "name": "flyvis.sintel_dir / renderings_dir / results_dir / resolve_root_dir",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/__init__.py:45-58",
+  "file": ".venv/Lib/site-packages/flyvis/__init__.py:45-58",
   "returns": "root_dir = Path(os.getenv('FLYVIS_ROOT_DIR', <site-packages>/flyvis/data)); sintel_dir = root_dir/'SintelDataSet'; renderings_dir = root_dir/'renderings'; results_dir = root_dir/'results'",
-  "notes": "Resolved at import, after dotenv.load_dotenv(find_dotenv(usecwd=True)). Verified: with FLYVIS_ROOT_DIR=D:/ML/Fly_Brain/data/flyvis, sintel_dir = D:\\ML\\Fly_Brain\\data\\flyvis\\SintelDataSet and it does NOT exist. Your .env sets only NEUPRINT_TOKEN, so you must add FLYVIS_ROOT_DIR=D:/ML/Fly_Brain/data/flyvis."
+  "notes": "Resolved at import, after dotenv.load_dotenv(find_dotenv(usecwd=True)). Verified: with FLYVIS_ROOT_DIR=data/flyvis, sintel_dir = data\\flyvis\\SintelDataSet and it does NOT exist. Your .env sets only NEUPRINT_TOKEN, so you must add FLYVIS_ROOT_DIR=data/flyvis."
  },
  {
   "name": "Network.stimulus_response",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/network/network.py:712",
+  "file": ".venv/Lib/site-packages/flyvis/network/network.py:712",
   "signature": "stimulus_response(stim_dataset, dt, indices=None, t_pre=1.0, t_fade_in=0.0, grad=False, default_stim_key='lum', batch_size=1)",
   "returns": "generator yielding (stimulus, responses) numpy float32: stimulus (batch, frames, 1, 721) — the rendered hexal input verbatim; responses (batch, frames, 45669) — all cells. Verified shapes exactly.",
   "notes": "THE way to get paired data. t_pre/t_fade_in frames are folded into the initial state only, so stimulus and responses are frame-aligned 1:1. Picks stim = sample[default_stim_key], so flow/depth never reach the output. MUTATES stim_dataset.dt = dt in place (line 744) — verified: dataset[0]['lum'] went 40 -> 80 frames afterwards. Uses IndexSampler(indices), so output order == indices order."
  },
  {
   "name": "Network.simulate",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/network/network.py:628",
+  "file": ".venv/Lib/site-packages/flyvis/network/network.py:628",
   "signature": "simulate(movie_input, dt, initial_state='auto', as_states=False, as_layer_activity=False)",
   "returns": "Tensor (batch, frames, 45669); or List[AutoDeref] if as_states; or LayerActivity if as_layer_activity.",
   "notes": "Lower-level alternative when you already hold the hexal movie. Requires movie_input.ndim == 4 == (sample, frame, 1, hexals) or raises ValueError. initial_state='auto' = steady_state after 1 s of grey 0.5. Warns if dt > 1/50."
  },
  {
   "name": "compute_responses",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:34",
+  "file": ".venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:34",
   "signature": "compute_responses(network: CheckpointedNetwork, dataset_class, dataset_config: dict, batch_size, t_pre, t_fade_in, cell_index='central')",
   "returns": "xr.Dataset. Verified: stimulus (sample, frame, channel=1, hex_pixel=721) float32; responses (network_id=1, sample, frame, neuron) float32 with neuron=65 for cell_index='central', 45669 for cell_index=None. Coords: sample=arange(len) plus every arg_df column (name, original_index, vertical_split_index, temporal_split_index, frames, flip_ax, n_rot).",
   "notes": "`ds.stimulus.values[:, :, 0, :]` is the (n_samples, n_frames, 721) decoder target. It RE-INSTANTIATES the dataset from dataset_config, so pass a config dict, not an object. Calling it directly does no caching; via NetworkView it is joblib-cached."
  },
  {
   "name": "naturalistic_stimuli_responses",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:357 (also NetworkView method at network_view.py:381)",
+  "file": ".venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:357 (also NetworkView method at network_view.py:381)",
   "signature": "naturalistic_stimuli_responses(network_view_or_ensemble, dataset=None, dt=1/100, batch_size=4, indices=None)",
   "returns": "xr.Dataset as above, plus coords time/cell_type/u/v/u_in/v_in/network_name/checkpoints added by generic_responses.",
   "notes": "Default config is AugmentedSintel(tasks=['lum'], interpolate=False, boxfilter={'extent':15,'kernel_size':13}, temporal_split=True, dt=dt, indices=indices) with t_pre=0.0, t_fade_in=2.0. NO cell_index parameter -> responses are ALWAYS the 65 central cells. Useless for a spatial (721-hexal) decoder; use stimulus_response or compute_responses(cell_index=None) instead."
  },
  {
   "name": "generic_responses",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:111",
+  "file": ".venv/Lib/site-packages/flyvis/analysis/stimulus_responses.py:111",
   "signature": "generic_responses(network_view_or_ensemble, dataset, dataset_config, default_dataset_cls, t_pre, t_fade_in, batch_size, cell_index='central')",
   "returns": "xr.Dataset concatenated over network_id.",
   "notes": "The joblib-cached wrapper (cache at <network_dir>/__cache__, ignore=['batch_size']). If you pass a dataset INSTANCE it uses dataset.config.to_dict(), which for AugmentedSintel contains p_flip/p_rot/resampling — keys AugmentedSintel.__init__ swallows into **kwargs and drops. Supports cell_index=None, but caching 45669 cells x 2268 samples x 80 frames would be ~33 GB."
  },
  {
   "name": "MultiTaskSintel.original_train_and_validation_indices / sintel_utils.original_train_and_validation_indices",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:724 -> sintel_utils.py:241",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:724 -> sintel_utils.py:241",
   "returns": "(train_indices, val_indices) as lists of ints, matched by scene name against 17 train and 6 validation scene names.",
   "notes": "The paper split. Hardcodes val_indices.remove(37); val_indices.remove(38) at sintel_utils.py:290-291 — valid only for the 69-row MultiTaskSintel arg_df. On AugmentedSintel it removes the wrong rows or raises ValueError. The 23 scene names here are the code evidence that Sintel training has 23 usable scenes."
  },
  {
   "name": "MultiTaskDataset.get_random_data_split",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/datasets.py:159 -> utils/dataset_utils.py:186",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/datasets.py:159 -> utils/dataset_utils.py:186",
   "signature": "get_random_data_split(fold, n_folds, shuffle=True, seed=0)",
   "returns": "(train_seq_index, val_seq_index) numpy arrays of row indices.",
   "notes": "Row-level, NOT scene-level. On AugmentedSintel this leaks: the same scene reappears as 3 vertical x N temporal x 12 geometric variants. Split on arg_df['name'] or arg_df['original_index'] instead."
  },
  {
   "name": "MultiTaskSintel.augmentation / .augment setter / .apply_augmentation",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:483 / :521 / :542",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:483 / :521 / :542",
   "returns": "context manager / property setter / Dict[str, torch.Tensor]",
   "notes": "Order is noise -> jitter -> flip -> rotate -> piecewise_resample for 'lum'; flip -> rotate -> linear_interpolate (or piecewise) for targets. piecewise_resample.augment is tied to `resampling` and linear_interpolate.augment to `interpolate` — NOT to `augment` (lines 538-539), which is why MultiTaskSintel(augment=False) still resamples."
  },
  {
   "name": "AugmentedSintel.get_item",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel.py:953",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel.py:953",
   "signature": "get_item(key, pad_to_length=None)",
   "returns": "Dict[str, torch.Tensor]",
   "notes": "if self.augment: apply_augmentation(..., n_rot=0, flip_axis=0) -> resampled. else: raw cached sequence, 19 frames at 24 fps, NO resampling (verified: (19,1,721) vs (40,1,721))."
  },
  {
   "name": "BoxEye",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:29 (__init__ at :47)",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/rendering/eye.py:29 (__init__ at :47)",
   "signature": "BoxEye(extent=15, kernel_size=13)",
   "returns": "callable; .hexals == 721 (verified), .min_frame_size == tensor([391, 391]) (verified), .receptor_centers (721, 2) long",
   "notes": "extent=15 -> 3*15^2+3*15+1 = 721 hexals. Rendering splits each Sintel frame to width min_frame_size[1] + 2*kernel_size = 417 px (verified). lum uses ftype='mean', flow uses ftype='sum' per channel, depth ftype='median'."
  },
  {
   "name": "connectome.central_cells_index / nodes.type / input_cell_types",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/network/network_view.py:107 (nv.connectome)",
+  "file": ".venv/Lib/site-packages/flyvis/network/network_view.py:107 (nv.connectome)",
   "returns": "central_cells_index (65,) int; nodes.type (45669,) bytes->str with 65 unique types; input_cell_types == ['R1'..'R8']; (nodes.type=='R1').sum() == 721",
   "notes": "All verified against flow/0000/000. The 721 R1 cells are exactly the hexal lattice, and u/v of those R1 cells are what generic_responses exposes as the u_in/v_in coords for plotting a hexal frame."
  },
  {
   "name": "DecoderGAVP / ActivityDecoder",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:190 / :23",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:190 / :23",
   "signature": "DecoderGAVP(connectome, shape, kernel_size=5, const_weight=0.001, n_out_features=None, p_dropout=0.5); forward(activity)",
   "returns": "activity (n_samples, n_frames, 45669) -> (n_samples, n_frames, out_channels, 721)",
   "notes": "flyvis' own flow decoder: shape=[8,2] -> 2 output channels x 721 hexals. For stimulus reconstruction use shape=[..., 1]. nv.init_decoder(checkpoint='best') recovers the trained flow decoder."
  },
  {
   "name": "temporal_split_cached_samples / temporal_split_sequence",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/datasets/sintel_utils.py:97 / :137",
+  "file": ".venv/Lib/site-packages/flyvis/datasets/sintel_utils.py:97 / :137",
   "returns": "(list of per-split sample dicts, repeats array)",
   "notes": "splits = int(round(n_frames_seq / max_frames)); each split is exactly max_frames long and splits OVERLAP when the sequence length is not a multiple (e.g. 49 frames -> [0:19],[15:34],[30:49]). Do not treat temporal splits from one scene as independent test samples."
  }
@@ -304,8 +304,8 @@ print(hexal_frames.shape, activity.shape)
 ## gotchas
 
 [
- "FLYVIS_ROOT_DIR is not set anywhere in D:/ML/Fly_Brain (.env has only NEUPRINT_TOKEN, env.example doesn't mention it). Without it flyvis/__init__.py:47 resolves root_dir to D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/data and your downloaded D:/ML/Fly_Brain/data/flyvis is invisible: no pretrained results, no connectome, no renderings. Add FLYVIS_ROOT_DIR=D:/ML/Fly_Brain/data/flyvis to .env (dotenv is loaded at import, flyvis/__init__.py:18).",
- "Sintel is NOT in the pretrained download. flyvis_cli/download_pretrained_models.py:13-25 lists only results_pretrained_models.zip and results_umap_and_clustering.zip. Confirmed: D:/ML/Fly_Brain/data/flyvis/SintelDataSet does not exist, and renderings/ holds only RenderedFlashes_0000 and RenderedOffsets_0000 — no RenderedSintel. You need MPI-Sintel-complete.zip unpacked into <root>/SintelDataSet (training/final + training/flow + test), then a one-off local render.",
+ "FLYVIS_ROOT_DIR is not set anywhere in the repository root (.env has only NEUPRINT_TOKEN, env.example doesn't mention it). Without it flyvis/__init__.py:47 resolves root_dir to .venv/Lib/site-packages/flyvis/data and your downloaded data/flyvis is invisible: no pretrained results, no connectome, no renderings. Add FLYVIS_ROOT_DIR=data/flyvis to .env (dotenv is loaded at import, flyvis/__init__.py:18).",
+ "Sintel is NOT in the pretrained download. flyvis_cli/download_pretrained_models.py:13-25 lists only results_pretrained_models.zip and results_umap_and_clustering.zip. Confirmed: data/flyvis/SintelDataSet does not exist, and renderings/ holds only RenderedFlashes_0000 and RenderedOffsets_0000 — no RenderedSintel. You need MPI-Sintel-complete.zip unpacked into <root>/SintelDataSet (training/final + training/flow + test), then a one-off local render.",
  "WINDOWS BLOCKER, reproduced: rendering RenderedSintel dies with PermissionError WinError 32 on the second h5 write inside each sequence folder. datamate 1.0.0 io.py:153 _write_h5 opens h5py in mode='w', hits KeyError on f['data'], and in the except branch calls path.unlink() with that handle STILL OPEN — harmless on Linux, fatal on Windows. Fix with the monkeypatch in the snippet (patch BOTH datamate.io._write_h5 and datamate.directory._write_h5, since directory.py:578 imported the name), or pre-render under WSL. A failed render leaves renderings/RenderedSintel_0000 with status: stopped, which you must delete before retrying.",
  "AugmentedSintel(augment=False) is the WRONG way to get determinism: get_item (sintel.py:953-970) short-circuits and returns the raw cached sequence — 19 frames at Sintel's 24 fps instead of the resampled n_out (verified: (19,1,721) vs (40,1,721)). Worse, with temporal_split=False the raw lengths vary per scene and DataLoader collation fails for batch_size>1. The defaults already give determinism: contrast_std / brightness_std / gaussian_white_noise / gamma_std all default to None (identity, verified torch.equal on repeated reads) and p_flip=p_rot=0. Keep augment=True. Note MultiTaskSintel(augment=False) behaves differently and DOES resample.",
  "Network.stimulus_response MUTATES the dataset: network.py:744 does stim_dataset.dt = dt, which flows through MultiTaskSintel.__setattr__ -> update_augmentation and re-targets both resamplers. Verified: after calling with dt=1/100, dataset[0]['lum'] returned 80 frames instead of 40. Never share one dataset instance across sweeps at different dt without re-setting dataset.dt.",

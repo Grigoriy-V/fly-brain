@@ -78,84 +78,84 @@ def simulate_checkpointed(net, video, dt, initial_state, chunk=25):
 [
  {
   "name": "Network.forward",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:509",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:509",
   "signature": "forward(x: Tensor, dt: float, state: AutoDeref = None, as_states: bool = False) -> Tensor | AutoDeref",
   "returns": "Tensor (batch, n_frames, n_nodes) float32, n_nodes=45669 at extent=15; requires_grad=True and grad_fn set whenever x requires grad. With as_states=True, a list of AutoDeref states.",
   "notes": "THE differentiable entry point. No no_grad, no detach. Body is `for i in range(x.shape[1]): state = self._next_state(params, state, x[:, i], dt)` then `torch.stack(..., dim=1)` (lines 535-546), so the graph is exactly n_frames Euler steps deep. Calls self.clamp() first (line 527), which is a no-op once parameters have requires_grad=False. x is the WHOLE-NETWORK buffer of shape (batch, frames, n_nodes), not a video."
  },
  {
   "name": "Network.simulate",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:628",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:628",
   "signature": "simulate(movie_input: Tensor, dt: float, initial_state='auto', as_states=False, as_layer_activity=False) -> Tensor",
   "returns": "Tensor (batch, n_frames, n_nodes), differentiable w.r.t. movie_input (verified). movie_input must be (batch, frames, 1, hexals).",
   "notes": "Does NOT block input gradients. `with simulation(self)` (line 684) only zeroes parameter requires_grad; the assert at 685-687 is self-fulfilling (the context manager sets the conditions it asserts), so the docstring's 'Raises ValueError if any parameters require grad' never fires. Usable for inversion, with two caveats: (a) it mutates the shared self.stimulus (lines 688-689) so a loop with a fixed initial_state dies on iteration 2 (see gotchas); (b) initial_state='auto' re-runs a 100-frame steady_state every call."
  },
  {
   "name": "Network.enable_grad",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:699",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:699",
   "signature": "@contextmanager enable_grad(grad: bool = True)",
   "returns": "context manager; yields None",
   "notes": "Nothing flyvis-specific: saves torch.is_grad_enabled(), calls torch.set_grad_enabled(grad), restores on exit (lines 705-710). It is a global switch, not per-module. enable_grad(True) does not 'turn on' input gradients — grad is already on by default; its only real use in the package is the grad=False default of steady_state (583), fade_in_state (625) and stimulus_response (756)."
  },
  {
   "name": "Network._next_state",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:377",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:377",
   "signature": "_next_state(params, state, x_t: Tensor, dt: float) -> AutoDeref",
   "returns": "AutoDeref with .nodes.activity (batch, n_nodes) plus derived .sources/.targets RefTensors",
   "notes": "One explicit Euler step: `next = state + vel*dt` (lines 404-411), then _state_api. Fully differentiable, no detach. For PPNeuronIGRSynapses the only state variable is nodes.activity (state.edges is EMPTY — verified), which is what makes checkpointing easy."
  },
  {
   "name": "Network._state_api",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:415",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:415",
   "signature": "_state_api(state) -> AutoDeref",
   "returns": "AutoDeref(nodes, edges, sources, targets)",
   "notes": "Re-derives per-edge source/target views from nodes each step via RefTensor. Needed if you write your own checkpointed loop: call it on a bare AutoDeref(nodes=AutoDeref(activity=...), edges=AutoDeref()) to rebuild a valid state from just the activity tensor. Also the hook point for register_state_hook (network.py:444)."
  },
  {
   "name": "Network.target_sum",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:333",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:333",
   "signature": "target_sum(x: Tensor) -> Tensor",
   "returns": "Tensor (batch, n_nodes)",
   "notes": "`torch.zeros(...).scatter_add_(-1, idx, x)` — the in-place scatter into a fresh non-requires-grad zeros tensor is differentiable (this is the dominant memory cost: the n_edges-sized x is saved per step)."
  },
  {
   "name": "Network.steady_state",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:548",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:548",
   "signature": "steady_state(t_pre, dt, batch_size, value=0.5, state=None, grad: bool = False, return_last=True) -> AutoDeref",
   "returns": "AutoDeref state; with grad=False (default) all tensors have requires_grad=False",
   "notes": "grad=False wraps the run in enable_grad(False) (line 583) — correct and harmless for inversion, since the grey-screen initial state does not depend on your video. BUT it calls self.stimulus.zero(batch_size, int(t_pre/dt)) and add_pre_stim (580-581), RESIZING the shared net.stimulus buffer to (batch, 100, 45669) at dt=1/100 — verified clobbering. Call it ONCE before the optimisation loop."
  },
  {
   "name": "Network.stimulus_response",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:712",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:712",
   "signature": "stimulus_response(stim_dataset, dt, indices=None, t_pre=1.0, t_fade_in=0.0, grad: bool = False, default_stim_key='lum', batch_size=1)",
   "returns": "generator of (stimulus ndarray, response) — response is .detach().cpu().numpy() when grad=False (786-792), the live Tensor when grad=True (793-797)",
   "notes": "grad=True only omits the detach on the OUTPUT. The stimulus itself comes out of a torch DataLoader (747-749), so there is no leaf you own to optimise — this is not the inversion path. Useful only for reading gradients w.r.t. parameters on dataset stimuli."
  },
  {
   "name": "Network.current_response",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\network.py:801",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\network.py:801",
   "signature": "current_response(stim_dataset, dt, indices=None, t_pre=1.0, t_fade_in=0, default_stim_key='lum')",
   "returns": "generator of (stim, activity, currents) numpy arrays",
   "notes": "THE ONE method that hard-blocks gradients: `with torch.no_grad():` at line 841, no grad flag. If you need per-edge currents differentiably, call self.dynamics.currents(state, params) yourself on states from forward(..., as_states=True)."
  },
  {
   "name": "flyvis.utils.nn_utils.simulation",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\utils\\nn_utils.py:10",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\utils\\nn_utils.py:10",
   "signature": "@contextmanager simulation(network: nn.Module)",
   "returns": "context manager",
   "notes": "Sets network.training=False and p.requires_grad=False for every named parameter, restoring both on exit (lines 34-45). Critically it does NOT enter no_grad — so input gradients survive it. Its docstring ('temporarily disables gradient computation') is wrong."
  },
  {
   "name": "Stimulus.__init__ / .zero / .add_input / .__call__",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\network\\stimulus.py:111",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\network\\stimulus.py:111",
   "signature": "Stimulus(connectome, n_samples=1, n_frames=1, init_buffer=True); zero(n_samples=None, n_frames=None); add_input(x, start=None, stop=None, n_frames_buffer=None, cumulate=False); __call__() -> Tensor",
   "returns": "buffer: Tensor (n_samples, n_frames, n_nodes) float32 on flyvis.device; 9.1 MB at 50 frames / 45669 nodes",
   "notes": "zero() at :142 — line 161 `self.buffer = torch.zeros(...)` makes a NON-requires-grad LEAF; lines 155-160 are an early-return `self.buffer.zero_()` fast path taken when the shape is unchanged, which also forgets to reset self._nonzero (only line 162 does). add_input() at :173 — line 206 `self.buffer[:, slice, self.input_index] += x.to(...)`, advanced-index in-place add; because the buffer is a non-requires-grad leaf this is legal and turns it into a non-leaf with IndexPutBackward0, giving a clean path back to x. __call__() at :249 just returns the buffer, no detach. input_index has shape (8, 721): the video is broadcast to all eight photoreceptor types R1-R8."
  },
  {
   "name": "GenerateOptimalStimuli.artificial_optimal_stimuli / FindOptimalStimuli.regularized_optimal_stimuli",
-  "file": "D:\\ML\\Fly_Brain\\.venv\\Lib\\site-packages\\flyvis\\analysis\\optimal_stimuli.py:193",
+  "file": ".venv\\Lib\\site-packages\\flyvis\\analysis\\optimal_stimuli.py:193",
   "signature": "artificial_optimal_stimuli(cell_type, t_stim=49/200, dt=1/100, lr=1e-2, ..., n_iters=200) -> GeneratedOptimalStimulus",
   "returns": "dataclass with the optimised stimulus, responses and loss history (numpy)",
   "notes": "The package's own working proof that input gradients are supported — MEI/most-exciting-input optimisation, i.e. inversion with a different objective. Read it as the reference recipe: freeze params (lines 190-191), `art_opt_stim.requires_grad = True` (234), Adam over the stimulus (237), stimulus.zero()+add_input inside the loop (247-248), forward (253), backward (262). Note it passes retain_graph=True (160 and 262), which is a workaround for the buffer-chaining bug, not a requirement."
@@ -176,7 +176,7 @@ def simulate_checkpointed(net, video, dt, initial_state, chunk=25):
  "flyvis sets a global default device at import (`torch.set_default_device(device)`, __init__.py:13-14), so bare `torch.zeros`/`torch.rand` land on flyvis.device. `add_input` does `x.to(self.buffer.device)` — differentiable, so a cross-device video still backprops, but it costs a copy per step.",
  "The gradient reaches all eight photoreceptor types at once: `input_index` has shape (8, 721) (stimulus.py:128-131), so one video channel is broadcast to R1-R8. You cannot optimise per-photoreceptor-type input through add_input; write into the buffer yourself if you need that.",
  "Everything is float32. My finite-difference check needed a directional derivative (random unit direction) to be meaningful — per-pixel central differences at eps=1e-3 fall under float32 resolution and look wrong (one probe gave fd exactly 0.0 against a true 2.4e-5). Don't conclude the gradient is broken from a single-pixel FD probe.",
- "Building a Network on Windows needs the datamate `_write_h5` patch this project already has in D:\\ML\\Fly_Brain\\flydream\\model\\__init__.py (datamate unlinks an h5 file it still holds open -> WinError 32). Import that and call configure_flyvis_root() before importing flyvis, as flydream/model/zero.py:21-23 does."
+ "Building a Network on Windows needs the datamate `_write_h5` patch this project already has in flydream\\model\\__init__.py (datamate unlinks an h5 file it still holds open -> WinError 32). Import that and call configure_flyvis_root() before importing flyvis, as flydream/model/zero.py:21-23 does."
 ]
 
 ## unknowns

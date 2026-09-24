@@ -2,14 +2,14 @@
 
 ## summary
 
-flyvis ships exactly one trainable decoder head, `DecoderGAVP` (D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:190), plus its no-op base `ActivityDecoder` (same file:23) and the hex-masked conv layer it is built from, `Conv2dHexSpace` (same file:112). It is a fully convolutional, purely per-frame head: it scatters 721 hexals into a 31x31 cartesian "map storage" grid, runs 2 hex-masked 5x5 convs with BatchNorm+Softplus+Dropout, optionally divides by a softplus'd extra channel, and gathers back to 721 hexals — no temporal filter, no recurrence, no state (verified: perturbing frames 3..5 leaves output frames 0..2 bit-identical, and a single-frame call equals frame 2 of a batched call). Frames are folded into the batch dimension, so the only cross-frame coupling is BatchNorm's batch statistics during training. The shipped flow head (config in D:/ML/Fly_Brain/data/flyvis/results/flow/0000/000/_meta.yaml: `type: DecoderGAVP, shape: [8, 2], kernel_size: 5, const_weight: 0.001, n_out_features: null, p_dropout: 0.5`) has 7427 free parameters, verified by instantiating it and by loading `best_chkpt`. `Conv2dHexSpace` is a plain `nn.Conv2d` subclass and works standalone on any (in_channels, out_channels, odd kernel_size) — I ran it as 7->1 and built a k->1 head for k in {1, 8, 34}. The one real coupling to the Task machinery is that `DecoderGAVP.__init__` reads `in_channels = len(connectome.output_cell_types)` and `forward` expects the FULL network activity `(n_samples, n_frames, n_cells)` which it slices by cell type — both are bypassed either with a ~6-line connectome proxy that redefines `output_cell_types` (reuses the shipped class unmodified, verified for 1, 3, 4 and 8 cell types) or by reusing only `Conv2dHexSpace` + `get_hex_coords` and writing the 12-line forward.
+flyvis ships exactly one trainable decoder head, `DecoderGAVP` (.venv/Lib/site-packages/flyvis/task/decoder.py:190), plus its no-op base `ActivityDecoder` (same file:23) and the hex-masked conv layer it is built from, `Conv2dHexSpace` (same file:112). It is a fully convolutional, purely per-frame head: it scatters 721 hexals into a 31x31 cartesian "map storage" grid, runs 2 hex-masked 5x5 convs with BatchNorm+Softplus+Dropout, optionally divides by a softplus'd extra channel, and gathers back to 721 hexals — no temporal filter, no recurrence, no state (verified: perturbing frames 3..5 leaves output frames 0..2 bit-identical, and a single-frame call equals frame 2 of a batched call). Frames are folded into the batch dimension, so the only cross-frame coupling is BatchNorm's batch statistics during training. The shipped flow head (config in data/flyvis/results/flow/0000/000/_meta.yaml: `type: DecoderGAVP, shape: [8, 2], kernel_size: 5, const_weight: 0.001, n_out_features: null, p_dropout: 0.5`) has 7427 free parameters, verified by instantiating it and by loading `best_chkpt`. `Conv2dHexSpace` is a plain `nn.Conv2d` subclass and works standalone on any (in_channels, out_channels, odd kernel_size) — I ran it as 7->1 and built a k->1 head for k in {1, 8, 34}. The one real coupling to the Task machinery is that `DecoderGAVP.__init__` reads `in_channels = len(connectome.output_cell_types)` and `forward` expects the FULL network activity `(n_samples, n_frames, n_cells)` which it slices by cell type — both are bypassed either with a ~6-line connectome proxy that redefines `output_cell_types` (reuses the shipped class unmodified, verified for 1, 3, 4 and 8 cell types) or by reusing only `Conv2dHexSpace` + `get_hex_coords` and writing the 12-line forward.
 
 ## code_example
 
 """k channels of 721 hexals -> 1 channel of 721 hexals, on flyvis's shipped parts.
 Both variants below were run end to end; printed output is at the bottom."""
 import os, pathlib, tomllib
-ROOT = pathlib.Path("D:/ML/Fly_Brain")
+ROOT = pathlib.Path(".")
 os.environ.setdefault(
     "FLYVIS_ROOT_DIR",
     str(ROOT / tomllib.loads((ROOT / "config.toml").read_text())["flyvis"]["root_dir"]),
@@ -125,98 +125,98 @@ for k in (1, 8, 34):
  {
   "name": "ActivityDecoder",
   "signature": "ActivityDecoder(connectome: ConnectomeFromAvgFilters)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:23 (__init__ :41, forward :51)",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:23 (__init__ :41, forward :51)",
   "returns": "forward(activity: (n_samples, n_frames, n_cells)) -> LayerActivity (a dict subclass). `.output` is (n_samples, n_frames, n_output_cell_types, n_hexals) = (N, T, 34, 721); `['T4a']` is (N, T, 721). Zero parameters.",
   "notes": "No-op / identity decoder; only reshapes by cell type. Sets self.u, self.v (numpy int arrays, 721 entries, shifted to >=0) and self.H, self.W = 31, 31 from connectome.config.extent=15. Stores activity as a weakref (LayerActivity(..., keepref=False)), so the caller must keep the tensor alive."
  },
  {
   "name": "DecoderGAVP",
   "signature": "DecoderGAVP(connectome, shape: List[int], kernel_size: int, p_dropout: float = 0.5, batch_norm: bool = True, n_out_features: Optional[int] = None, const_weight: Optional[float] = None, normalize_last: bool = True, activation: str = 'Softplus')",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:190 (__init__ :216, forward :285)",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:190 (__init__ :216, forward :285)",
   "returns": "forward(activity: (N, T, n_cells)) -> (N, T, shape[-1], 721) when n_out_features is None; -> (N, T, shape[-1], n_out_features) when n_out_features is an int (GlobalAvgPool over hexals). Verified: flow config gives (2, 19, 2, 721); shape=[8,3], n_out_features=2 gives (2, 19, 3, 2).",
   "notes": "in_channels is NOT a constructor argument: it is len(connectome.output_cell_types) (34 for fib25-fib19_v2.2.json). shape = [hidden widths..., out_channels]; a 0 entry in shape[:-1] is skipped. Input is relu'd (nnf.relu on dvs_channels.output) before the convs. Architecture: base = [Conv2dHexSpace(in,h,k,pad=k//2), BatchNorm2d(h), Softplus, Dropout(p)] per hidden width, then decoder = Conv2dHexSpace(h, out_channels + (1 if normalize_last else 0), k, pad=k//2). With normalize_last=True the extra channel is used as out[:, :C] / (softplus(out[:, C:]) + 1). Instantaneous per frame: frames are flattened into the batch dim at line 309 and unflattened at line 323."
  },
  {
   "name": "Conv2dHexSpace",
   "signature": "Conv2dHexSpace(in_channels: int, out_channels: int, kernel_size: int, const_weight: Optional[float] = 1e-3, stride: int = 1, padding: int = 0, **kwargs)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:112 (__init__ :137, filter_to_hex :171, forward :175)",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:112 (__init__ :137, filter_to_hex :171, forward :175)",
   "returns": "forward(x: (B, in_channels, H, W)) -> (B, out_channels, H_out, W_out). Standard Conv2d semantics; verified 7->1 with kernel_size=5, padding=2 on (3, 7, 31, 31) -> (3, 1, 31, 31), gradients flow.",
   "notes": "Fully standalone and channel-agnostic — a subclass of Conv2dConstWeight (decoder.py:73) which is a subclass of nn.Conv2d. kernel_size must be ODD (raises ValueError('4 is even. Must be odd.')). The hexagonal shape is a MASK on the square kernel: get_hex_coords(kernel_size//2) marks get_num_hexals(kernel_size//2) of kernel_size**2 positions (19 of 25 for k=5) and forward calls self.weight.data.mul_(self.mask.to(flyvis.device)) every call. Masked weights still count as parameters and still receive gradients — they are simply re-zeroed before each forward. self.mask is a plain float64 tensor attribute (NOT a registered buffer): it is absent from state_dict() and is NOT moved by .to(device); filter_to_hex hardcodes the module-global flyvis.device. kernel_size=1 disables masking entirely (self._filter_to_hex = False, no .mask attribute)."
  },
  {
   "name": "GlobalAvgPool",
   "signature": "GlobalAvgPool()",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:66",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:66",
   "returns": "forward(x) -> x.mean(dim=-1)",
   "notes": "Only used by DecoderGAVP when n_out_features is not None; irrelevant for a per-hexal reconstruction head (keep n_out_features=None)."
  },
  {
   "name": "flyvis.task.decoder.init_decoder",
   "signature": "init_decoder(decoder_config: Namespace, connectome) -> nn.Module",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/decoder.py:335",
+  "file": ".venv/Lib/site-packages/flyvis/task/decoder.py:335",
   "returns": "ONE decoder module. Pops 'type' from the config and looks it up in decoder.py's globals().",
   "notes": "Shadowed at import time: flyvis/task/__init__.py does `from .decoder import *` then `from .tasks import *`, so `flyvis.init_decoder` and `flyvis.task.init_decoder` are the tasks.py version (dict-valued). Import this one explicitly as `from flyvis.task.decoder import init_decoder as init_one_decoder`. Verified: flyvis.init_decoder is flyvis.task.tasks.init_decoder -> True."
  },
  {
   "name": "flyvis.task.tasks.init_decoder",
   "signature": "init_decoder(config: Dict, connectome) -> Dict[str, ActivityDecoder]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/tasks.py:171",
+  "file": ".venv/Lib/site-packages/flyvis/task/tasks.py:171",
   "returns": "{task_name: decoder module}, e.g. {'flow': DecoderGAVP(...)}",
   "notes": "valmap's forward_subclass(ActivityDecoder, {**conf, 'connectome': connectome}) over each task key. forward_subclass (flyvis/utils/class_utils.py:29) resolves 'type' by recursive __subclasses__ search on ActivityDecoder, so any subclass you define yourself is discoverable by name. Warns and falls back to ActivityDecoder if 'type' is missing or unknown — it will not raise."
  },
  {
   "name": "Task.init_decoder",
   "signature": "Task.init_decoder(self, connectome) -> Dict[str, ActivityDecoder]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/tasks.py:123",
+  "file": ".venv/Lib/site-packages/flyvis/task/tasks.py:123",
   "returns": "Same dict as tasks.init_decoder(self.decoder, connectome)",
   "notes": "Requires a whole Task (Sintel dataset, dataloaders, folds). Not needed for a decoder — skip it."
  },
  {
   "name": "NetworkView.init_decoder",
   "signature": "NetworkView.init_decoder(self, checkpoint='best', decoder=None) -> Dict[str, nn.Module]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/network/network_view.py:307",
+  "file": ".venv/Lib/site-packages/flyvis/network/network_view.py:307",
   "returns": "{'flow': DecoderGAVP} with trained weights loaded from the checkpoint",
   "notes": "This is how you get the TRAINED flow head: NetworkView(flyvis.results_dir / 'flow/0000/000').init_decoder()['flow'] -> NumberOfParams(free=7427, fixed=0). Uses dir.config.task.decoder + recover_decoder. Caches by checkpoint id."
  },
  {
   "name": "recover_decoder",
   "signature": "recover_decoder(decoder: Dict[str, nn.Module], state_dict: Union[Dict, Path], strict: bool = True) -> Dict[str, nn.Module]",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/chkpt_utils.py:45",
+  "file": ".venv/Lib/site-packages/flyvis/utils/chkpt_utils.py:45",
   "returns": "the same dict, weights loaded in place",
   "notes": "Expects a dict of decoders, not a single module. Checkpoint layout verified for .../flow/0000/000/best_chkpt: top keys ['network', 'decoder']; ck['decoder']['flow'] keys = base.0.weight (8,34,5,5), base.0.bias, base.1.weight, base.1.bias, base.1.running_mean, base.1.running_var, base.1.num_batches_tracked, decoder.0.weight (3,8,5,5), decoder.0.bias. The trained base.0.weight already has exactly 6 zeros per (out,in) slice — the hex mask."
  },
  {
   "name": "get_hex_coords / get_num_hexals",
   "signature": "get_hex_coords(extent: int, astensor: bool = False) -> (u, v); get_num_hexals(extent: int) -> int",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/hex_utils.py:15 and :218",
+  "file": ".venv/Lib/site-packages/flyvis/utils/hex_utils.py:15 and :218",
   "returns": "get_hex_coords(15) -> two arrays of 721 axial coords; get_num_hexals(15) == 721, get_num_hexals(2) == 19",
   "notes": "This is the only thing you need to do the hexal<->map scatter/gather yourself: u -= u.min(); v -= v.min(); H, W = u.max()+1, v.max()+1 == 31, 31. Same recipe used in ActivityDecoder.__init__ and in Conv2dHexSpace's mask."
  },
  {
   "name": "n_params",
   "signature": "n_params(nnmodule: nn.Module) -> NumberOfParams(free: int, fixed: int)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/nn_utils.py:62",
+  "file": ".venv/Lib/site-packages/flyvis/utils/nn_utils.py:62",
   "returns": "dataclass with .free and .fixed",
   "notes": "What DecoderGAVP stores in self.num_parameters and logs at init."
  },
  {
   "name": "LayerActivity (the cell-type slicer inside the decoder)",
   "signature": "LayerActivity(activity, connectome, keepref: bool = False, use_central: bool = True)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/utils/activity_utils.py:204 (the 'output' branch of __getattr__ is at :93)",
+  "file": ".venv/Lib/site-packages/flyvis/utils/activity_utils.py:204 (the 'output' branch of __getattr__ is at :93)",
   "returns": "activity[..., output_indices] where output_indices has shape (n_output_types, n_cells_per_type)",
   "notes": "output_indices is built as np.array([np.nonzero(types == t)[0] for t in connectome.output_cell_types]) — this is why every selected cell type must have the SAME cell count. In this connectome 63 of 65 types have 721 cells; Lawf1 and Lawf2 have 123. Mixing them raises ValueError('inhomogeneous shape'); Lawf1 alone raises RuntimeError('value tensor of shape [2,3,1,123] cannot be broadcast to indexing result of shape [2,3,1,721]')."
  },
  {
   "name": "flyvis.task.objectives.l2norm / epe",
   "signature": "l2norm(y_est, y_gt, **kwargs); epe(y_est, y_gt, **kwargs)",
-  "file": "D:/ML/Fly_Brain/.venv/Lib/site-packages/flyvis/task/objectives.py:10 and :25",
+  "file": ".venv/Lib/site-packages/flyvis/task/objectives.py:10 and :25",
   "returns": "scalar tensors",
   "notes": "l2norm = (((y_est-y_gt)**2).sum(dim=(1,2,3))).sqrt().mean() — sums over frames, channels AND hexals then sqrt per sample. This is the loss the shipped flow decoder was trained with (loss: {flow: l2norm} in _meta.yaml). Both assume 4-D (samples, frames, channels, hexals) and work unchanged for a 1-channel reconstruction target."
  },
  {
   "name": "shipped decoder config (ground truth for the baseline)",
   "signature": "config.task.decoder.flow",
-  "file": "D:/ML/Fly_Brain/data/flyvis/results/flow/0000/000/_meta.yaml (identical defaults in .venv/Lib/site-packages/flyvis/config/task/task.yaml)",
+  "file": "data/flyvis/results/flow/0000/000/_meta.yaml (identical defaults in .venv/Lib/site-packages/flyvis/config/task/task.yaml)",
   "returns": "{type: DecoderGAVP, shape: [8, 2], kernel_size: 5, const_weight: 0.001, n_out_features: null, p_dropout: 0.5}",
   "notes": "batch_norm, normalize_last and activation are NOT in the config, so they take their defaults True, True, 'Softplus'. Decoder learning rate in flyvis/config/optim/optim.yaml + scheduler.yaml: Adam, lr_dec stepwise 5e-5 -> 5e-6 in 10 steps, same schedule as the network."
  }
@@ -236,7 +236,7 @@ for k in (1, 8, 34):
  "activity is stored as a WEAKREF. ActivityDecoder builds LayerActivity(None, connectome, use_central=False) with keepref=False (activity_utils.py:112 wraps the value in weakref.ref). Inside DecoderGAVP.forward the local argument keeps it alive so this is safe, but if you call decoder.dvs_channels.update(some_temporary) yourself and then read .output, __getattr__ silently RETURNS None (activity_utils.py:80-81) rather than raising -- keep your own reference.",
  "THE TRAINED FLOW WEIGHTS ARE NOT TRANSFERABLE TO A 1-CHANNEL RECONSTRUCTION HEAD AS-IS. base.0.weight is (8, 34, 5, 5) so it only loads if you keep all 34 output cell types as input channels; decoder.0.weight is (3, 8, 5, 5) (out_channels=2 plus the normalize_last channel) whereas out_channels=1 needs (2, 8, 5, 5). You can warm-start base.* from the checkpoint when k=34 and must re-initialize decoder.*; recover_decoder(..., strict=False) is the escape hatch but it will silently skip the mismatched keys.",
  "normalize_last=True (the shipped default) silently adds one output channel and divides: out[:, :C] / (softplus(out[:, C:]) + 1) (decoder.py:318-320). So decoder.0 has C+1 output channels, the divisor is >= ~0.693+1 (never zero, no numerical hazard), and the head's output is bounded relative to the raw conv -- worth keeping in mind when comparing reconstruction magnitudes against a plain conv baseline.",
- "The connectome is a datamate Directory built ON DISK and cached BY CONFIG (not by file content). D:/ML/Fly_Brain/data/flyvis/connectome/ already holds 6 built directories; ConnectomeFromAvgFilters_0000 is the fib25 one (extent 15, n_syn_fill 1) and 0001/0002 are this project's MaleCNS exports. FLYVIS_ROOT_DIR must be set BEFORE importing flyvis (flydream.model.configure_flyvis_root does this) and flydream.model.patch_datamate_for_windows must be imported before any datamate write or you hit WinError 32. Note config.toml's [flyvis] root_dir='data/flyvis' is read by flydream, not by flyvis itself."
+ "The connectome is a datamate Directory built ON DISK and cached BY CONFIG (not by file content). data/flyvis/connectome/ already holds 6 built directories; ConnectomeFromAvgFilters_0000 is the fib25 one (extent 15, n_syn_fill 1) and 0001/0002 are this project's MaleCNS exports. FLYVIS_ROOT_DIR must be set BEFORE importing flyvis (flydream.model.configure_flyvis_root does this) and flydream.model.patch_datamate_for_windows must be imported before any datamate write or you hit WinError 32. Note config.toml's [flyvis] root_dir='data/flyvis' is read by flydream, not by flyvis itself."
 ]
 
 ## unknowns
