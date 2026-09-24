@@ -35,3 +35,6 @@ htmlcov/
 
 # working figures stay local; public figures live in docs/figures/
 reports/figures/
+
+# post drafts for LinkedIn stay local (roadmap P4)
+posts/
