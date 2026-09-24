@@ -2,9 +2,8 @@
 
 *Grigoriy Voyakin, September 2026.* [Русская версия](2026-09-19_article_part1_ru.md).
 Code, run records and every figure are in the
-[fly-brain](https://github.com/Grigoriy-V/fly-brain) repository. Part 2,
-[generation without a source clip](2026-09-23_article_part2_ru.md),
-is in Russian for now.
+[fly-brain](https://github.com/Grigoriy-V/fly-brain) repository. Part 2 -
+[generation without a source clip](2026-09-23_article_part2_en.md).
 
 ## The project in brief
 

@@ -329,8 +329,10 @@ is, history not rewritten; new commits are kept clean.
     ISS-0015 stated as a limitation, references added. Kept as stated in the
     text: the batched-inversion speed-up as a range (one run, ~0.05 dollars,
     would settle it) and the 13A/13B round-trip caveat (ISS-0014).
-  - **Part 2** (`reports/2026-09-23_article_part2_ru.md`) finalised in
-    Russian 2026-09-24, awaiting the human's approval: a number check of every
+  - **Part 2** finalised 2026-09-24 and approved by the human the same day;
+    both versions stay - `reports/2026-09-23_article_part2_ru.md` and its
+    English translation `reports/2026-09-23_article_part2_en.md` (the one the
+    README links): a number check of every
     section by four agents (seven fixes, among them two claims the step reports
     had themselves retracted - the field-of-view cut and the restoration error
     through the full mask), nine figures in place (`tools/fig_gh_part2.py`), the
