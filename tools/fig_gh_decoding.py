@@ -86,8 +86,8 @@ def main(argv=None) -> int:
         d.text((48, y), "A linear decoder per cell type of model zero, fitted on Sintel scenes and scored on held-out "
                         "ones. Retina and lamina give the picture", font=f_body, fill=MUTED)
         y += 26
-        d.text((48, y), "back whole; deeper types only in part - inversion, the next stage, recovers it from every "
-                        "layer. Control, time-shuffled: the scene survives, the frame does not.", font=f_body, fill=MUTED)
+        d.text((48, y), "back whole; deeper types only in part. Control, activity shuffled in time: the scene survives, "
+                        "the frame does not.", font=f_body, fill=MUTED)
         y += 44
         xs = [48 + i * (pw + gap) for i in range(cols)]
         d.text((xs[0], y), "clip A", font=f_lab, fill=INK)
