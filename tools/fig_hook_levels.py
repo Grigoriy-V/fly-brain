@@ -32,9 +32,12 @@ BG = (11, 13, 17)
 FG = (236, 238, 241)
 DIM = (140, 146, 156)
 ACCENT = (255, 176, 59)
-ROWS = [("R1", "Photoreceptors", "the eye itself"),
-        ("Tm9", "Medulla", "two synapses in"),
-        ("T4a", "Motion detectors", "T4, deepest layer here")]
+LABELS = {"R1": ("Photoreceptors", "the eye itself"),
+          "L1": ("Lamina", "one synapse in"),
+          "Mi1": ("Medulla", "two synapses in"),
+          "Tm9": ("Medulla", "two synapses in"),
+          "T4a": ("Motion detectors", "T4, deepest layer here"),
+          "T5a": ("Motion detectors", "T5, deepest layer here")}
 
 
 def font(size: int, bold: bool = False):
@@ -85,7 +88,14 @@ def main(argv=None) -> int:
     p.add_argument("--prefix", default="malecns_", help="key prefix in the npz")
     p.add_argument("--out", default=str(ROOT / "docs" / "figures" / "hook_levels"))
     p.add_argument("--fps", type=int, default=10)
+    p.add_argument("--rows", nargs=3, default=["R1", "Mi1", "T4a"],
+                   help="three types; the default keeps to the ON pathway, which model zero draws cleanly (ISS-0015)")
+    p.add_argument("--loops", type=int, default=3, help="times the clip repeats in the mp4")
+    p.add_argument("--no-gif", action="store_true", help="mp4 and png only (a post takes the mp4)")
+    p.add_argument("--video-fps", type=int, default=24,
+                   help="container frame rate of the mp4; each frame is repeated to keep --fps (LinkedIn wants 10-60)")
     a = p.parse_args(argv)
+    ROWS = [(t, *LABELS[t]) for t in a.rows]
 
     A = np.load(a.activity)
     video = np.clip(A["video"][:40], 0, 1)
@@ -143,17 +153,20 @@ def main(argv=None) -> int:
 
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    pal = [f.quantize(colors=128, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE) for f in frames]
-    pal[0].save(out.with_suffix(".gif"), save_all=True, append_images=pal[1:], duration=int(1000 / a.fps),
-                loop=0, optimize=True)
+    if not a.no_gif:
+        pal = [f.quantize(colors=128, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE) for f in frames]
+        pal[0].save(out.with_suffix(".gif"), save_all=True, append_images=pal[1:], duration=int(1000 / a.fps),
+                    loop=0, optimize=True)
     frames[n // 2].save(out.with_suffix(".png"))
     try:
         import imageio.v2 as imageio
-        with imageio.get_writer(out.with_suffix(".mp4"), fps=a.fps, codec="libx264", quality=8,
-                                macro_block_size=8) as wr:
-            for _ in range(3):
+        rep = max(1, round(a.video_fps / a.fps))
+        with imageio.get_writer(out.with_suffix(".mp4"), fps=a.fps * rep, codec="libx264", quality=8,
+                                macro_block_size=2) as wr:
+            for _ in range(a.loops):
                 for f in frames:
-                    wr.append_data(np.asarray(f))
+                    for _ in range(rep):
+                        wr.append_data(np.asarray(f))
     except Exception as e:  # mp4 is a convenience, the gif is the artefact
         print("mp4 skipped:", e)
     for s in (".gif", ".png", ".mp4"):
