@@ -354,7 +354,8 @@ is, history not rewritten; new commits are kept clean.
   approved, the content will be edited. To be discussed separately (the
   human, 2026-09-24); these figures may stay out of the repository. The
   plan of a three-post series and the draft of post 1 are kept locally in
-  `posts/`, which git ignores.
+  `posts/`, which git ignores. Post 1 published 2026-09-24 (video by
+  `tools/fig_hook_post1.py`).
 - **P5, local against public** - audit done 2026-09-24 (no secrets in any
   commit; profanity, the Modal profile, other repositories' paths and local
   absolute paths removed; the lab notebook published as it is, by the
