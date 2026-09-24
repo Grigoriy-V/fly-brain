@@ -336,8 +336,13 @@ is, history not rewritten; new commits are kept clean.
 - **P4, figures for LinkedIn posts** - a separate set: hook first, dark
   post format (`tools/fig_hook_levels.py` is the first draft); the mood is
   approved, the content will be edited.
-- **P5, local against public** - after P3 fixes the true list: what stays
-  local, what is published, and a check of `reports/` before the switch.
+- **P5, local against public** - audit done 2026-09-24 (no secrets in any
+  commit; profanity, the Modal profile, other repositories' paths and local
+  absolute paths removed; the lab notebook published as it is, by the
+  human's choice). Working figures are no longer committed. Removing the 45
+  figures cited by nothing (`reports/orphan_figures.md`) from history was
+  tried and rolled back the same day - the human: not worth it; history is
+  unchanged. Pending: the switch to public.
 
 ## Queue
 
