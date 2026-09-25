@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated:** 2026-09-23
+**Updated:** 2026-09-25
 
 **Project status:** the chain `video → frozen brain → T4/T5 state → generator →
 video → frozen brain` works end to end and is measured, so the project can
@@ -26,6 +26,10 @@ stand-in renderer, so no flow can be judged by eye until 30 exists; and 30 is
 trained on converted static states, so it inherits any error in the
 conversion unless 29.3 has closed it first. No run in it is
 authorized; each is priced and asked for separately.
+
+**Next, before any other work:** item 32 - discuss the project review of
+2026-09-24 and the plan of work that follows from it (the human,
+2026-09-25). Until then nothing the review proposes is approved.
 
 Observed defects are in `ISSUES.md`, which is not a plan and authorizes
 nothing. `docs/PROJECT_MAP.md` and `docs/OPERATIONS_MAP.md` describe the
@@ -378,6 +382,16 @@ renderer - and a target that is not Gaussian, which is 29.2. Evidence:
 `reports/2026-09-21_step22_a_smaller_object.md` and
 `reports/2026-09-21_the_draw_distribution.md`, with the full ladder of routes
 in `reports/2026-09-21_research_path_to_a_video_generator.md`.
+
+32. **Discuss the project review and the plan of work** - first; recorded by
+    the human 2026-09-25. Ten read-only reviewers covered the code, the
+    documents, the public texts and the ML design, supervisor-checked:
+    `reports/2026-09-24_project_review.md`, notes in
+    `research_notes/2026-09-24_project_review/`. To settle with the human:
+    the rulings the canonical documents need (report §6), which fix batches
+    to take and in what order (§9), and how the review's ML options bear on
+    the resumed order and on 31 (§2.6). Nothing is fixed, recorded in
+    `ISSUES.md` or run before that.
 
 31. **Repair model zero's OFF pathway (ISS-0015)** - recorded by the human
     2026-09-24 as a work item, not yet ordered against the static branch.
